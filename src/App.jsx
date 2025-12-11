@@ -1,0 +1,1147 @@
+import React, { useState, useEffect, useMemo } from 'react';
+import { 
+  ShoppingCart, Search, User, Package, Menu, X, Check, 
+  CreditCard, Banknote, AlertCircle, BarChart3, Settings, 
+  Image as ImageIcon, Trash2, ShieldCheck, Truck, LogOut,
+  ChevronRight, ChevronLeft, Plus, Minus, Euro, LayoutDashboard,
+  Filter, Upload, Save, Eye, FileText, UserX, Download, Mail, MessageSquare,
+  Edit3, ToggleLeft, ToggleRight, Lock, Unlock, EyeOff, Folder, FileImage, CornerDownRight,
+  ArrowRight, Calendar, Ban, Store, Calculator, DollarSign, FileSpreadsheet,
+  Layers, Archive, Globe, AlertTriangle, RefreshCw, Briefcase, RotateCcw, MoveLeft,
+  Landmark, Printer, FileDown
+} from 'lucide-react';
+import { initializeApp } from 'firebase/app';
+import { 
+  getAuth, 
+  signInAnonymously, 
+  onAuthStateChanged,
+  signInWithCustomToken
+} from 'firebase/auth';
+import { 
+  getFirestore, 
+  collection, 
+  addDoc, 
+  query, 
+  onSnapshot, 
+  doc, 
+  updateDoc, 
+  serverTimestamp,
+  orderBy,
+  writeBatch,
+  arrayUnion,
+  deleteDoc,
+  getDocs,
+  where
+} from 'firebase/firestore';
+
+
+// --- 1. CONFIGURACIÓN FIREBASE CON TUS DATOS ---
+const firebaseConfig = {
+  apiKey: "AIzaSyCc0R2TidFpqcqsKQIFmP0lnniAzlsuLbA",
+  authDomain: "fotoesport-merch.firebaseapp.com",
+  projectId: "fotoesport-merch",
+  storageBucket: "fotoesport-merch.firebasestorage.app",
+  messagingSenderId: "850889568612",
+  appId: "1:850889568612:web:64bba766b7b2b16b3f8a71",
+  measurementId: "G-TPB1419H31"
+};
+
+// Inicialización segura
+let app, auth, db;
+try {
+    app = initializeApp(firebaseConfig);
+    auth = getAuth(app);
+    db = getFirestore(app);
+} catch (error) {
+    console.error("Error inicializando Firebase:", error);
+}
+
+// --- CONFIGURACIÓN GLOBAL ---
+const LOGO_URL = null; 
+const appId = 'fotoesport-merch'; // Usamos tu ID de proyecto como referencia
+
+// --- DATOS MOCKADOS Y CONSTANTES ---
+const MOCK_PHOTOS_DB = [
+    { id: 'p1', filename: 'Lopez_10.jpg', clubId: 'club-demo', folder: 'Temporada_23_24', url: 'https://images.unsplash.com/photo-1526304640152-d4619684e484?auto=format&fit=crop&q=80&w=600' },
+    { id: 'p2', filename: 'Garcia_7.jpg', clubId: 'club-demo', folder: 'Temporada_23_24', url: 'https://images.unsplash.com/photo-1517466787929-bc90951d6428?auto=format&fit=crop&q=80&w=600' },
+    { id: 'p3', filename: 'Ruiz_23.jpg', clubId: 'club-futbol', folder: 'Torneo_Verano', url: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&q=80&w=600' },
+    { id: 'p4', filename: 'Juan_Perez_10.jpg', clubId: 'club-demo', folder: 'Benjamines', url: 'https://images.unsplash.com/photo-1511512578047-929550a8a23e?auto=format&fit=crop&q=80&w=600' },
+    { id: 'p5', filename: 'Foto_Equipo_Tecnico.jpg', clubId: 'club-demo', folder: 'Staff', url: 'https://images.unsplash.com/photo-1551590192-807e80d75d61?auto=format&fit=crop&q=80&w=600' }, 
+];
+
+const SEASONS_INITIAL = [
+    { id: 's1', name: 'Temporada 2023-2024', startDate: '2023-09-01', endDate: '2024-06-30' },
+    { id: 's2', name: 'Temporada 2024-2025', startDate: '2024-09-01', endDate: '2025-06-30' },
+];
+
+const PRODUCTS_INITIAL = [
+  { id: 1, name: 'Taza Personalizada', price: 12.00, cost: 4.50, category: 'Hogar', image: 'https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 150, features: { name: true, number: true, photo: true, shield: true, color: false }, defaults: { name: true, number: true, photo: true, shield: true }, modifiable: { name: true, number: true, photo: true, shield: true } },
+  { id: 2, name: 'Botella Deportiva', price: 18.00, cost: 6.00, category: 'Deporte', image: 'https://images.unsplash.com/photo-1602143407151-0111419516eb?auto=format&fit=crop&q=80&w=300', stockType: 'external', stock: 0, features: { name: true, number: true, photo: false, shield: true, color: true }, defaults: { name: true, number: true, photo: false, shield: true }, modifiable: { name: true, number: true, photo: false, shield: false } },
+  { id: 3, name: 'Llavero Club', price: 5.00, cost: 1.20, category: 'Accesorios', image: 'https://images.unsplash.com/photo-1582213782179-e0d53f98f2ca?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 500, features: { name: false, number: false, photo: false, shield: true, color: false }, defaults: { name: false, number: false, photo: false, shield: true }, modifiable: { name: false, number: false, photo: false, shield: false } },
+  { id: 4, name: 'Foto 20x30', price: 8.00, cost: 0.50, category: 'Fotografía', image: 'https://images.unsplash.com/photo-1551590192-807e80d75d61?auto=format&fit=crop&q=80&w=300', stockType: 'external', stock: 0, features: { name: false, number: false, photo: true, shield: false, color: false }, defaults: { name: false, number: false, photo: true, shield: false }, modifiable: { name: false, number: false, photo: false, shield: false } },
+  { id: 6, name: 'Gorra Oficial', price: 15.00, cost: 5.00, category: 'Ropa', image: 'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 80, features: { name: false, number: false, photo: false, shield: true, color: true }, defaults: { name: false, number: false, photo: false, shield: true }, modifiable: { name: false, number: false, photo: false, shield: true } },
+];
+
+const CLUBS_MOCK = [
+  { id: 'club-demo', name: 'C.D. Demo Sport', code: 'CDDS', pass: 'club123', blocked: false, activeGlobalOrderId: 1 },
+  { id: 'club-futbol', name: 'Atlético Fútbol', code: 'ATLF', pass: 'club123', blocked: false, activeGlobalOrderId: 1 },
+];
+
+const FINANCIAL_CONFIG_INITIAL = {
+  clubCommissionPct: 0.12,
+  commercialCommissionPct: 0.05
+};
+
+// --- HELPER FUNCTIONS ---
+const getClubFolders = (clubId) => {
+    if (!clubId) return [];
+    const clubPhotos = MOCK_PHOTOS_DB.filter(p => p.clubId === clubId);
+    return [...new Set(clubPhotos.map(p => p.folder))];
+};
+
+const getFolderPhotos = (clubId, folderName) => {
+    if (!clubId || !folderName) return [];
+    return MOCK_PHOTOS_DB.filter(p => p.clubId === clubId && p.folder === folderName);
+};
+
+const generateBatchExcel = (batchId, orders, clubName) => {
+    try {
+        const today = new Date().toLocaleDateString();
+        
+        // Usamos \ufeff para BOM (Byte Order Mark) para que Excel reconozca acentos correctamente
+        let csvBody = '\ufeff'; 
+        
+        // Encabezado
+        csvBody += `REPORTE DETALLADO DE PEDIDO GLOBAL\n`;
+        csvBody += `LOTE NUMERO:;${batchId || 'N/A'}\n`;
+        csvBody += `CLUB:;${clubName || 'Desconocido'}\n`;
+        csvBody += `FECHA EMISION:;${today}\n`;
+        csvBody += `TOTAL PEDIDOS:;${orders ? orders.length : 0}\n\n`;
+
+        // Columnas (Usamos punto y coma ; que es el estándar de Excel en español/europeo para CSV)
+        csvBody += "ID Pedido;Fecha Pedido;Cliente;Tipo Pedido;Producto;Cantidad;Precio Unit.;Subtotal;Pers. Nombre;Pers. Dorsal;Talla;Color;Estado Actual\n";
+
+        let grandTotal = 0;
+
+        if (orders && orders.length > 0) {
+            orders.forEach(order => {
+                const orderDate = order.createdAt?.seconds ? new Date(order.createdAt.seconds * 1000).toLocaleDateString() : '-';
+                
+                order.items.forEach(item => {
+                    const quantity = item.quantity || 1;
+                    const price = item.price || 0;
+                    const lineTotal = quantity * price;
+                    grandTotal += lineTotal;
+
+                    // Limpieza de datos: quitar puntos y comas para no romper el CSV, y comillas
+                    const clean = (txt) => `"${(txt || '').toString().replace(/"/g, '""')}"`;
+
+                    const row = [
+                        clean(order.id ? order.id.slice(0,8) : 'ID-ERROR'),
+                        clean(orderDate),
+                        clean(order.customer ? order.customer.name : 'Sin Nombre'),
+                        clean(order.type === 'special' ? 'ESPECIAL' : 'WEB'),
+                        clean(item.name),
+                        quantity,
+                        price.toFixed(2).replace('.', ','), // Formato europeo 10,00
+                        lineTotal.toFixed(2).replace('.', ','),
+                        clean(item.playerName),
+                        clean(item.playerNumber),
+                        clean(item.size),
+                        clean(item.color),
+                        clean(order.status)
+                    ].join(";");
+                    csvBody += row + "\n";
+                });
+            });
+        }
+
+        csvBody += `\n;;;;;;;TOTAL LOTE:;${grandTotal.toFixed(2).replace('.', ',')} €\n`;
+
+        // CREAR BLOB (Solución robusta para descarga)
+        const blob = new Blob([csvBody], { type: 'text/csv;charset=utf-8;' });
+        const url = URL.createObjectURL(blob);
+        
+        const link = document.createElement("a");
+        link.setAttribute("href", url);
+        link.setAttribute("download", `Lote_Global_${batchId}_${clubName ? clubName.replace(/\s+/g, '_') : 'Club'}.csv`);
+        document.body.appendChild(link);
+        link.click();
+        document.body.removeChild(link);
+        URL.revokeObjectURL(url); // Limpiar memoria
+
+    } catch (e) {
+        console.error("Error generando Excel:", e);
+        alert("Hubo un error al generar el Excel. Por favor revisa la consola.");
+    }
+};
+
+const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
+    const printWindow = window.open('', '_blank');
+    const today = new Date().toLocaleDateString();
+    
+    // Totales
+    const totalAmount = orders.reduce((sum, o) => sum + o.total, 0);
+    const totalItems = orders.reduce((sum, o) => sum + o.items.reduce((s, i) => s + (i.quantity || 1), 0), 0);
+    
+    // Cálculos Financieros Claros
+    const commissionAmount = totalAmount * commissionPct;
+    const netAmount = totalAmount - commissionAmount;
+
+    const htmlContent = `
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <title>Albarán Lote Global #${batchId}</title>
+            <style>
+                body { font-family: 'Helvetica', 'Arial', sans-serif; padding: 40px; color: #111; max-width: 900px; margin: 0 auto; }
+                .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 30px; border-bottom: 3px solid #10b981; padding-bottom: 20px; }
+                .logo-text { font-size: 28px; font-weight: 900; letter-spacing: -1px; }
+                .logo-sub { color: #10b981; }
+                .batch-title { text-align: right; }
+                .batch-title h1 { margin: 0; font-size: 22px; color: #111; text-transform: uppercase; }
+                .batch-title p { margin: 5px 0 0; font-size: 14px; color: #666; }
+                
+                .summary-box { background: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 30px; display: flex; justify-content: space-between; border: 1px solid #e5e7eb; }
+                .summary-item strong { display: block; font-size: 11px; text-transform: uppercase; color: #6b7280; margin-bottom: 2px; }
+                .summary-item span { font-size: 16px; font-weight: bold; color: #111; }
+
+                table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 30px; }
+                th { background: #10b981; color: white; padding: 10px; text-align: left; text-transform: uppercase; font-size: 11px; }
+                td { padding: 8px 10px; border-bottom: 1px solid #eee; }
+                .order-sep { background-color: #f0fdf4; font-weight: bold; color: #064e3b; border-top: 2px solid #ccc; }
+                .text-right { text-align: right; }
+                
+                /* Nueva Sección de Totales Financieros Mejorada */
+                .financial-section { display: flex; justify-content: flex-end; margin-bottom: 50px; }
+                .financial-table { width: 400px; border-collapse: collapse; border: 1px solid #ddd; }
+                .financial-table td { padding: 12px; border-bottom: 1px solid #eee; }
+                .f-label { text-align: left; color: #555; }
+                .f-value { text-align: right; font-weight: bold; font-family: monospace; font-size: 14px; }
+                .f-row-total td { border-top: 2px solid #333; font-weight: 900; font-size: 18px; background: #ecfdf5; color: #047857; }
+                .f-subtext { display: block; font-size: 10px; color: #999; font-weight: normal; margin-top: 2px;}
+
+                .signature-section { margin-top: 20px; page-break-inside: avoid; border: 2px dashed #9ca3af; border-radius: 8px; padding: 30px; height: 100px; position: relative; }
+                .signature-label { font-weight: bold; text-transform: uppercase; font-size: 12px; color: #6b7280; position: absolute; top: 10px; left: 10px; }
+                .signature-line { position: absolute; bottom: 30px; left: 30px; right: 30px; border-bottom: 1px solid #333; }
+                .signature-text { position: absolute; bottom: 10px; width: 100%; text-align: center; font-size: 11px; color: #6b7280; }
+
+                @media print {
+                    body { -webkit-print-color-adjust: exact; padding: 0; }
+                }
+            </style>
+        </head>
+        <body>
+            <div class="header">
+                <div>
+                    <div class="logo-text">FOTOESPORT<span class="logo-sub">MERCH</span></div>
+                    <p style="font-size: 12px; margin: 5px 0 0; color: #666;">Albarán de Entrega y Liquidación</p>
+                </div>
+                <div class="batch-title">
+                    <h1>Lote Global #${batchId}</h1>
+                    <p><strong>${clubName}</strong></p>
+                    <p style="font-size: 12px;">Fecha Emisión: ${today}</p>
+                </div>
+            </div>
+
+            <div class="summary-box">
+                <div class="summary-item"><strong>Club Destino</strong><span>${clubName}</span></div>
+                <div class="summary-item"><strong>Pedidos Totales</strong><span>${orders.length}</span></div>
+                <div class="summary-item"><strong>Artículos</strong><span>${totalItems}</span></div>
+                <div class="summary-item text-right"><strong>Valor Mercancía</strong><span>${totalAmount.toFixed(2)}€</span></div>
+            </div>
+
+            <table>
+                <thead>
+                    <tr>
+                        <th width="45%">Producto</th>
+                        <th width="30%">Detalle / Personalización</th>
+                        <th width="10%" class="text-right">Cant.</th>
+                        <th width="15%" class="text-right">Subtotal</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    ${orders.map(order => `
+                        <tr class="order-sep">
+                            <td colspan="4">
+                                🔹 Pedido Ref: <strong>#${order.id.slice(0,6)}</strong> - ${order.customer.name}
+                                <span style="font-size:10px; color:#666; margin-left:10px;">(${order.type === 'special' ? 'Especial' : 'Web'})</span>
+                            </td>
+                        </tr>
+                        ${order.items.map(item => `
+                            <tr>
+                                <td style="padding-left: 20px;">${item.name}</td>
+                                <td style="color: #555; font-size: 11px;">
+                                    ${[
+                                        item.playerName ? `Nom: ${item.playerName}` : '',
+                                        item.playerNumber ? `Num: ${item.playerNumber}` : '',
+                                        item.size ? `Talla: ${item.size}` : '',
+                                        item.color ? `Color: ${item.color}` : ''
+                                    ].filter(Boolean).join(' | ')}
+                                </td>
+                                <td class="text-right">${item.quantity || 1}</td>
+                                <td class="text-right">${((item.quantity || 1) * item.price).toFixed(2)}€</td>
+                            </tr>
+                        `).join('')}
+                    `).join('')}
+                </tbody>
+            </table>
+
+            <div class="financial-section">
+                <table class="financial-table">
+                    <tr>
+                        <td class="f-label">
+                            Importe Total Pedido
+                            <span class="f-subtext">(Suma valor venta de todos los productos)</span>
+                        </td>
+                        <td class="f-value">${totalAmount.toFixed(2)}€</td>
+                    </tr>
+                    <tr>
+                        <td class="f-label" style="color: #dc2626;">
+                            (-) Retención / Comisión Club
+                            <span class="f-subtext">Beneficio retenido para el club (${(commissionPct * 100).toFixed(0)}%)</span>
+                        </td>
+                        <td class="f-value" style="color: #dc2626;">-${commissionAmount.toFixed(2)}€</td>
+                    </tr>
+                    <tr class="f-row-total">
+                        <td class="f-label" style="color: #065f46;">
+                            IMPORTE A COBRAR
+                            <span class="f-subtext">(Neto a pagar a FotoEsport Merch)</span>
+                        </td>
+                        <td class="f-value">${netAmount.toFixed(2)}€</td>
+                    </tr>
+                </table>
+            </div>
+
+            <div class="signature-section">
+                <div class="signature-label">Conformidad de Entrega (Sello y Firma):</div>
+                <div class="signature-line"></div>
+                <div class="signature-text">Recibido por: _____________________________ Fecha: ___/___/_____</div>
+            </div>
+
+            <script>window.onload = () => window.print();</script>
+        </body>
+        </html>
+    `;
+    
+    printWindow.document.write(htmlContent);
+    printWindow.document.close();
+};
+
+// --- COMPONENTES AUXILIARES Y VISTAS (Definidos ANTES de App) ---
+
+const CompanyLogo = ({ className = "h-10" }) => (
+    <div className={`flex items-center gap-2 ${className}`}>
+        {LOGO_URL ? (
+            <img src={LOGO_URL} alt="FotoEsport Merch" className="h-full w-auto object-contain" />
+        ) : (
+            <div className="flex items-center">
+                <div className="relative flex items-center justify-center bg-white border-4 border-emerald-700 rounded-lg w-12 h-10 mr-2 shadow-sm">
+                    <div className="absolute -top-1.5 right-2 w-3 h-1.5 bg-emerald-700 rounded-t-sm"></div>
+                    <div className="w-8 h-8 bg-gray-100 rounded-full border-2 border-emerald-700 flex items-center justify-center overflow-hidden">
+                        <div className="w-full h-full relative bg-white">
+                            <div className="absolute inset-0 border border-gray-900 rounded-full"></div>
+                            <div className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-3 h-3 bg-gray-900 rotate-45"></div>
+                            <div className="absolute top-0 left-1/2 -translate-x-1/2 w-0.5 h-full bg-gray-900"></div>
+                            <div className="absolute top-1/2 left-0 -translate-y-1/2 w-full h-0.5 bg-gray-900"></div>
+                        </div>
+                    </div>
+                </div>
+                <div className="flex flex-col leading-none">
+                    <span className="font-black text-xl tracking-tighter text-gray-900">FOTOESPORT</span>
+                    <span className="font-black text-xl tracking-tighter text-emerald-600">MERCH</span>
+                </div>
+            </div>
+        )}
+    </div>
+);
+
+const Button = ({ children, onClick, variant = 'primary', className = '', type = 'button', disabled = false, size = 'md' }) => {
+  const baseStyle = "rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2";
+  const sizes = { xs: "px-2 py-1 text-[10px]", sm: "px-2 py-1 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-3 text-base" };
+  const variants = {
+    primary: "bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed",
+    secondary: "bg-gray-100 text-gray-800 hover:bg-gray-200",
+    outline: "border-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50",
+    danger: "bg-red-500 text-white hover:bg-red-600",
+    warning: "bg-orange-500 text-white hover:bg-orange-600",
+    dark: "bg-gray-900 text-white hover:bg-gray-800",
+    ghost: "text-gray-500 hover:text-emerald-600 hover:bg-gray-50"
+  };
+  return <button type={type} onClick={onClick} disabled={disabled} className={`${baseStyle} ${sizes[size]} ${variants[variant]} ${className}`}>{children}</button>;
+};
+
+const Input = ({ label, ...props }) => (
+  <div className="mb-3 w-full">
+    {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
+    <input className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100" {...props} />
+  </div>
+);
+
+const Badge = ({ status }) => {
+  const styles = {
+    'recopilando': 'bg-blue-100 text-blue-800',
+    'pendiente_validacion': 'bg-yellow-100 text-yellow-800',
+    'en_produccion': 'bg-purple-100 text-purple-800',
+    'entregado_club': 'bg-green-100 text-green-800',
+    'special_order': 'bg-indigo-100 text-indigo-800',
+  };
+  return <span className={`px-2 py-1 rounded-full text-xs font-semibold ${styles[status] || 'bg-gray-100'}`}>{status.replace(/_/g, ' ').toUpperCase()}</span>;
+};
+
+const StatCard = ({ title, value, color, highlight }) => (
+    <div className={`bg-white p-4 md:p-6 rounded-xl shadow border-l-4 ${highlight ? 'ring-2 ring-emerald-500' : ''}`} style={{ borderLeftColor: color }}>
+        <p className="text-gray-500 text-xs md:text-sm mb-1 uppercase tracking-wide font-bold">{title}</p>
+        <p className={`text-xl md:text-2xl font-bold text-gray-900`}>{value}</p>
+    </div>
+);
+
+const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [editData, setEditData] = useState({ name: club.name, pass: club.pass });
+    const [showPass, setShowPass] = useState(false);
+    const handleSave = () => { updateClub({ ...club, ...editData }); setIsEditing(false); };
+
+    if (isEditing) {
+        return (
+            <div className="bg-gray-50 p-3 rounded flex flex-col gap-2 border border-emerald-200">
+                <div className="flex gap-2"><input className="flex-1 border rounded px-2 py-1 text-sm" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} placeholder="Nombre Club" /></div>
+                <div className="flex gap-2">
+                    <div className="flex-1 relative"><input type={showPass ? "text" : "password"} className="w-full border rounded px-2 py-1 text-sm pr-8" value={editData.pass} onChange={e => setEditData({...editData, pass: e.target.value})} placeholder="Contraseña" /><button onClick={() => setShowPass(!showPass)} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600">{showPass ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}</button></div>
+                    <Button size="sm" onClick={handleSave} className="bg-emerald-600 text-white"><Check className="w-3 h-3"/></Button>
+                    <Button size="sm" onClick={() => setIsEditing(false)} className="bg-gray-300 text-gray-700 hover:bg-gray-400"><X className="w-3 h-3"/></Button>
+                </div>
+            </div>
+        )
+    }
+    return (
+        <div className={`flex justify-between items-center p-2 rounded ${club.blocked ? 'bg-red-50 border border-red-100' : 'bg-gray-50'}`}>
+            <div><p className={`font-bold text-sm flex items-center gap-2 ${club.blocked ? 'text-red-700' : ''}`}>{club.name} {club.blocked && <Ban className="w-3 h-3 text-red-500"/>}</p><div className="flex gap-2 text-xs text-gray-400"><span>User: {club.id}</span><span>Pass: ••••••••</span></div></div>
+            <div className="flex gap-1"><button onClick={() => toggleClubBlock(club.id)} className={`p-1 hover:bg-gray-200 rounded ${club.blocked ? 'text-red-500' : 'text-gray-400'}`}>{club.blocked ? <Lock className="w-4 h-4"/> : <Unlock className="w-4 h-4"/>}</button><button onClick={() => setIsEditing(true)} className="text-gray-400 hover:text-emerald-600 p-1"><Edit3 className="w-4 h-4"/></button><button onClick={() => deleteClub(club.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button></div>
+        </div>
+    );
+};
+
+const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
+    const [isExpanded, setIsExpanded] = useState(false);
+    const features = product.features || { name: true, number: true, photo: true, shield: true, color: true };
+    const defaults = product.defaults || { name: true, number: true, photo: false, shield: true };
+    const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
+    const toggleFeature = (key) => { updateProduct({ ...product, features: { ...features, [key]: !features[key] } }); }
+    const toggleDefault = (key) => { updateProduct({ ...product, defaults: { ...defaults, [key]: !defaults[key] } }); }
+    const toggleModifiable = (key) => { updateProduct({ ...product, modifiable: { ...modifiable, [key]: !modifiable[key] } }); }
+
+    return (
+        <div className="border-b pb-4 last:border-0">
+            <div className="flex items-center gap-3">
+                <img src={product.image} className="w-12 h-12 rounded bg-gray-100 object-cover" />
+                <div className="flex-1">
+                    <div className="flex justify-between items-start"><input className="font-bold text-sm border-b border-transparent hover:border-gray-300 focus:border-emerald-500 outline-none w-1/2" value={product.name} onChange={e => updateProduct({...product, name: e.target.value})} /><div className="flex items-center gap-2"><button onClick={() => setIsExpanded(!isExpanded)} className="text-gray-400 hover:text-emerald-600"><Settings className="w-4 h-4"/></button><button type="button" onClick={() => deleteProduct(product.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4"/></button></div></div>
+                    <div className="flex gap-2 mt-1"><div className="flex items-center gap-1"><span className="text-[10px]">PVP:</span><input type="number" className="w-14 text-xs border rounded px-1" value={product.price} onChange={e => updateProduct({...product, price: parseFloat(e.target.value)})} /></div><div className="flex items-center gap-1"><span className="text-[10px]">Coste:</span><input type="number" className="w-14 text-xs border rounded px-1" value={product.cost} onChange={e => updateProduct({...product, cost: parseFloat(e.target.value)})} /></div></div>
+                </div>
+            </div>
+            {isExpanded && (
+                <div className="mt-4 bg-gray-50 p-3 rounded-lg text-xs space-y-3 animate-fade-in-down">
+                    <div><label className="block text-gray-500 font-bold mb-1">URL Imagen</label><input className="w-full border p-1 rounded" value={product.image} onChange={e => updateProduct({...product, image: e.target.value})} /></div>
+                    <div className="bg-white rounded border overflow-hidden">
+                        <div className="grid grid-cols-4 gap-2 bg-gray-100 p-2 font-bold text-gray-600 text-[10px] text-center"><div className="text-left">Opción</div><div>Disponible</div><div>Por Defecto</div><div>Modificable</div></div>
+                        {['name', 'number', 'shield', 'photo'].map(k => (
+                             <div key={k} className="grid grid-cols-4 gap-2 p-2 border-t items-center text-center">
+                                 <div className="text-left font-medium capitalize">{k === 'shield' ? 'Escudo' : k === 'number' ? 'Dorsal' : k === 'photo' ? 'Foto' : 'Nombre'}</div>
+                                 <div className="flex justify-center"><input type="checkbox" checked={features[k]} onChange={() => toggleFeature(k)} className="accent-emerald-600" /></div>
+                                 <div className="flex justify-center"><input type="checkbox" checked={defaults[k]} onChange={() => toggleDefault(k)} disabled={!features[k]} className="accent-blue-500 disabled:opacity-30" /></div>
+                                 <div className="flex justify-center"><button onClick={() => toggleModifiable(k)} disabled={!features[k]} className={`p-1 rounded ${!features[k] ? 'opacity-30' : ''} ${modifiable[k] ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>{modifiable[k] ? <Unlock className="w-3 h-3"/> : <Lock className="w-3 h-3"/>}</button></div>
+                             </div>
+                        ))}
+                    </div>
+                </div>
+            )}
+        </div>
+    );
+};
+
+function HomeView({ setView }) {
+  const [currentSlide, setCurrentSlide] = useState(0);
+  const slides = ['https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&q=80&w=1200','https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&q=80&w=1200','https://images.unsplash.com/photo-1511512578047-929550a8a23e?auto=format&fit=crop&q=80&w=1200'];
+  useEffect(() => { const timer = setInterval(() => { setCurrentSlide(prev => (prev + 1) % slides.length); }, 5000); return () => clearInterval(timer); }, []);
+  return (
+    <div className="space-y-12">
+      <div className="relative bg-emerald-900 rounded-3xl overflow-hidden shadow-2xl h-[500px] flex items-center">
+        <div className="absolute inset-0 transition-all duration-700 ease-in-out"><img src={slides[currentSlide]} className="w-full h-full object-cover opacity-40 hover:scale-105 transition-transform duration-[10s]" /></div>
+        <div className="relative z-10 px-8 py-20 text-center text-white w-full">
+          <h1 className="text-4xl md:text-6xl font-extrabold mb-6 tracking-tight drop-shadow-lg">Tu Pasión, Tu Marca</h1>
+          <p className="text-xl md:text-2xl text-emerald-100 mb-8 max-w-2xl mx-auto drop-shadow-md">Merchandising oficial personalizado.</p>
+          <div className="flex flex-col sm:flex-row gap-4 justify-center"><Button onClick={() => setView('shop')} className="text-lg px-8 py-4 bg-white text-emerald-900 hover:bg-gray-100 shadow-xl border-0">Ver Catálogo</Button><Button onClick={() => setView('photo-search')} variant="outline" className="text-lg px-8 py-4 border-2 border-white text-white hover:bg-white/10 backdrop-blur-sm">Buscar mis Fotos</Button></div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ShopView({ products, addToCart, clubs, modificationFee, storeConfig }) {
+  const [selectedProduct, setSelectedProduct] = useState(null);
+  return (
+    <div>
+      <h2 className="text-3xl font-bold mb-6">Tienda Oficial</h2>
+      {!selectedProduct ? (
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
+          {products.map(product => (
+            <div key={product.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow cursor-pointer group" onClick={() => setSelectedProduct(product)}>
+              <div className="h-48 overflow-hidden bg-gray-100 relative"><img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /></div>
+              <div className="p-4"><h3 className="font-bold text-lg">{product.name}</h3><div className="flex justify-between items-center mt-4"><span className="text-xl font-bold">{product.price.toFixed(2)}€</span></div></div>
+            </div>
+          ))}
+        </div>
+      ) : <ProductCustomizer product={selectedProduct} onBack={() => setSelectedProduct(null)} onAdd={addToCart} clubs={clubs} modificationFee={modificationFee} storeConfig={storeConfig} />}
+    </div>
+  );
+}
+
+function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, storeConfig }) {
+  const defaults = product.defaults || {};
+  const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
+  const features = product.features || {};
+  const [customization, setCustomization] = useState({ clubId: '', playerName: '', playerNumber: '', color: 'white', includeName: defaults.name ?? true, includeNumber: defaults.number ?? true, includePhoto: defaults.photo ?? false, includeShield: defaults.shield ?? true });
+  const isModified = useMemo(() => { const checkDiff = (key) => { if (!features[key]) return false; if (!modifiable[key]) return false; return customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`] !== defaults[key]; }; return checkDiff('name') || checkDiff('number') || checkDiff('photo') || checkDiff('shield'); }, [customization, defaults, features, modifiable]);
+  const finalPrice = product.price + (isModified ? modificationFee : 0);
+  const handleSubmit = (e) => { e.preventDefault(); if(!storeConfig.isOpen) return; onAdd(product, customization, finalPrice); onBack(); };
+  return (
+    <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col md:flex-row">
+      <div className="md:w-1/2 bg-gray-100 p-8 flex items-center justify-center relative"><img src={product.image} className="max-w-full h-auto rounded-lg shadow-md" /></div>
+      <div className="md:w-1/2 p-8 overflow-y-auto max-h-[90vh]">
+        <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1"><ChevronLeft className="rotate-180 w-4 h-4" /> Volver</button>
+        <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
+        <div className="flex items-end gap-2 mb-6"><p className="text-emerald-600 font-bold text-3xl">{finalPrice.toFixed(2)}€</p>{isModified && (<span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-1 rounded mb-1 border border-orange-200">+{modificationFee}€ por modificación</span>)}</div>
+        <form onSubmit={handleSubmit} className="space-y-6">
+          <div><label className="block text-sm font-medium text-gray-700 mb-1">Selecciona tu Club</label><select required className="w-full px-3 py-2 border rounded-md bg-white" value={customization.clubId} onChange={e => setCustomization({...customization, clubId: e.target.value})}><option value="">-- Elige Club --</option>{clubs.map(c => (<option key={c.id} value={c.id} disabled={c.blocked}>{c.name} {c.blocked ? '(Suspendido)' : ''}</option>))}</select></div>
+          <div className="grid grid-cols-2 gap-4">
+            {features.name && (<div className={`${!customization.includeName ? 'opacity-50' : ''}`}><div className="flex justify-between items-center mb-1"><label className="text-sm font-medium text-gray-700 flex items-center gap-1">Nombre</label><input type="checkbox" disabled={!modifiable.name} checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" /></div><Input disabled={!customization.includeName} placeholder="Ej. García" value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/></div>)}
+            {features.number && (<div className={`${!customization.includeNumber ? 'opacity-50' : ''}`}><div className="flex justify-between items-center mb-1"><label className="text-sm font-medium text-gray-700 flex items-center gap-1">Dorsal</label><input type="checkbox" disabled={!modifiable.number} checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" /></div><Input disabled={!customization.includeNumber} type="number" placeholder="10" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/></div>)}
+          </div>
+          {features.color && (<div><label className="block text-sm font-medium text-gray-700 mb-2">Color Principal</label><div className="flex gap-3">{['white', 'red', 'blue', 'green', 'black', 'yellow'].map(color => (<button key={color} type="button" onClick={() => setCustomization({...customization, color})} className={`w-8 h-8 rounded-full border-2 transition-transform ${customization.color === color ? 'border-gray-900 scale-125 ring-2 ring-offset-2 ring-emerald-500' : 'border-gray-200 hover:scale-110'}`} style={{ backgroundColor: color }} />))}</div></div>)}
+          <div className="pt-4 border-t"><Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg shadow-lg shadow-emerald-200">{storeConfig.isOpen ? `Añadir al Carrito (${finalPrice.toFixed(2)}€)` : 'TIENDA CERRADA'}</Button></div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig }) {
+  const [formData, setFormData] = useState({ name: '', email: '', phone: '', notification: 'email', rgpd: false });
+  const [paymentMethod, setPaymentMethod] = useState('card');
+  const handleSubmit = (e) => { e.preventDefault(); createOrder({ items: cart, customer: formData, total: total, paymentMethod, clubId: cart[0]?.clubId || 'generic', clubName: clubs.find(c => c.id === (cart[0]?.clubId))?.name || 'Club Generico' }); };
+  if (cart.length === 0) return <div className="text-center py-20 text-gray-500 font-bold text-xl flex flex-col items-center"><ShoppingCart className="w-16 h-16 mb-4 text-gray-300"/>Tu carrito está vacío</div>;
+  return (
+    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      <div className="lg:col-span-2 space-y-4"><h2 className="text-2xl font-bold mb-4">Resumen</h2>{cart.map(item => (<div key={item.cartId} className="flex gap-4 bg-white p-4 rounded-lg shadow-sm"><img src={item.image} className="w-20 h-20 object-cover rounded" /><div className="flex-1"><h3 className="font-bold">{item.name}</h3><p className="text-sm text-gray-500">{item.playerName} #{item.playerNumber}</p><p className="text-emerald-600 font-bold mt-1">{item.price.toFixed(2)}€</p></div><button onClick={() => removeFromCart(item.cartId)} className="text-red-400 p-2 hover:bg-red-50 rounded"><Trash2 className="w-5 h-5" /></button></div>))}</div>
+      <div className="bg-white p-6 rounded-xl shadow-md h-fit sticky top-24"><h3 className="text-xl font-bold mb-4">Finalizar Compra</h3><form onSubmit={handleSubmit} className="space-y-4"><Input label="Nombre" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /><Input label="Email" type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /><Input label="Teléfono" required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} /><div className="mb-3"><label className="block text-sm font-medium mb-1">Notificaciones</label><div className="flex gap-4 text-sm bg-gray-50 p-3 rounded-lg"><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={formData.notification === 'email'} onChange={() => setFormData({...formData, notification: 'email'})} /> Email</label><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={formData.notification === 'sms'} onChange={() => setFormData({...formData, notification: 'sms'})} /> SMS</label></div></div><div className="border-t pt-4"><label className="block text-sm font-medium mb-2">Pago</label><div className="grid grid-cols-2 gap-2 mb-4"><div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'card' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('card')}><CreditCard className="w-5 h-5"/> Tarjeta</div><div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('cash')}><Banknote className="w-5 h-5"/> Efectivo</div></div>{paymentMethod === 'cash' && <p className="text-xs text-yellow-700 bg-yellow-50 p-2 rounded mb-4 border border-yellow-200">El pedido quedará marcado como "Pendiente" hasta que abones el importe en tu club.</p>}</div><div className="flex items-start gap-2 mb-4"><input type="checkbox" required checked={formData.rgpd} onChange={e => setFormData({...formData, rgpd: e.target.checked})} className="mt-1" /><span className="text-xs text-gray-500">He leído y acepto la Política de Privacidad y el tratamiento de datos.</span></div><Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-3 text-lg">{storeConfig.isOpen ? `Pagar ${total.toFixed(2)}€` : 'TIENDA CERRADA'}</Button></form></div>
+    </div>
+  );
+}
+
+function PhotoSearchView({ clubs }) {
+  const [step, setStep] = useState(1);
+  const [clubInput, setClubInput] = useState('');
+  const [selectedClub, setSelectedClub] = useState(null);
+  const [search, setSearch] = useState({ name: '', number: '' });
+  const [result, setResult] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState('');
+  const clubSuggestions = useMemo(() => { if (clubInput.length < 2) return []; return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase())); }, [clubInput, clubs]);
+  const selectClub = (club) => { setSelectedClub(club); setClubInput(club.name); setStep(2); setError(''); setResult(null); };
+  const clearSelection = () => { setSelectedClub(null); setClubInput(''); setStep(1); setSearch({ name: '', number: '' }); setResult(null); };
+  const handleSearch = (e) => { e.preventDefault(); if (!selectedClub) return; setLoading(true); setError(''); setResult(null); setTimeout(() => { setLoading(false); const formattedName = search.name.trim().replace(/\s+/g, '_'); const dorsalSuffix = search.number ? `_${search.number}` : ''; const searchPattern = formattedName + dorsalSuffix; const photo = MOCK_PHOTOS_DB.find(p => { const matchesClub = p.clubId === selectedClub.id; const matchesName = p.filename.toLowerCase().includes(searchPattern.toLowerCase()); return matchesClub && matchesName; }); if (photo) { setResult(photo.url); } else { setError(`No se encontraron fotos en ${selectedClub.name} para "${formattedName.replace(/_/g, ' ')}" ${search.number ? `con dorsal ${search.number}` : ''}.`); } }, 1200); };
+
+  return (
+    <div className="max-w-2xl mx-auto py-8"><div className="text-center mb-8"><h2 className="text-3xl font-bold mb-2">Buscador de Fotos Segura</h2><p className="text-gray-500">Área protegida. Solo para jugadores y familiares.</p><div className="bg-yellow-50 text-yellow-800 text-xs inline-block px-3 py-1 rounded-full mt-2 border border-yellow-200">Pista Demo: Selecciona "Demo Sport" y busca "Juan Perez" + "10"</div></div><div className="bg-white p-6 rounded-xl shadow-md mb-8"><div className={`transition-all duration-300 ${step === 1 ? 'opacity-100' : 'hidden'}`}><label className="block text-sm font-bold text-gray-700 mb-2">1. Selecciona tu Club</label><div className="relative"><Input placeholder="Escribe el nombre de tu club (ej. Demo)" value={clubInput} onChange={e => setClubInput(e.target.value)} autoFocus />{clubSuggestions.length > 0 && (<div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-10 max-h-48 overflow-y-auto">{clubSuggestions.map(c => (<div key={c.id} onClick={() => selectClub(c)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group"><span className="font-medium text-gray-700 group-hover:text-emerald-700">{c.name}</span><ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/></div>))}</div>)}</div></div>{step === 2 && selectedClub && (<div className="animate-fade-in-up"><div className="flex justify-between items-center mb-6 bg-emerald-50 p-3 rounded-lg border border-emerald-100"><div><p className="text-xs text-emerald-600 font-bold uppercase mb-1">Club Seleccionado</p><p className="font-bold text-lg text-emerald-900">{selectedClub.name}</p></div><button onClick={clearSelection} className="text-xs text-gray-500 hover:text-red-500 underline">Cambiar Club</button></div><form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end"><div className="md:col-span-2"><Input label="Nombre o Texto (Espacios = _)" placeholder="Ej. Juan Perez" value={search.name} onChange={e => setSearch({...search, name: e.target.value})} required /></div><div className="md:col-span-1"><Input label="Dorsal (Opcional)" placeholder="Ej. 10" value={search.number} onChange={e => setSearch({...search, number: e.target.value})} /></div><div className="md:col-span-3 mt-2"><Button type="submit" disabled={loading} className="w-full h-[48px] text-lg shadow-emerald-200 shadow-lg">{loading ? 'Buscando...' : 'Buscar Fotos'}</Button></div></form></div>)}{error && <p className="text-red-500 text-sm mt-4 text-center bg-red-50 p-2 rounded border border-red-100">{error}</p>}</div>{result && (<div className="bg-white p-4 rounded-xl shadow-lg relative overflow-hidden group animate-fade-in-up border border-gray-100"><div className="relative"><img src={result} alt="Resultado" className="w-full rounded-lg" onContextMenu={(e) => e.preventDefault()} /><div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden"><div className="w-full h-full flex flex-wrap content-center justify-center opacity-40 rotate-12 scale-150">{Array.from({ length: 20 }).map((_, i) => <span key={i} className="text-3xl font-black text-white m-8 shadow-sm">MUESTRA</span>)}</div></div><div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white p-4 text-center"><ShieldCheck className="w-12 h-12 mb-2 text-emerald-400" /><p className="font-bold text-lg">Protegido por Copyright</p><p className="text-sm text-gray-300">Prohibida la descarga. Compra la foto para obtener el original sin marca de agua.</p><Button className="mt-4 bg-white text-black hover:bg-gray-200">Añadir al Carrito (8.00€)</Button></div></div></div>)}</div>
+  );
+}
+
+function TrackingView({ orders }) {
+  const [searchId, setSearchId] = useState('');
+  const [foundOrder, setFoundOrder] = useState(null);
+  const handleTrack = (e) => { e.preventDefault(); const order = orders.find(o => o.id === searchId || o.id.startsWith(searchId)); if (order) setFoundOrder(order); else alert("Pedido no encontrado. Intenta con un ID válido."); };
+  return (
+    <div className="max-w-xl mx-auto text-center py-12"><Package className="w-16 h-16 text-emerald-600 mx-auto mb-4" /><h2 className="text-3xl font-bold mb-6">Seguimiento de Pedido</h2><form onSubmit={handleTrack} className="flex gap-2 mb-12"><input type="text" placeholder="ID de Pedido (ej. 7A2B...)" className="flex-1 px-4 py-3 border rounded-lg" value={searchId} onChange={e => setSearchId(e.target.value)} /><Button type="submit">Consultar</Button></form>{foundOrder && (<div className="bg-white p-8 rounded-xl shadow-lg text-left animate-fade-in-up"><div className="flex justify-between items-center mb-6 border-b pb-4"><div><p className="text-sm text-gray-500">Pedido #{foundOrder.id.slice(0,6)}</p><p className="font-bold text-xl">{foundOrder.visibleStatus}</p></div><Badge status={foundOrder.status} /></div><div className="space-y-6"><div className={`flex gap-4 ${foundOrder.status === 'recopilando' ? 'opacity-100' : 'opacity-50'}`}><div className="bg-blue-100 p-2 rounded-full h-fit"><FileText className="w-5 h-5 text-blue-600"/></div><div><h4 className="font-bold">Recopilando</h4><p className="text-sm text-gray-500">Tu pedido está siendo procesado por el club.</p></div></div><div className={`flex gap-4 ${foundOrder.status === 'en_produccion' ? 'opacity-100' : 'opacity-50'}`}><div className="bg-purple-100 p-2 rounded-full h-fit"><Settings className="w-5 h-5 text-purple-600"/></div><div><h4 className="font-bold">En Producción</h4><p className="text-sm text-gray-500">Fabricando tus productos personalizados.</p></div></div><div className={`flex gap-4 ${foundOrder.status === 'entregado_club' ? 'opacity-100' : 'opacity-50'}`}><div className="bg-green-100 p-2 rounded-full h-fit"><Check className="w-5 h-5 text-green-600"/></div><div><h4 className="font-bold">Listo para Recoger</h4><p className="text-sm text-gray-500">Ya está disponible en las oficinas de {foundOrder.clubName || 'tu club'}.</p></div></div></div></div>)}</div>
+  );
+}
+
+function RightToForgetView({ setView }) {
+    const handleSubmit = (e) => { e.preventDefault(); alert("Solicitud enviada. Procederemos al borrado de tus datos en 24-48h conforme al RGPD."); setView('home'); }
+    return (<div className="max-w-lg mx-auto bg-white p-8 rounded-xl shadow mt-8"><h2 className="text-2xl font-bold mb-4 flex items-center gap-2 text-red-600"><UserX className="w-6 h-6"/> Derecho al Olvido (RGPD)</h2><p className="text-gray-600 mb-6 text-sm">De acuerdo con el Reglamento General de Protección de Datos, utiliza este formulario para solicitar la eliminación completa de tus fotografías y datos personales de nuestra base de datos.</p><form onSubmit={handleSubmit} className="space-y-4"><Input label="Email asociado al pedido" type="email" required /><Input label="DNI / Identificación del Tutor" required /><Input label="Motivo (Opcional)" placeholder="Solicito la baja de mis fotos..." /><Button type="submit" variant="danger" className="w-full">Solicitar Borrado Definitivo</Button></form><button onClick={() => setView('home')} className="mt-4 text-sm text-gray-500 underline text-center w-full">Cancelar</button></div>)
+}
+
+function LoginView({ handleLogin, clubs }) {
+  const [user, setUser] = useState(''); const [pass, setPass] = useState('');
+  return (<div className="max-w-md mx-auto mt-12 bg-white p-8 rounded-xl shadow-lg border border-gray-100"><div className="text-center mb-8"><h2 className="text-2xl font-bold text-gray-800">Acceso Privado</h2><p className="text-gray-400 text-sm">Gestión para Clubes y Administración</p></div><form onSubmit={(e) => { e.preventDefault(); handleLogin(user, pass); }} className="space-y-4"><Input label="Usuario / ID" value={user} onChange={e => setUser(e.target.value)} /><Input label="Contraseña" type="password" value={pass} onChange={e => setPass(e.target.value)} /><Button type="submit" className="w-full">Entrar al Portal</Button></form><div className="mt-8 pt-6 border-t text-center space-y-3 bg-gray-50 -mx-8 -mb-8 p-6 rounded-b-xl"><p className="text-xs text-gray-500 font-bold uppercase">Accesos Rápidos (Demo)</p><div className="flex justify-center gap-2 flex-wrap"><button onClick={() => handleLogin('club-demo', 'club123')} className="text-xs bg-white border border-gray-200 px-3 py-2 rounded hover:border-emerald-500 text-gray-600">Club Demo</button><button onClick={() => handleLogin('admin', 'admin123')} className="text-xs bg-white border border-gray-200 px-3 py-2 rounded hover:border-purple-500 text-gray-600">Admin (Dueño)</button></div></div></div>);
+}
+
+function ClubDashboard({ club, orders, updateOrderStatus, config, seasons }) {
+    const [selectedSeasonId, setSelectedSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
+    const pendingCashOrders = orders.filter(o => o.clubId === club.id && o.status === 'pendiente_validacion');
+    const filteredHistory = useMemo(() => { let result = orders.filter(o => o.clubId === club.id); if (selectedSeasonId !== 'all') { const season = seasons.find(s => s.id === selectedSeasonId); if (season) { const start = new Date(season.startDate).getTime(); const end = new Date(season.endDate).getTime(); result = result.filter(o => { const orderDate = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now(); return orderDate >= start && orderDate <= end; }); } } return result.filter(o => o.status !== 'pendiente_validacion'); }, [orders, club.id, selectedSeasonId, seasons]);
+    const totalSales = filteredHistory.reduce((sum, o) => sum + o.total, 0);
+    const commission = totalSales * config.clubCommissionPct;
+    const batches = useMemo(() => { const groups = {}; filteredHistory.forEach(order => { const batchId = order.globalBatch || 1; if (!groups[batchId]) groups[batchId] = []; groups[batchId].push(order); }); return Object.entries(groups).map(([id, orders]) => ({ id: parseInt(id), orders })).sort((a, b) => b.id - a.id); }, [filteredHistory]);
+    
+  return (
+    <div>
+      <div className="bg-white p-6 rounded-xl shadow-sm border border-emerald-100 mb-8 flex flex-col md:flex-row justify-between items-center gap-4"><div><h1 className="text-2xl font-bold text-gray-900">Portal Club: {club.name}</h1><p className="text-emerald-600 font-medium">{club.code}</p></div><div className="flex flex-col items-end gap-2"><div className="flex items-center gap-2 bg-emerald-50 px-3 py-1 rounded-lg"><Calendar className="w-4 h-4 text-emerald-600"/><select className="bg-transparent border-none text-sm font-medium text-emerald-700 focus:ring-0 cursor-pointer" value={selectedSeasonId} onChange={(e) => setSelectedSeasonId(e.target.value)}><option value="all">Todo el Histórico</option>{seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div><div className="text-right"><p className="text-sm text-gray-500 mb-1">Comisiones Totales ({(config.clubCommissionPct * 100).toFixed(0)}%)</p><p className="text-4xl font-bold text-emerald-600">{commission.toFixed(2)}€</p></div></div></div>
+      <div className="mb-10"><h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-orange-600"><AlertCircle className="w-5 h-5"/> Validar Pagos en Efectivo</h3>{pendingCashOrders.length === 0 ? (<div className="bg-gray-50 p-4 rounded-lg text-center text-gray-400 text-sm border border-dashed border-gray-300">No hay pagos pendientes.</div>) : (<div className="grid grid-cols-1 md:grid-cols-2 gap-4">{pendingCashOrders.map(order => (<div key={order.id} className="bg-white p-4 rounded-xl shadow border-l-4 border-orange-500 flex justify-between items-center"><div><p className="font-bold text-gray-800">#{order.id.slice(0,6)} - {order.customer.name}</p><p className="text-xs text-gray-500">Pedido Global #{order.globalBatch || 1}</p></div><div className="text-right"><span className="block font-bold text-xl mb-1">{order.total}€</span><Button size="sm" onClick={() => updateOrderStatus(order.id, 'recopilando', 'Pago validado', order)} className="bg-orange-500 hover:bg-orange-600 text-white shadow-sm"><Check className="w-4 h-4 mr-1"/> Validar</Button></div></div>))}</div>)}</div>
+      <div><h3 className="font-bold text-lg mb-4 text-gray-800 flex items-center gap-2"><Layers className="w-5 h-5"/> Historial por Pedidos Globales</h3><div className="space-y-6">{batches.map(batch => { const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0); const batchStatus = batch.orders[0]?.status || 'recopilando'; return (<div key={batch.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center"><div><h4 className="font-bold text-lg text-gray-800">Pedido Global #{batch.id}</h4><div className="flex gap-2 mt-1"><Badge status={batchStatus} /><span className="text-xs bg-white border px-2 py-0.5 rounded text-gray-500">{batch.orders.length} pedidos</span></div></div><div className="text-right"><p className="text-xs text-gray-500">Total Pedido</p><p className="font-bold text-xl">{batchTotal.toFixed(2)}€</p></div></div><div className="divide-y">{batch.orders.map(order => (<div key={order.id} className="p-4 flex justify-between items-center hover:bg-gray-50 text-sm"><div><span className="font-bold">#{order.id.slice(0,6)}</span><span className="mx-2 text-gray-400">|</span><span>{order.customer.name}</span></div><span>{order.total}€</span></div>))}</div></div>) })} {batches.length === 0 && <p className="text-center text-gray-400 py-8">No hay historial disponible.</p>}</div></div></div>
+  );
+}
+
+function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
+  const [tab, setTab] = useState('management');
+  const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
+  const [selectedClubId, setSelectedClubId] = useState(clubs[0]?.id || '');
+  const [selectedClubFiles, setSelectedClubFiles] = useState(null);
+  const [selectedFolder, setSelectedFolder] = useState(null);
+  
+  const [newSpecialOrder, setNewSpecialOrder] = useState({ 
+      clubId: '', 
+      items: [{ description: '', quantity: 1, price: 0, cost: 0 }], 
+      paymentMethod: 'invoice', 
+      globalBatch: 1 
+  });
+  
+  const [expandedOrderId, setExpandedOrderId] = useState(null);
+  const [incidentForm, setIncidentForm] = useState({ active: false, orderId: null, item: null, cost: 0, note: '' });
+  const [revertModal, setRevertModal] = useState({ active: false, clubId: null, currentBatchId: null, ordersCount: 0 });
+
+  const selectedClub = clubs.find(c => c.id === selectedClubId) || clubs[0];
+
+  const financialOrders = useMemo(() => {
+      if (financeSeasonId === 'all') return orders;
+      const season = seasons.find(s => s.id === financeSeasonId);
+      if (!season) return orders;
+      const start = new Date(season.startDate).getTime();
+      const end = new Date(season.endDate).getTime();
+      return orders.filter(o => {
+          const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+          return d >= start && d <= end;
+      });
+  }, [orders, financeSeasonId, seasons]);
+
+  const accountingData = useMemo(() => {
+      return clubs.map(club => {
+          const clubOrders = financialOrders.filter(o => o.clubId === club.id);
+          const batches = {};
+          
+          clubOrders.forEach(order => {
+              const batchId = order.globalBatch || 1;
+              if (!batches[batchId]) batches[batchId] = [];
+              batches[batchId].push(order);
+          });
+
+          const sortedBatches = Object.entries(batches)
+              .map(([id, orders]) => ({ id: parseInt(id), orders }))
+              .sort((a, b) => b.id - a.id);
+
+          return { club, batches: sortedBatches };
+      });
+  }, [clubs, financialOrders]);
+
+  const totalRevenue = financialOrders.reduce((sum, o) => sum + o.total, 0);
+  const totalIncidentCosts = financialOrders.reduce((sum, o) => {
+      return sum + (o.incidents?.reduce((iSum, inc) => iSum + (inc.cost || 0), 0) || 0);
+  }, 0);
+
+  const netProfit = totalRevenue - 
+                    financialOrders.reduce((sum, o) => sum + (o.items ? o.items.reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0) : (o.cost || 0)), 0) - 
+                    totalIncidentCosts - 
+                    (totalRevenue * financialConfig.clubCommissionPct) - 
+                    (totalRevenue * financialConfig.commercialCommissionPct);
+  
+  const averageTicket = totalRevenue / (financialOrders.length || 1);
+  
+  const handleAddSpecialItem = () => {
+      setNewSpecialOrder({
+          ...newSpecialOrder,
+          items: [...newSpecialOrder.items, { description: '', quantity: 1, price: 0, cost: 0 }]
+      });
+  };
+
+  const handleRemoveSpecialItem = (index) => {
+      const updatedItems = newSpecialOrder.items.filter((_, i) => i !== index);
+      setNewSpecialOrder({ ...newSpecialOrder, items: updatedItems });
+  };
+
+  const updateSpecialItem = (index, field, value) => {
+      const updatedItems = [...newSpecialOrder.items];
+      updatedItems[index] = { ...updatedItems[index], [field]: value };
+      setNewSpecialOrder({ ...newSpecialOrder, items: updatedItems });
+  };
+
+  const calculateSpecialTotals = () => {
+      const total = newSpecialOrder.items.reduce((acc, item) => acc + (parseFloat(item.price || 0) * parseFloat(item.quantity || 1)), 0);
+      const totalCost = newSpecialOrder.items.reduce((acc, item) => acc + (parseFloat(item.cost || 0) * parseFloat(item.quantity || 1)), 0);
+      return { total, totalCost };
+  };
+
+  const handleCreateSpecialOrder = (e) => {
+      e.preventDefault();
+      const club = clubs.find(c => c.id === newSpecialOrder.clubId);
+      if(!club) return;
+
+      const { total } = calculateSpecialTotals();
+
+      const orderItems = newSpecialOrder.items.map(item => ({
+          name: item.description,
+          price: parseFloat(item.price),
+          quantity: parseInt(item.quantity),
+          cost: parseFloat(item.cost),
+          category: 'Servicios',
+          image: '', 
+          cartId: Date.now() + Math.random() 
+      }));
+
+      createSpecialOrder({
+          clubId: newSpecialOrder.clubId,
+          clubName: club.name,
+          customer: { name: club.name, email: 'club@admin.com', phone: '-', notification: 'email' },
+          items: orderItems,
+          total: total,
+          paymentMethod: newSpecialOrder.paymentMethod, 
+          globalBatch: club.activeGlobalOrderId
+      });
+      
+      setNewSpecialOrder({ 
+          clubId: '', 
+          items: [{ description: '', quantity: 1, price: 0, cost: 0 }], 
+          paymentMethod: 'invoice', 
+          globalBatch: 1 
+      });
+  };
+
+  const submitIncident = () => {
+      if(!incidentForm.item) return;
+      addIncident(incidentForm.orderId, {
+          id: Date.now(),
+          itemId: incidentForm.item.cartId,
+          itemName: incidentForm.item.name,
+          cost: parseFloat(incidentForm.cost),
+          note: incidentForm.note,
+          resolved: false,
+          date: new Date().toISOString()
+      });
+      setIncidentForm({ active: false, orderId: null, item: null, cost: 0, note: '' });
+  };
+
+  const toggleIncidentResolved = (order, incidentId) => {
+      const updatedIncidents = order.incidents.map(inc => 
+          inc.id === incidentId ? { ...inc, resolved: !inc.resolved } : inc
+      );
+      updateIncidentStatus(order.id, updatedIncidents);
+  };
+
+  const handleRevertGlobalBatch = (clubId) => {
+      const club = clubs.find(c => c.id === clubId);
+      if (!club || club.activeGlobalOrderId <= 1) return;
+      const currentBatchId = club.activeGlobalOrderId;
+      const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === currentBatchId);
+
+      if (batchOrders.length === 0) {
+          decrementClubGlobalOrder(clubId, currentBatchId - 1);
+      } else {
+          setRevertModal({ active: true, clubId, currentBatchId, ordersCount: batchOrders.length });
+      }
+  };
+
+  const processRevertBatch = async (action) => {
+      const { clubId, currentBatchId } = revertModal;
+      if (!clubId) return;
+      const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === currentBatchId);
+      
+      try {
+          const batch = writeBatch(db);
+          batchOrders.forEach(order => {
+              if (action === 'delete') {
+                  batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id));
+              } else {
+                  batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id), { globalBatch: currentBatchId - 1 });
+              }
+          });
+          await batch.commit();
+          decrementClubGlobalOrder(clubId, currentBatchId - 1);
+          setRevertModal({ active: false, clubId: null, currentBatchId: null, ordersCount: 0 });
+      } catch (e) {
+          console.error("Error processing revert:", e);
+          alert("Error al procesar la acción. Inténtalo de nuevo.");
+      }
+  };
+
+  const renderProductDetails = (item) => {
+      const details = [];
+      if(item.playerName && item.includeName) details.push(`Nombre: ${item.playerName}`);
+      if(item.playerNumber && item.includeNumber) details.push(`Dorsal: ${item.playerNumber}`);
+      if(item.color) details.push(`Color: ${item.color}`);
+      return details.join(', ');
+  };
+
+  return (
+    <div>
+      <div className="flex gap-2 mb-8 overflow-x-auto pb-2 border-b bg-white p-2 rounded-lg shadow-sm">
+        {[
+            {id: 'management', label: 'Gestión', icon: LayoutDashboard},
+            {id: 'accounting', label: 'Contabilidad (Lotes)', icon: FileSpreadsheet},
+            {id: 'special-orders', label: 'Pedidos Especiales', icon: Briefcase},
+            {id: 'seasons', label: 'Temporadas', icon: Calendar}, 
+            {id: 'files', label: 'Archivos', icon: Folder},
+            {id: 'finances', label: 'Estadísticas', icon: BarChart3},
+        ].map(item => (
+            <button key={item.id} onClick={() => setTab(item.id)} className={`px-6 py-3 rounded-lg font-medium flex items-center gap-2 transition-all ${tab === item.id ? 'bg-emerald-600 text-white shadow-lg' : 'text-gray-600 hover:bg-gray-100'}`}>
+                <item.icon className="w-4 h-4" /> {item.label}
+            </button>
+        ))}
+      </div>
+
+      {tab === 'management' && (
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              <div className="bg-white p-6 rounded-xl shadow h-fit space-y-6">
+                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+                      <h4 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><Layers className="w-5 h-5"/> Control de Pedidos Globales</h4>
+                      
+                      <div className="mb-4">
+                          <label className="block text-xs font-bold text-blue-600 mb-1 uppercase">Seleccionar Club</label>
+                          <select 
+                            className="w-full border border-blue-200 rounded p-2 text-sm bg-white"
+                            value={selectedClubId}
+                            onChange={(e) => setSelectedClubId(e.target.value)}
+                          >
+                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                      </div>
+
+                      <div className="bg-white p-3 rounded border border-blue-100 space-y-3">
+                          <div className="flex justify-between items-center">
+                              <div>
+                                  <p className="text-xs text-gray-500">Pedido Global Activo</p>
+                                  <p className="text-2xl font-bold text-blue-900">#{selectedClub?.activeGlobalOrderId}</p>
+                              </div>
+                              <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
+                                  <Archive className="w-4 h-4 mr-1"/> Cerrar y Abrir Nuevo
+                              </Button>
+                          </div>
+                          
+                          {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
+                              <div className="border-t border-dashed border-blue-200 pt-2 flex justify-end">
+                                  <button 
+                                      onClick={() => handleRevertGlobalBatch(selectedClubId)}
+                                      className="text-xs flex items-center gap-1 text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
+                                  >
+                                      <RotateCcw className="w-3 h-3"/> Deshacer / Reabrir Anterior (#{selectedClub.activeGlobalOrderId - 1})
+                                  </button>
+                              </div>
+                          )}
+                      </div>
+                      <p className="text-xs text-blue-400 mt-2">Los nuevos pedidos de {selectedClub?.name} irán al Global #{selectedClub?.activeGlobalOrderId}.</p>
+                  </div>
+
+                  <div className={`p-4 rounded-lg border ${storeConfig.isOpen ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
+                      <div className="flex justify-between items-center mb-2">
+                          <h4 className={`font-bold ${storeConfig.isOpen ? 'text-emerald-800' : 'text-red-800'}`}>Tienda Global</h4>
+                          <button onClick={() => setStoreConfig({...storeConfig, isOpen: !storeConfig.isOpen})} className={`px-3 py-1 rounded-full text-xs font-bold ${storeConfig.isOpen ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
+                              {storeConfig.isOpen ? 'ABIERTA' : 'CERRADA'}
+                          </button>
+                      </div>
+                      {!storeConfig.isOpen && <input className="w-full text-xs border p-1 rounded" value={storeConfig.closedMessage} onChange={e => setStoreConfig({...storeConfig, closedMessage: e.target.value})} placeholder="Mensaje..."/>}
+                  </div>
+
+                  <div>
+                      <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Productos</h3><Button size="sm" onClick={addProduct}><Plus className="w-4 h-4"/></Button></div>
+                      <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">{products.map(p => <ProductEditorRow key={p.id} product={p} updateProduct={updateProduct} deleteProduct={deleteProduct} />)}</div>
+                  </div>
+              </div>
+
+              <div className="bg-white p-6 rounded-xl shadow space-y-8 h-fit">
+                  <div><h3 className="font-bold mb-4 text-lg">Clubes</h3><div className="flex gap-2 mb-4"><input id="newClubName" placeholder="Nombre" className="border rounded px-3 py-2 flex-1" /><Button onClick={() => { const input = document.getElementById('newClubName'); if(input.value) createClub({name: input.value, code: input.value.slice(0,3).toUpperCase()}); }} size="sm"><Plus className="w-4 h-4"/></Button></div><div className="space-y-2">{clubs.map(c => (<ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />))}</div></div>
+              </div>
+          </div>
+      )}
+
+      {/* --- REVERT MODAL --- */}
+      {revertModal.active && (
+          <div className="fixed inset-0 bg-black/50 z-[90] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-md border-2 border-red-100">
+                  <div className="flex items-center gap-2 mb-4 text-red-600">
+                      <AlertTriangle className="w-6 h-6"/>
+                      <h3 className="font-bold text-lg">Reabrir Pedido Global Anterior</h3>
+                  </div>
+                  <p className="text-gray-600 mb-2">
+                      Estás a punto de eliminar el <strong>Lote Global #{revertModal.currentBatchId}</strong> y volver a activar el <strong>#{revertModal.currentBatchId - 1}</strong>.
+                  </p>
+                  <div className="bg-red-50 p-4 rounded-lg border border-red-100 mb-6">
+                      <p className="font-bold text-red-800 text-sm mb-2">¡Atención! El lote actual tiene {revertModal.ordersCount} pedidos.</p>
+                      
+                      <div className="space-y-2">
+                          <button onClick={() => processRevertBatch('transfer')} className="w-full text-left p-3 rounded bg-white border border-red-200 hover:border-red-400 flex items-center gap-3 transition-colors group">
+                              <div className="bg-blue-100 p-2 rounded-full text-blue-600 group-hover:bg-blue-200"><MoveLeft className="w-4 h-4"/></div>
+                              <div><span className="block font-bold text-sm text-gray-800">Traspasar al Anterior</span><span className="block text-xs text-gray-500">Moverlos al Lote #{revertModal.currentBatchId - 1} y borrar este lote.</span></div>
+                          </button>
+                          <button onClick={() => processRevertBatch('delete')} className="w-full text-left p-3 rounded bg-white border border-red-200 hover:border-red-400 flex items-center gap-3 transition-colors group">
+                              <div className="bg-red-100 p-2 rounded-full text-red-600 group-hover:bg-red-200"><Trash2 className="w-4 h-4"/></div>
+                              <div><span className="block font-bold text-sm text-gray-800">Eliminar Pedidos</span><span className="block text-xs text-gray-500">Borrar estos pedidos permanentemente.</span></div>
+                          </button>
+                      </div>
+                  </div>
+                  <div className="flex justify-end">
+                      <Button variant="secondary" onClick={() => setRevertModal({ active: false, clubId: null, currentBatchId: null, ordersCount: 0 })}>Cancelar</Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- INCIDENT MODAL --- */}
+      {incidentForm.active && (
+          <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4 text-orange-600 flex items-center gap-2"><AlertTriangle className="w-5 h-5"/> Reportar Producto Dañado</h3>
+                  <p className="text-sm font-bold text-gray-800 mb-1">{incidentForm.item.name}</p>
+                  <div className="space-y-3">
+                      <div><label className="block text-xs font-bold text-gray-600 mb-1">Coste Reimpresión</label><div className="relative"><input type="number" step="0.01" className="w-full border rounded p-2 pl-6" value={incidentForm.cost} onChange={e => setIncidentForm({...incidentForm, cost: e.target.value})} /><span className="absolute left-2 top-2 text-gray-500">€</span></div></div>
+                      <div><label className="block text-xs font-bold text-gray-600 mb-1">Nota / Motivo</label><textarea className="w-full border rounded p-2 text-sm" rows="3" value={incidentForm.note} onChange={e => setIncidentForm({...incidentForm, note: e.target.value})}></textarea></div>
+                  </div>
+                  <div className="flex justify-end gap-2 mt-6">
+                      <Button variant="secondary" onClick={() => setIncidentForm({ active: false, orderId: null, item: null, cost: 0, note: '' })}>Cancelar</Button>
+                      <Button variant="warning" onClick={submitIncident}>Guardar</Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- CONTABILIDAD --- */}
+      {tab === 'accounting' && (
+          <div className="bg-white p-6 rounded-xl shadow">
+              <div className="flex justify-between items-center mb-6">
+                  <h3 className="font-bold text-lg flex items-center gap-2"><FileSpreadsheet className="w-5 h-5 text-emerald-600"/> Contabilidad por Club</h3>
+                  <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
+                      <Calendar className="w-4 h-4 text-gray-500"/>
+                      <select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" value={financeSeasonId} onChange={(e) => setFinanceSeasonId(e.target.value)}>
+                          <option value="all">Todas las Temporadas</option>
+                          {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                  </div>
+              </div>
+              
+              <div className="space-y-12">
+                  {accountingData.map(({ club, batches }) => (
+                      <div key={club.id} className="border rounded-xl overflow-hidden">
+                          <div className="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
+                              <h4 className="font-bold text-lg">{club.name}</h4>
+                              <span className="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300">{batches.length} Pedidos Globales</span>
+                          </div>
+                          
+                          {batches.length === 0 ? (
+                              <p className="p-4 text-gray-400 text-sm text-center">No hay actividad en este periodo.</p>
+                          ) : (
+                              <div className="divide-y divide-gray-200">
+                                  {batches.map(batch => {
+                                      const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
+                                      const batchStatus = batch.orders[0]?.status || 'recopilando';
+                                      const incidentCosts = batch.orders.reduce((sum, o) => sum + (o.incidents?.reduce((iSum, inc) => iSum + (inc.cost || 0), 0) || 0), 0);
+
+                                      return (
+                                          <div key={batch.id} className="p-4 bg-white hover:bg-gray-50">
+                                              <div className="flex flex-wrap justify-between items-center mb-4">
+                                                  <div className="flex items-center gap-4">
+                                                      <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
+                                                      <Badge status={batchStatus} />
+                                                      {incidentCosts > 0 && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold border border-red-200 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Coste Incidencias: -{incidentCosts.toFixed(2)}€</span>}
+                                                  </div>
+                                                  <div className="flex items-center gap-2">
+                                                      <Button size="xs" variant="outline" className="mr-2" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)}>
+                                                          <FileDown className="w-3 h-3 text-green-600"/> Excel Global
+                                                      </Button>
+                                                      <Button size="xs" variant="outline" className="mr-2" onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)}>
+                                                          <Printer className="w-3 h-3 text-blue-600"/> Albarán Global
+                                                      </Button>
+
+                                                      <label className="text-xs font-bold text-gray-500 uppercase ml-2">Fase Lote:</label>
+                                                      <select 
+                                                          value={batchStatus}
+                                                          onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
+                                                          className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 ${
+                                                              batchStatus === 'recopilando' ? 'bg-blue-50 text-blue-700 border-blue-200 focus:ring-blue-500' :
+                                                              batchStatus === 'en_produccion' ? 'bg-purple-50 text-purple-700 border-purple-200 focus:ring-purple-500' :
+                                                              'bg-green-50 text-green-700 border-green-200 focus:ring-green-500'
+                                                          }`}
+                                                      >
+                                                          <option value="recopilando">Recopilando</option>
+                                                          <option value="en_produccion">En Producción</option>
+                                                          <option value="entregado_club">Entregado</option>
+                                                      </select>
+                                                  </div>
+                                              </div>
+
+                                              <div className="pl-4 border-l-2 border-gray-200">
+                                                  <p className="text-xs font-bold text-gray-400 uppercase mb-2">Desglose Individual</p>
+                                                  <div className="space-y-2">
+                                                      {batch.orders.map(order => (
+                                                          <div key={order.id} className="border rounded-lg bg-gray-50">
+                                                              <div onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-100">
+                                                                  <div className="flex gap-4 items-center">
+                                                                      {order.type === 'special' ? <Badge status="special_order"/> : <span className="font-mono text-xs font-bold bg-white border px-1 rounded">#{order.id.slice(0,6)}</span>}
+                                                                      <span className="font-medium text-sm">{order.customer.name}</span>
+                                                                  </div>
+                                                                  <div className="flex gap-4 items-center text-sm">
+                                                                      <span className="font-bold">{order.total}€</span>
+                                                                      <ChevronRight className={`w-4 h-4 transition-transform ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
+                                                                  </div>
+                                                              </div>
+                                                              
+                                                              {expandedOrderId === order.id && (
+                                                                  <div className="p-4 bg-white border-t text-sm animate-fade-in-down">
+                                                                      <h5 className="font-bold text-gray-500 mb-2 text-xs uppercase">Productos</h5>
+                                                                      <ul className="space-y-3 mb-4">
+                                                                          {order.items.map(item => {
+                                                                              const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
+                                                                              return (
+                                                                                <li key={item.cartId || Math.random()} className="flex justify-between items-start group">
+                                                                                    <div className="flex gap-3">
+                                                                                        {item.image && <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-100" />}
+                                                                                        <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{renderProductDetails(item)}</p></div>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-3">
+                                                                                        {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
+                                                                                        <button onClick={(e) => { e.stopPropagation(); setIncidentForm({ active: true, orderId: order.id, item: item, cost: item.cost || 0, note: '' }); }} className="text-gray-300 hover:text-red-500 text-xs flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><AlertTriangle className="w-3 h-3"/> Reportar Fallo</button>
+                                                                                    </div>
+                                                                                </li>
+                                                                            )})}
+                                                                      </ul>
+                                                                  </div>
+                                                              )}
+                                                          </div>
+                                                      ))}
+                                                  </div>
+                                              </div>
+                                          </div>
+                                      )
+                                  })}
+                              </div>
+                          )}
+                      </div>
+                  ))}
+              </div>
+          </div>
+      )}
+
+      {/* --- PESTAÑAS RESTANTES (Special, Seasons, Files, Finances) --- */}
+      {tab === 'special-orders' && (
+          <div className="bg-white p-6 rounded-xl shadow max-w-4xl mx-auto">
+              <h3 className="font-bold text-lg mb-6 flex items-center gap-2 text-indigo-700"><Briefcase className="w-5 h-5"/> Registro de Pedidos Especiales</h3>
+              <div className="bg-indigo-50 p-6 rounded-xl border border-indigo-100 mb-8">
+                  <p className="text-sm text-indigo-800 mb-6">Herramienta para registrar servicios adicionales o ventas directas fuera del catálogo estándar.</p>
+                  <form onSubmit={handleCreateSpecialOrder} className="space-y-6">
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                          <div><label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Club</label><select required className="w-full border rounded p-2.5 text-sm bg-white" value={newSpecialOrder.clubId} onChange={e => setNewSpecialOrder({...newSpecialOrder, clubId: e.target.value})}><option value="">-- Seleccionar Club --</option>{clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}</select></div>
+                          <div><label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Método de Pago</label><div className="grid grid-cols-3 gap-2"><button type="button" onClick={() => setNewSpecialOrder({...newSpecialOrder, paymentMethod: 'invoice'})} className={`flex flex-col items-center justify-center p-2 rounded border text-xs ${newSpecialOrder.paymentMethod === 'invoice' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}><FileText className="w-4 h-4 mb-1"/> Factura</button><button type="button" onClick={() => setNewSpecialOrder({...newSpecialOrder, paymentMethod: 'cash'})} className={`flex flex-col items-center justify-center p-2 rounded border text-xs ${newSpecialOrder.paymentMethod === 'cash' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}><Banknote className="w-4 h-4 mb-1"/> Efectivo</button><button type="button" onClick={() => setNewSpecialOrder({...newSpecialOrder, paymentMethod: 'transfer'})} className={`flex flex-col items-center justify-center p-2 rounded border text-xs ${newSpecialOrder.paymentMethod === 'transfer' ? 'bg-indigo-600 text-white border-indigo-600' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'}`}><Landmark className="w-4 h-4 mb-1"/> Transf.</button></div></div>
+                      </div>
+                      <div><div className="flex justify-between items-center mb-2"><label className="block text-xs font-bold text-gray-600 uppercase">Conceptos</label><button type="button" onClick={handleAddSpecialItem} className="text-xs text-indigo-600 font-bold hover:underline flex items-center gap-1"><Plus className="w-3 h-3"/> Añadir Línea</button></div><div className="space-y-2">{newSpecialOrder.items.map((item, index) => (<div key={index} className="flex gap-2 items-start"><div className="flex-1"><input required placeholder="Descripción" className="w-full border rounded p-2 text-sm" value={item.description} onChange={e => updateSpecialItem(index, 'description', e.target.value)} /></div><div className="w-20"><input type="number" min="1" placeholder="Cant." className="w-full border rounded p-2 text-sm text-center" value={item.quantity} onChange={e => updateSpecialItem(index, 'quantity', e.target.value)} /></div><div className="w-24 relative"><input type="number" step="0.01" placeholder="PVP" className="w-full border rounded p-2 text-sm text-right pr-6" value={item.price} onChange={e => updateSpecialItem(index, 'price', e.target.value)} /><span className="absolute right-2 top-2 text-gray-400 text-xs">€</span></div><div className="w-24 relative"><input type="number" step="0.01" placeholder="Coste" className="w-full border rounded p-2 text-sm text-right pr-6 bg-gray-50 text-gray-500" value={item.cost} onChange={e => updateSpecialItem(index, 'cost', e.target.value)} /><span className="absolute right-2 top-2 text-gray-400 text-xs">€</span></div>{newSpecialOrder.items.length > 1 && (<button type="button" onClick={() => handleRemoveSpecialItem(index)} className="p-2 text-red-400 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>)}</div>))}</div></div>
+                      <div className="bg-white p-4 rounded border border-indigo-100 flex justify-end gap-8"><div className="text-right"><p className="text-xs text-gray-500 uppercase">Coste Total</p><p className="text-lg font-mono text-gray-400">{calculateSpecialTotals().totalCost.toFixed(2)}€</p></div><div className="text-right"><p className="text-xs text-indigo-600 font-bold uppercase">Total a Cobrar</p><p className="text-2xl font-bold text-indigo-900">{calculateSpecialTotals().total.toFixed(2)}€</p></div></div>
+                      <Button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 py-3 shadow-lg shadow-indigo-200">Registrar Pedido Especial</Button>
+                  </form>
+              </div>
+              <div><h4 className="font-bold text-gray-700 mb-4">Últimos Pedidos Especiales</h4><div className="space-y-2">{financialOrders.filter(o => o.type === 'special').map(order => (<div key={order.id} className="border p-4 rounded-lg flex justify-between items-center bg-gray-50 hover:bg-white transition-colors"><div><p className="font-bold text-indigo-900">{order.items.length > 1 ? `${order.items.length} Artículos` : order.items[0]?.name}</p><p className="text-xs text-gray-500 flex gap-2"><span>{order.clubName}</span><span>•</span><span>{new Date(order.createdAt?.seconds * 1000).toLocaleDateString()}</span></p></div><div className="text-right"><span className="block font-bold text-lg">{order.total}€</span></div></div>))}</div></div>
+          </div>
+      )}
+
+      {tab === 'seasons' && (<div className="bg-white p-6 rounded-xl shadow max-w-4xl mx-auto"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Calendar className="w-5 h-5 text-emerald-600"/> Gestión de Temporadas</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 bg-gray-50 p-6 rounded-xl border border-gray-100"><div><label className="block text-sm font-medium mb-1">Nombre</label><input id="sName" className="w-full border p-2 rounded" placeholder="Ej. 24/25" /></div><div><label className="block text-sm font-medium mb-1">Inicio</label><input id="sStart" type="date" className="w-full border p-2 rounded" /></div><div><label className="block text-sm font-medium mb-1">Fin</label><div className="flex gap-2"><input id="sEnd" type="date" className="w-full border p-2 rounded" /><Button onClick={() => { const name = document.getElementById('sName').value; const start = document.getElementById('sStart').value; const end = document.getElementById('sEnd').value; if(name && start && end) addSeason({name, startDate: start, endDate: end}); }}><Plus className="w-4 h-4"/></Button></div></div></div><div className="border rounded-lg overflow-hidden"><table className="w-full text-left"><thead className="bg-gray-100 text-gray-600 text-xs uppercase"><tr><th className="p-4">Nombre</th><th className="p-4">Inicio</th><th className="p-4">Fin</th><th className="p-4 text-right">Acciones</th></tr></thead><tbody className="divide-y">{seasons.map(s => (<tr key={s.id}><td className="p-4 font-medium">{s.name}</td><td className="p-4 text-gray-500">{new Date(s.startDate).toLocaleDateString()}</td><td className="p-4 text-gray-500">{new Date(s.endDate).toLocaleDateString()}</td><td className="p-4 text-right"><button onClick={() => deleteSeason(s.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table></div></div>)}
+      {tab === 'files' && (<div className="bg-white p-6 rounded-xl shadow h-full min-h-[500px]"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Folder className="w-5 h-5 text-emerald-600"/> Explorador de Archivos</h3><div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-full"><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Clubes</h4><div className="space-y-1">{clubs.map(c => (<div key={c.id} onClick={() => { setSelectedClubFiles(c.id); setSelectedFolder(null); }} className={`p-2 rounded cursor-pointer text-sm flex items-center justify-between ${selectedClubFiles === c.id ? 'bg-emerald-50 text-emerald-700 font-medium' : 'hover:bg-gray-50'}`}>{c.name}<ChevronRight className="w-4 h-4 opacity-50"/></div>))}</div></div><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Carpetas</h4>{!selectedClubFiles ? <p className="text-sm text-gray-400 italic">Selecciona un club</p> : <div className="space-y-1">{getClubFolders(selectedClubFiles).map(folder => (<div key={folder} onClick={() => setSelectedFolder(folder)} className={`p-2 rounded cursor-pointer text-sm flex items-center gap-2 ${selectedFolder === folder ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'}`}><Folder className={`w-4 h-4 ${selectedFolder === folder ? 'fill-current' : ''}`}/>{folder}</div>))}</div>}</div><div className="col-span-2"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Archivos</h4>{!selectedFolder ? <div className="flex flex-col items-center justify-center h-48 text-gray-400 border-2 border-dashed rounded-lg"><CornerDownRight className="w-8 h-8 mb-2 opacity-50"/><p className="text-sm">Selecciona carpeta</p></div> : <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">{getFolderPhotos(selectedClubFiles, selectedFolder).map(photo => (<div key={photo.id} className="group relative border rounded-lg p-2 hover:shadow-md transition-shadow"><div className="aspect-square bg-gray-100 rounded mb-2 overflow-hidden"><img src={photo.url} className="w-full h-full object-cover" /></div><p className="text-xs font-medium truncate" title={photo.filename}>{photo.filename}</p></div>))}</div>}</div></div></div>)}
+      {tab === 'finances' && (<div className="space-y-6"><div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm"><h2 className="text-xl font-bold flex items-center gap-2"><Euro className="w-6 h-6 text-emerald-600"/> Dashboard Financiero</h2><div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg"><Calendar className="w-4 h-4 text-gray-500"/><select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer" value={financeSeasonId} onChange={(e) => setFinanceSeasonId(e.target.value)}><option value="all">Todas las Temporadas</option>{seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><StatCard title="Ventas Totales" value={`${totalRevenue.toFixed(2)}€`} color="blue" /><StatCard title="Beneficio Neto" value={`${netProfit.toFixed(2)}€`} color="emerald" highlight /><StatCard title="Ticket Medio" value={`${averageTicket.toFixed(2)}€`} color="gray" /><StatCard title="Coste Incidencias" value={`${totalIncidentCosts.toFixed(2)}€`} color="red" /></div></div>)}
+    </div>
+  );
+}
+
+function OrderSuccessView({ setView }) {
+    return (
+        <div className="text-center py-20 animate-fade-in-up">
+            <div className="w-24 h-24 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-6 shadow-lg"><Check className="w-12 h-12 text-green-600" /></div>
+            <h2 className="text-3xl font-bold mb-4">¡Pedido Realizado con Éxito!</h2>
+            <p className="text-gray-600 max-w-md mx-auto mb-8">Hemos recibido tu pedido correctamente.</p>
+            <div className="flex justify-center gap-4"><Button onClick={() => setView('home')}>Volver al Inicio</Button><Button variant="outline" onClick={() => setView('tracking')}>Ir al Seguimiento</Button></div>
+        </div>
+    );
+}
+
+export default function App() {
+  const [user, setUser] = useState(null); 
+  const [view, setView] = useState('home'); 
+  const [cart, setCart] = useState([]);
+  const [role, setRole] = useState('public'); 
+  const [currentClub, setCurrentClub] = useState(null); 
+  const [notification, setNotification] = useState(null); 
+  const [confirmation, setConfirmation] = useState(null); 
+  
+  const [orders, setOrders] = useState([]);
+  const [products, setProducts] = useState(PRODUCTS_INITIAL);
+  const [clubs, setClubs] = useState(CLUBS_MOCK);
+  const [seasons, setSeasons] = useState(SEASONS_INITIAL);
+  
+  const [financialConfig, setFinancialConfig] = useState(FINANCIAL_CONFIG_INITIAL);
+  const [modificationFee, setModificationFee] = useState(1.00);
+  const [storeConfig, setStoreConfig] = useState({ isOpen: true, closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." });
+
+  useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } }; initAuth(); const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); return () => unsubscribe(); }, []);
+  useEffect(() => { if (!user) return; const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); setOrders(ordersData); }, (err) => console.error("Error fetching orders:", err)); return () => unsubOrders(); }, [user]);
+
+  const addToCart = (product, customization, finalPrice) => { if (!storeConfig.isOpen) { showNotification('La tienda está cerrada temporalmente.', 'error'); return; } setCart([...cart, { ...product, ...customization, price: finalPrice, cartId: Date.now() }]); showNotification('Producto añadido al carrito'); };
+  const removeFromCart = (cartId) => { setCart(cart.filter(item => item.cartId !== cartId)); };
+  const createOrder = async (orderData) => { if (!user) return; const targetClub = clubs.find(c => c.id === orderData.clubId); const activeGlobalBatch = targetClub ? targetClub.activeGlobalOrderId : 1; try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { ...orderData, createdAt: serverTimestamp(), globalBatch: activeGlobalBatch, status: orderData.paymentMethod === 'cash' ? 'pendiente_validacion' : 'recopilando', visibleStatus: orderData.paymentMethod === 'cash' ? 'Pendiente pago en Club' : 'Recopilando Pedidos', type: 'standard', incidents: [] }); setCart([]); setView('order-success'); } catch (e) { showNotification('Error al crear el pedido', 'error'); } };
+  const createSpecialOrder = async (orderData) => { try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { ...orderData, createdAt: serverTimestamp(), status: 'en_produccion', visibleStatus: 'Pedido Especial en Curso', type: 'special', incidents: [] }); showNotification('Pedido especial registrado con éxito'); } catch(e) { showNotification('Error al crear pedido especial', 'error'); } };
+  const updateOrderStatus = async (orderId, newStatus, newVisibleStatus) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { status: newStatus, visibleStatus: newVisibleStatus || 'Actualizado' }); showNotification('Estado actualizado'); } catch (e) { showNotification('Error actualizando pedido', 'error'); } };
+  const addIncident = async (orderId, incidentData) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents: arrayUnion(incidentData) }); showNotification('Incidencia/Reimpresión registrada'); } catch (e) { showNotification('Error registrando incidencia', 'error'); } };
+  const updateIncidentStatus = async (orderId, incidents) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents }); showNotification('Estado de incidencia actualizado'); } catch(e) { showNotification('Error actualizando incidencia', 'error'); } };
+  const updateGlobalBatchStatus = async (clubId, batchId, newStatus) => { const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; let count = 0; for (const order of batchOrders) { if (order.status !== newStatus) { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id); await updateDoc(orderRef, { status: newStatus, visibleStatus: batchLabel }); count++; } } if (newStatus === 'en_produccion') { const club = clubs.find(c => c.id === clubId); if (club && club.activeGlobalOrderId === batchId) { setClubs(prevClubs => prevClubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: c.activeGlobalOrderId + 1 } : c)); showNotification(`Lote Global enviado a Producción. Se ha abierto automáticamente el Lote #${batchId + 1} para nuevos pedidos.`, 'success'); } } showNotification(`Se actualizaron ${count} pedidos del Lote #${batchId} a "${batchLabel}".`); };
+  const incrementClubGlobalOrder = (clubId) => { const club = clubs.find(c => c.id === clubId); setConfirmation({ msg: `¿Cerrar el Pedido Global #${club.activeGlobalOrderId} para ${club.name}? Se abrirá el #${club.activeGlobalOrderId + 1}.`, onConfirm: () => { setClubs(clubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: c.activeGlobalOrderId + 1 } : c)); showNotification(`Nuevo Pedido Global iniciado para ${club.name}`); } }); };
+  const decrementClubGlobalOrder = (clubId, newActiveId) => { setClubs(clubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: newActiveId } : c)); showNotification(`Se ha reabierto el Pedido Global #${newActiveId}`); };
+  const updateProduct = (updatedProduct) => { setProducts(products.map(p => p.id === updatedProduct.id ? updatedProduct : p)); showNotification('Producto actualizado'); };
+  const addProduct = () => { const newProduct = { id: Date.now(), name: 'Nuevo Producto', price: 10.00, cost: 5.00, category: 'General', image: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 0, features: { name: true, number: true, photo: false, shield: true, color: false }, defaults: { name: true, number: true, photo: false, shield: true }, modifiable: { name: true, number: true, photo: false, shield: true } }; setProducts([...products, newProduct]); showNotification('Nuevo producto creado'); };
+  const deleteProduct = (id) => { setConfirmation({ msg: '¿Estás seguro de eliminar este producto? Esta acción no se puede deshacer.', onConfirm: () => { setProducts(prevProducts => prevProducts.filter(p => p.id !== id)); showNotification('Producto eliminado'); } }); };
+  const createClub = (newClub) => { setClubs([...clubs, { ...newClub, id: `club-${Date.now()}`, pass: 'club123', blocked: false, activeGlobalOrderId: 1 }]); showNotification('Nuevo club creado'); };
+  const updateClub = (updatedClub) => { setClubs(clubs.map(c => c.id === updatedClub.id ? updatedClub : c)); showNotification('Datos del club actualizados'); };
+  const deleteClub = (clubId) => { setConfirmation({ msg: '¿Seguro que quieres eliminar este club?', onConfirm: () => { setClubs(prevClubs => prevClubs.filter(c => c.id !== clubId)); showNotification('Club eliminado'); } }); }
+  const toggleClubBlock = (clubId) => { const club = clubs.find(c => c.id === clubId); const newStatus = !club.blocked; setClubs(clubs.map(c => c.id === clubId ? { ...c, blocked: newStatus } : c)); showNotification(newStatus ? `Club ${club.name} bloqueado` : `Club ${club.name} desbloqueado`, newStatus ? 'error' : 'success'); };
+  const addSeason = (newSeason) => { setSeasons([...seasons, { ...newSeason, id: `s-${Date.now()}` }]); showNotification('Temporada creada correctamente'); };
+  const deleteSeason = (seasonId) => { if(seasons.length <= 1) { showNotification('Debe haber al menos una temporada activa.', 'error'); return; } setConfirmation({ msg: '¿Eliminar esta temporada? Los datos históricos asociados seguirán existiendo pero no se podrán filtrar por ella.', onConfirm: () => { setSeasons(seasons.filter(s => s.id !== seasonId)); showNotification('Temporada eliminada'); } }); };
+  const showNotification = (msg, type = 'success') => { setNotification({ msg, type }); setTimeout(() => setNotification(null), 4000); };
+  const handleLogin = (username, password) => { if (username === 'admin' && password === 'admin123') { setRole('admin'); setView('admin-dashboard'); showNotification('Bienvenido Administrador'); } else { const club = clubs.find(c => c.id === username && password === c.pass); if (club) { setRole('club'); setCurrentClub(club); setView('club-dashboard'); showNotification(`Bienvenido ${club.name}`); } else { showNotification('Credenciales incorrectas', 'error'); } } };
+
+  return (
+    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
+      {!storeConfig.isOpen && <div className="bg-red-600 text-white p-3 text-center font-bold sticky top-0 z-[60] shadow-md flex items-center justify-center gap-2"><Ban className="w-5 h-5"/>{storeConfig.closedMessage}</div>}
+      <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-200" style={{top: !storeConfig.isOpen ? '48px' : '0'}}>
+        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex justify-between items-center h-16">
+            <div className="flex items-center cursor-pointer" onClick={() => setView('home')}><CompanyLogo /></div>
+            <nav className="hidden md:flex space-x-8">
+              {role === 'public' && <><button onClick={() => setView('home')} className="hover:text-emerald-600 font-medium">Inicio</button><button onClick={() => setView('shop')} className="hover:text-emerald-600 font-medium">Tienda</button><button onClick={() => setView('photo-search')} className="hover:text-emerald-600 font-medium">Fotos</button><button onClick={() => setView('tracking')} className="hover:text-emerald-600 font-medium">Seguimiento</button></>}
+              {role === 'club' && <button className="text-emerald-600 font-bold">Portal Club: {currentClub.name}</button>}
+              {role === 'admin' && <button className="text-emerald-600 font-bold">Panel de Administración</button>}
+            </nav>
+            <div className="flex items-center gap-4">
+              {role === 'public' && <div className="relative cursor-pointer" onClick={() => setView('cart')}><ShoppingCart className="w-6 h-6 text-gray-600 hover:text-emerald-600" />{cart.length > 0 && <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs rounded-full w-5 h-5 flex items-center justify-center">{cart.length}</span>}</div>}
+              {role !== 'public' ? <button onClick={() => { setRole('public'); setView('home'); setCurrentClub(null); }} className="text-gray-500 hover:text-red-500"><LogOut className="w-5 h-5" /></button> : <button onClick={() => setView('login')} className="flex items-center gap-1 text-sm font-medium text-gray-500 hover:text-emerald-600"><User className="w-5 h-5" /><span className="hidden sm:inline">Acceso</span></button>}
+            </div>
+          </div>
+        </div>
+      </header>
+      {confirmation && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] backdrop-blur-sm animate-fade-in"><div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4 border-2 border-gray-100"><div className="flex items-center gap-2 mb-4 text-red-600"><AlertCircle className="w-6 h-6"/><h3 className="font-bold text-lg text-gray-900">Confirmar Acción</h3></div><p className="text-gray-600 mb-6">{confirmation.msg}</p><div className="flex justify-end gap-3"><Button variant="secondary" onClick={() => setConfirmation(null)}>Cancelar</Button><Button variant="danger" onClick={() => { confirmation.onConfirm(); setConfirmation(null); }}>Confirmar</Button></div></div></div>}
+      <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[calc(100vh-200px)]">
+        {notification && <div className={`fixed top-20 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white flex items-center gap-3 ${notification.type === 'error' ? 'bg-red-500' : 'bg-gray-800'} transition-all animate-fade-in-down`}>{notification.type === 'success' && <Check className="w-5 h-5 text-emerald-400" />}{notification.type === 'error' && <AlertCircle className="w-5 h-5 text-white" />}<span className="font-medium">{notification.msg}</span></div>}
+        {view === 'home' && <HomeView setView={setView} />}
+        {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={modificationFee} storeConfig={storeConfig} />}
+        {view === 'cart' && <CartView cart={cart} removeFromCart={removeFromCart} createOrder={createOrder} total={cart.reduce((sum, item) => sum + item.price, 0)} clubs={clubs} storeConfig={storeConfig} />}
+        {view === 'photo-search' && <PhotoSearchView clubs={clubs} />}
+        {view === 'tracking' && <TrackingView orders={orders} />}
+        {view === 'login' && <LoginView handleLogin={handleLogin} clubs={clubs} />}
+        {view === 'order-success' && <OrderSuccessView setView={setView} />}
+        {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
+        {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons} />}
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} modificationFee={modificationFee} setModificationFee={setModificationFee} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} />}
+      </main>
+      <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-8" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
+    </div>
+  );
+}

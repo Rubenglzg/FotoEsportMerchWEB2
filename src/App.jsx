@@ -780,13 +780,46 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       return details.join(', ');
   };
 
+  const toggleBatchPaymentStatus = (club, batchId, field) => {
+      const currentLog = club.accountingLog || {};
+      const batchLog = currentLog[batchId] || { supplierPaid: false, clubPaid: false, commercialPaid: false, fullCollection: false };
+      
+      const newBatchLog = { 
+          ...batchLog, 
+          [field]: !batchLog[field] 
+      };
+
+      updateClub({
+          ...club,
+          accountingLog: {
+              ...currentLog,
+              [batchId]: newBatchLog
+          }
+      });
+  };
+
+  // --- Función para guardar ajustes numéricos (Deudas/Cambios) ---
+  const updateBatchValue = (club, batchId, field, value) => {
+      const currentLog = club.accountingLog || {};
+      const batchLog = currentLog[batchId] || {};
+      
+      updateClub({
+          ...club,
+          accountingLog: {
+              ...currentLog,
+              [batchId]: { ...batchLog, [field]: parseFloat(value) || 0 }
+          }
+      });
+  };
+
   return (
     <div>
       <div className="flex gap-2 mb-8 overflow-x-auto pb-2 border-b bg-white p-2 rounded-lg shadow-sm">
         {[
             {id: 'management', label: 'Gestión', icon: LayoutDashboard},
-            {id: 'accounting', label: 'Pedidos', icon: FileSpreadsheet},
+            {id: 'accounting', label: 'Pedidos', icon: Package},
             {id: 'special-orders', label: 'Pedidos Especiales', icon: Briefcase},
+            {id: 'accounting-control', label: 'Contabilidad', icon: Banknote},
             {id: 'seasons', label: 'Temporadas', icon: Calendar}, 
             {id: 'files', label: 'Archivos', icon: Folder},
             {id: 'finances', label: 'Estadísticas', icon: BarChart3},
@@ -1024,6 +1057,241 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                       </div>
                   ))}
               </div>
+          </div>
+      )}
+
+{/* --- PESTAÑA DE CONTABILIDAD (VERSIÓN V4 - DOBLE CAJA DE AJUSTE) --- */}
+      {tab === 'accounting-control' && (
+          <div className="bg-white p-6 rounded-xl shadow space-y-8 animate-fade-in-up">
+              <div className="flex justify-between items-center border-b pb-4">
+                  <div>
+                      <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-800">
+                          <Banknote className="w-8 h-8 text-emerald-600"/> 
+                          Control de Contabilidad
+                      </h2>
+                      <p className="text-gray-500">Gestión de caja y pagos con desglose de sobrantes y faltantes.</p>
+                  </div>
+                  <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
+                      <Calendar className="w-4 h-4 text-gray-500"/>
+                      <select 
+                          className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" 
+                          value={financeSeasonId} 
+                          onChange={(e) => setFinanceSeasonId(e.target.value)}
+                      >
+                          <option value="all">Todas las Temporadas</option>
+                          {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                      </select>
+                  </div>
+              </div>
+
+              {accountingData.map(({ club, batches }) => {
+                  // --- CÁLCULOS DE ESTADO DE CUENTA ---
+                  let totalPendingCash = 0;
+                  let balanceProvider = 0;   
+                  let balanceCommercial = 0; 
+                  let balanceClub = 0;       
+
+                  batches.forEach(batch => {
+                      const log = club.accountingLog?.[batch.id] || {};
+                      
+                      // Importes Base del Lote
+                      const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
+                      const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
+                      const bTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
+                      
+                      const bCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+                      const bCommComm = bTotal * financialConfig.commercialCommissionPct;
+                      const bCommClub = bTotal * financialConfig.clubCommissionPct;
+
+                      // LÓGICA DE SALDOS:
+                      // Formula: (Base si no está pagado) + (Lo pagado de Menos) - (Lo pagado de Más)
+                      
+                      // Efectivo Pendiente (Nos deben los clientes)
+                      // Si marcamos "RECOGIDO", asumimos que tenemos todo, salvo lo que pongamos en "De menos" (falta) o "De más" (sobra).
+                      totalPendingCash += (!log.cashCollected ? cashTotal : 0) + (log.cashUnder || 0) - (log.cashOver || 0);
+                      
+                      // Proveedor (Debemos nosotros)
+                      balanceProvider += (!log.supplierPaid ? bCost : 0) + (log.supplierUnder || 0) - (log.supplierOver || 0);
+                      
+                      // Comercial (Debemos nosotros)
+                      balanceCommercial += (!log.commercialPaid ? bCommComm : 0) + (log.commercialUnder || 0) - (log.commercialOver || 0);
+                      
+                      // Club (Debemos nosotros)
+                      balanceClub += (!log.clubPaid ? bCommClub : 0) + (log.clubUnder || 0) - (log.clubOver || 0);
+                  });
+
+                  // Función auxiliar para renderizar el estado del saldo
+                  const renderBalance = (amount, labelPositive, labelNegative) => {
+                      if (Math.abs(amount) < 0.01) return <span className="text-green-600 font-bold">Al día (0.00€)</span>;
+                      if (amount > 0) return <span className="text-red-600 font-bold">{labelPositive} {amount.toFixed(2)}€</span>; // Falta dinero / Debemos
+                      return <span className="text-blue-600 font-bold">{labelNegative} {Math.abs(amount).toFixed(2)}€</span>; // Sobra dinero / Nos deben
+                  };
+
+                  return (
+                      <div key={club.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm mb-8">
+                          {/* CABECERA CLUB */}
+                          <div className="bg-gray-800 text-white p-4 flex justify-between items-center">
+                              <div className="flex items-center gap-3">
+                                  <div className="w-10 h-10 rounded-full bg-emerald-500 flex items-center justify-center text-white font-bold">
+                                      {club.code?.slice(0,2)}
+                                  </div>
+                                  <div>
+                                      <h3 className="font-bold text-lg">{club.name}</h3>
+                                      <p className="text-xs text-gray-400">{batches.length} Lotes Gestionados</p>
+                                  </div>
+                              </div>
+                          </div>
+
+                          {/* PANEL DE ESTADO DE CUENTAS */}
+                          <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-200 border-b border-gray-200">
+                              <div className="bg-white p-4 text-center">
+                                  <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Caja Efectivo</p>
+                                  <p className="text-xl">
+                                      {renderBalance(totalPendingCash, 'Faltan', 'Sobra')}
+                                  </p>
+                              </div>
+                              <div className="bg-white p-4 text-center border-l border-gray-100">
+                                  <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Saldo Proveedor</p>
+                                  <p className="text-xl">
+                                      {renderBalance(balanceProvider, 'Debemos', 'A favor')}
+                                  </p>
+                              </div>
+                              <div className="bg-white p-4 text-center border-l border-gray-100">
+                                  <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Saldo Comercial</p>
+                                  <p className="text-xl">
+                                      {renderBalance(balanceCommercial, 'Debemos', 'A favor')}
+                                  </p>
+                              </div>
+                              <div className="bg-white p-4 text-center border-l border-gray-100">
+                                  <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Saldo Club</p>
+                                  <p className="text-xl">
+                                      {renderBalance(balanceClub, 'Debemos', 'A favor')}
+                                  </p>
+                              </div>
+                          </div>
+
+                          {/* TABLA DETALLADA */}
+                          <div className="overflow-x-auto">
+                              <table className="w-full text-sm text-left">
+                                  <thead className="bg-gray-50 text-gray-600 text-xs uppercase font-bold">
+                                      <tr>
+                                          <th className="px-4 py-3 min-w-[100px]">Lote</th>
+                                          <th className="px-4 py-3 text-right bg-blue-50/30">Tarjeta</th>
+                                          <th className="px-4 py-3 text-right bg-orange-50/30">Efectivo</th>
+                                          <th className="px-4 py-3 text-center bg-orange-50/30 min-w-[160px]">Control Caja</th>
+                                          <th className="px-4 py-3 min-w-[160px]">Pago Proveedor</th>
+                                          <th className="px-4 py-3 min-w-[160px]">Pago Comercial</th>
+                                          <th className="px-4 py-3 min-w-[160px]">Pago Club</th>
+                                      </tr>
+                                  </thead>
+                                  <tbody className="divide-y divide-gray-100 bg-white">
+                                      {batches.map(batch => {
+                                          const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
+                                          const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
+                                          
+                                          const cardTotal = cardOrders.reduce((sum, o) => sum + o.total, 0);
+                                          const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
+                                          const bTotal = cardTotal + cashTotal;
+
+                                          const bCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+                                          const bCommComm = bTotal * financialConfig.commercialCommissionPct;
+                                          const bCommClub = bTotal * financialConfig.clubCommissionPct;
+
+                                          const status = club.accountingLog?.[batch.id] || {};
+
+                                          // Helper para inputs de ajuste
+                                          const AdjustmentInputs = ({ fieldOver, fieldUnder, colorClass = "gray" }) => (
+                                              <div className="flex gap-2 mt-2">
+                                                  <div className="flex-1">
+                                                      <label className="text-[9px] text-gray-400 block mb-0.5">De más</label>
+                                                      <input 
+                                                          type="number" 
+                                                          placeholder="0" 
+                                                          className={`w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300`}
+                                                          value={status[fieldOver] || ''}
+                                                          onChange={(e) => updateBatchValue(club, batch.id, fieldOver, e.target.value)}
+                                                      />
+                                                  </div>
+                                                  <div className="flex-1">
+                                                      <label className="text-[9px] text-gray-400 block mb-0.5">De menos</label>
+                                                      <input 
+                                                          type="number" 
+                                                          placeholder="0" 
+                                                          className={`w-full text-right text-xs border rounded px-1 py-0.5 bg-red-50 border-red-100 focus:border-red-300`}
+                                                          value={status[fieldUnder] || ''}
+                                                          onChange={(e) => updateBatchValue(club, batch.id, fieldUnder, e.target.value)}
+                                                      />
+                                                  </div>
+                                              </div>
+                                          );
+
+                                          return (
+                                              <tr key={batch.id} className="hover:bg-gray-50 transition-colors align-top">
+                                                  <td className="px-4 py-4">
+                                                      <span className="font-bold text-gray-800 bg-gray-100 px-2 py-1 rounded">#{batch.id}</span>
+                                                      <div className="text-[10px] text-gray-400 mt-1">{batch.orders.length} pedidos</div>
+                                                  </td>
+                                                  
+                                                  <td className="px-4 py-4 text-right bg-blue-50/30">
+                                                      <span className="font-mono font-bold text-blue-700">{cardTotal.toFixed(2)}€</span>
+                                                  </td>
+
+                                                  <td className="px-4 py-4 text-right bg-orange-50/30">
+                                                      <span className="font-mono font-bold text-orange-700">{cashTotal.toFixed(2)}€</span>
+                                                  </td>
+                                                  
+                                                  <td className="px-4 py-4 bg-orange-50/30">
+                                                      {cashTotal > 0 ? (
+                                                          <button 
+                                                              onClick={() => toggleBatchPaymentStatus(club, batch.id, 'cashCollected')}
+                                                              className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all mb-1 ${status.cashCollected 
+                                                                  ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' 
+                                                                  : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}
+                                                          >
+                                                              {status.cashCollected ? 'RECOGIDO' : 'PENDIENTE'}
+                                                          </button>
+                                                      ) : <div className="text-center text-xs text-gray-300 py-1">-</div>}
+                                                      <AdjustmentInputs fieldOver="cashOver" fieldUnder="cashUnder" />
+                                                  </td>
+
+                                                  <td className="px-4 py-4">
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="text-xs text-red-500 font-bold">-{bCost.toFixed(2)}€</span>
+                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                              {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                          </button>
+                                                      </div>
+                                                      <AdjustmentInputs fieldOver="supplierOver" fieldUnder="supplierUnder" />
+                                                  </td>
+
+                                                  <td className="px-4 py-4">
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="text-xs text-blue-500 font-bold">-{bCommComm.toFixed(2)}€</span>
+                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                              {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                          </button>
+                                                      </div>
+                                                      <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
+                                                  </td>
+
+                                                  <td className="px-4 py-4">
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="text-xs text-purple-500 font-bold">-{bCommClub.toFixed(2)}€</span>
+                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                              {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                          </button>
+                                                      </div>
+                                                      <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
+                                                  </td>
+                                              </tr>
+                                          );
+                                      })}
+                                  </tbody>
+                              </table>
+                          </div>
+                      </div>
+                  );
+              })}
           </div>
       )}
 

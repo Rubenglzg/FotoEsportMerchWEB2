@@ -785,7 +785,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       <div className="flex gap-2 mb-8 overflow-x-auto pb-2 border-b bg-white p-2 rounded-lg shadow-sm">
         {[
             {id: 'management', label: 'Gestión', icon: LayoutDashboard},
-            {id: 'accounting', label: 'Contabilidad (Lotes)', icon: FileSpreadsheet},
+            {id: 'accounting', label: 'Pedidos', icon: FileSpreadsheet},
             {id: 'special-orders', label: 'Pedidos Especiales', icon: Briefcase},
             {id: 'seasons', label: 'Temporadas', icon: Calendar}, 
             {id: 'files', label: 'Archivos', icon: Folder},
@@ -911,11 +911,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-      {/* --- CONTABILIDAD --- */}
+      {/* --- PEDIDOS --- */}
       {tab === 'accounting' && (
           <div className="bg-white p-6 rounded-xl shadow">
               <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-bold text-lg flex items-center gap-2"><FileSpreadsheet className="w-5 h-5 text-emerald-600"/> Contabilidad por Club</h3>
+                  <h3 className="font-bold text-lg flex items-center gap-2"><FileSpreadsheet className="w-5 h-5 text-emerald-600"/> Pedidos por Club</h3>
                   <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
                       <Calendar className="w-4 h-4 text-gray-500"/>
                       <select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" value={financeSeasonId} onChange={(e) => setFinanceSeasonId(e.target.value)}>

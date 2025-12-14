@@ -1151,78 +1151,6 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       {tab === 'management' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
               <div className="bg-white p-6 rounded-xl shadow h-fit space-y-6">
-                  <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
-                      <h4 className="font-bold text-blue-800 mb-4 flex items-center gap-2"><Layers className="w-5 h-5"/> Control de Pedidos Globales</h4>
-                      
-                      <div className="mb-4">
-                          <label className="block text-xs font-bold text-blue-600 mb-1 uppercase">Seleccionar Club</label>
-                          <select 
-                            className="w-full border border-blue-200 rounded p-2 text-sm bg-white"
-                            value={selectedClubId}
-                            onChange={(e) => setSelectedClubId(e.target.value)}
-                          >
-                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                      </div>
-
-                        <div className="bg-white p-3 rounded border border-blue-100 space-y-3">
-                          <div className="flex justify-between items-center">
-                              <div>
-                                  <p className="text-xs text-gray-500 mb-1">Pedido Global Activo</p>
-                                  
-                                    {/* --- EDICIÓN MANUAL DEL LOTE (LÁPIZ VERDE VISIBLE) --- */}
-                                  {isEditingActiveBatch ? (
-                                      <div className="flex items-center gap-2">
-                                          <span className="text-2xl font-bold text-blue-900">#</span>
-                                          <input 
-                                              type="number" 
-                                              className="w-20 border rounded p-1 text-xl font-bold text-blue-900" 
-                                              value={tempBatchValue} 
-                                              onChange={(e) => setTempBatchValue(e.target.value)}
-                                              autoFocus
-                                          />
-                                          <button onClick={saveActiveBatchManually} className="p-1 bg-green-100 text-green-700 rounded hover:bg-green-200"><Check className="w-4 h-4"/></button>
-                                          <button onClick={() => setIsEditingActiveBatch(false)} className="p-1 bg-red-100 text-red-700 rounded hover:bg-red-200"><X className="w-4 h-4"/></button>
-                                      </div>
-                                  ) : (
-                                      <div className="flex items-center gap-2">
-                                          <p className="text-2xl font-bold text-blue-900">#{selectedClub?.activeGlobalOrderId}</p>
-                                          <button 
-                                              onClick={() => { setTempBatchValue(selectedClub?.activeGlobalOrderId); setIsEditingActiveBatch(true); }}
-                                              // CAMBIO AQUÍ: Color verde claro y visible siempre
-                                              className="text-emerald-500 hover:text-emerald-700 transition-colors p-1"
-                                              title="Editar manualmente"
-                                          >
-                                              <Edit3 className="w-5 h-5"/>
-                                          </button>
-                                      </div>
-                                  )}
-                              </div>
-                              
-                              <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
-                                  <Archive className="w-4 h-4 mr-1"/> Cerrar y Abrir Nuevo
-                              </Button>
-                          </div>
-                          
-                          {/* ... resto del botón de deshacer (handleRevertGlobalBatch) ... */}
-                            {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
-                              <div className="border-t border-dashed border-blue-200 pt-2 flex justify-end">
-                                  <button 
-                                      onClick={() => setConfirmation({
-                                          title: "⚠️ ¿Reabrir Lote Anterior?",
-                                          msg: `Estás a punto de cancelar el Lote Global #${selectedClub.activeGlobalOrderId} (Actual) para volver a activar el Lote #${selectedClub.activeGlobalOrderId - 1}.\n\nSi el lote actual tiene pedidos, se te pedirá qué hacer con ellos en el siguiente paso.\n\n¿Deseas continuar?`,
-                                          onConfirm: () => handleRevertGlobalBatch(selectedClubId)
-                                      })}
-                                      className="text-xs flex items-center gap-1 text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
-                                  >
-                                      <RotateCcw className="w-3 h-3"/> Deshacer / Reabrir Anterior (#{selectedClub.activeGlobalOrderId - 1})
-                                  </button>
-                              </div>
-                          )}
-                      </div>
-                      <p className="text-xs text-blue-400 mt-2">Los nuevos pedidos de {selectedClub?.name} irán al Global #{selectedClub?.activeGlobalOrderId}.</p>
-                  </div>
-
                   <div className={`p-4 rounded-lg border ${storeConfig.isOpen ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
                       <div className="flex justify-between items-center mb-2">
                           <h4 className={`font-bold ${storeConfig.isOpen ? 'text-emerald-800' : 'text-red-800'}`}>Tienda Global</h4>
@@ -1573,10 +1501,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-{/* --- PESTAÑA DE PEDIDOS (V10 - SIN PARPADEO EN LOTE ACTIVO) --- */}
+{/* --- PESTAÑA DE PEDIDOS (V12 - DISEÑO INTEGRADO) --- */}
       {tab === 'accounting' && (
           <div className="bg-white p-6 rounded-xl shadow h-full animate-fade-in-up">
-              <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+              {/* CABECERA Y FILTROS */}
+              <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 border-b pb-6">
                   <h3 className="font-bold text-lg flex items-center gap-2">
                       <FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 
                       Gestión de Pedidos
@@ -1608,6 +1537,95 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                       </div>
                   </div>
               </div>
+
+              {/* --- PANEL DE GESTIÓN DE LOTES (BARRA DE HERRAMIENTAS) --- */}
+              <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 mb-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+                  <div className="flex items-center gap-4 w-full md:w-auto">
+                      <div className="bg-blue-100 p-2 rounded-full text-blue-600">
+                          <Layers className="w-5 h-5"/>
+                      </div>
+                      <div>
+                          <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wide">Control de Lotes</h4>
+                          <p className="text-xs text-slate-500">Gestionar apertura y cierre de pedidos globales.</p>
+                      </div>
+                  </div>
+
+                    {/* Selector de Club y Lote Activo (DISEÑO LIMPIO) */}
+                  <div className="flex flex-col md:flex-row items-center gap-6 flex-1 justify-center bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100 mx-4">
+                      
+                      {/* SELECTOR DE CLUB (Sin bordes) */}
+                      <div className="relative group flex items-center">
+                          <select 
+                            className="appearance-none bg-transparent text-base font-extrabold text-slate-700 pr-8 cursor-pointer focus:outline-none hover:text-blue-600 transition-colors text-center md:text-left"
+                            value={selectedClubId}
+                            onChange={(e) => setSelectedClubId(e.target.value)}
+                          >
+                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                          {/* Flecha personalizada usando ChevronRight rotado */}
+                          <ChevronRight className="w-4 h-4 text-slate-400 absolute right-0 pointer-events-none group-hover:text-blue-500 rotate-90 transition-colors"/>
+                      </div>
+                      
+                      <div className="h-8 w-px bg-slate-100 hidden md:block"></div>
+
+                      <div className="flex items-center gap-3">
+                          {/* ETIQUETA MÁS VISIBLE (Gris oscuro en vez de claro) */}
+                          <span className="text-xs text-slate-600 font-bold uppercase tracking-wider">Lote Activo</span>
+                          
+                          {isEditingActiveBatch ? (
+                              <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg border border-slate-200">
+                                  <span className="text-base font-extrabold text-slate-500 pl-2">#</span>
+                                  <input 
+                                      type="number" 
+                                      // TAMAÑO REDUCIDO EN EDICIÓN TAMBIÉN
+                                      className="w-12 bg-transparent border-none p-0 text-base font-extrabold text-slate-800 focus:ring-0" 
+                                      value={tempBatchValue} 
+                                      onChange={(e) => setTempBatchValue(e.target.value)}
+                                      autoFocus
+                                  />
+                                  <button onClick={saveActiveBatchManually} className="text-emerald-600 hover:bg-emerald-50 p-1 rounded"><Check className="w-4 h-4"/></button>
+                                  <button onClick={() => setIsEditingActiveBatch(false)} className="text-red-500 hover:bg-red-50 p-1 rounded"><X className="w-4 h-4"/></button>
+                              </div>
+                          ) : (
+                              <div 
+                                  className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 px-3 py-1.5 rounded-lg transition-colors group" 
+                                  onClick={() => { setTempBatchValue(selectedClub?.activeGlobalOrderId); setIsEditingActiveBatch(true); }}
+                                  title="Click para editar"
+                              >
+                                  {/* TAMAÑO REDUCIDO (text-base) PARA IGUALAR AL NOMBRE DEL CLUB */}
+                                  <span className="text-base font-extrabold text-slate-800">#{selectedClub?.activeGlobalOrderId}</span>
+                                  
+                                  {/* LÁPIZ MÁS VISIBLE (Verde intenso) */}
+                                  <Edit3 className="w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-colors"/>
+                              </div>
+                          )}
+                      </div>
+                  </div>
+
+                  {/* Botones de Acción */}
+                  <div className="flex items-center gap-2">
+                      {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
+                          <button 
+                              onClick={() => setConfirmation({
+                                  title: "⚠️ ¿Reabrir Lote Anterior?",
+                                  msg: `Estás a punto de cancelar el Lote Global #${selectedClub.activeGlobalOrderId} (Actual) para volver a activar el Lote #${selectedClub.activeGlobalOrderId - 1}.\n\nSi el lote actual tiene pedidos, se te pedirá qué hacer con ellos.\n\n¿Continuar?`,
+                                  onConfirm: () => handleRevertGlobalBatch(selectedClubId)
+                              })}
+                              className="text-xs font-bold text-slate-500 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded transition-colors flex items-center gap-2"
+                          >
+                              <RotateCcw className="w-3 h-3"/> Deshacer
+                          </button>
+                      )}
+                      
+                      <Button 
+                          onClick={() => incrementClubGlobalOrder(selectedClubId)} 
+                          className="bg-blue-600 hover:bg-blue-700 text-white shadow-md text-xs py-2 px-4"
+                      >
+                          <Archive className="w-4 h-4 mr-2"/> Cerrar y Abrir Nuevo
+                      </Button>
+                  </div>
+              </div>
+              {/* ------------------------------------------------------------- */}
               
               <div className="space-y-12">
                   {accountingData.map(({ club, batches }) => (

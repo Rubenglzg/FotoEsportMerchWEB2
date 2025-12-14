@@ -623,21 +623,27 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           return d >= start && d <= end;
       });
   }, [orders, financeSeasonId, seasons]);
-
+  
+// Lógica de agrupación de pedidos 
   const accountingData = useMemo(() => {
       return clubs.map(club => {
           const clubOrders = financialOrders.filter(o => o.clubId === club.id);
           const batches = {};
           
           clubOrders.forEach(order => {
-              const batchId = order.globalBatch || 1;
+              // Si el pedido es especial, forzamos el lote 'SPECIAL'
+              const batchId = order.type === 'special' ? 'SPECIAL' : (order.globalBatch || 1);
               if (!batches[batchId]) batches[batchId] = [];
               batches[batchId].push(order);
           });
 
           const sortedBatches = Object.entries(batches)
-              .map(([id, orders]) => ({ id: parseInt(id), orders }))
-              .sort((a, b) => b.id - a.id);
+              .map(([id, orders]) => ({ id: id === 'SPECIAL' ? 'SPECIAL' : parseInt(id), orders }))
+              .sort((a, b) => {
+                  if (a.id === 'SPECIAL') return -1; // Los especiales primero
+                  if (b.id === 'SPECIAL') return 1;
+                  return b.id - a.id; // Orden descendente para los numéricos
+              });
 
           return { club, batches: sortedBatches };
       });
@@ -944,14 +950,21 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-      {/* --- PEDIDOS --- */}
+    {/* --- PESTAÑA DE PEDIDOS (VERSIÓN CORREGIDA V6) --- */}
       {tab === 'accounting' && (
-          <div className="bg-white p-6 rounded-xl shadow">
+          <div className="bg-white p-6 rounded-xl shadow h-full animate-fade-in-up">
               <div className="flex justify-between items-center mb-6">
-                  <h3 className="font-bold text-lg flex items-center gap-2"><FileSpreadsheet className="w-5 h-5 text-emerald-600"/> Pedidos por Club</h3>
+                  <h3 className="font-bold text-lg flex items-center gap-2">
+                      <FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 
+                      Gestión de Pedidos
+                  </h3>
                   <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
                       <Calendar className="w-4 h-4 text-gray-500"/>
-                      <select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" value={financeSeasonId} onChange={(e) => setFinanceSeasonId(e.target.value)}>
+                      <select 
+                          className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" 
+                          value={financeSeasonId} 
+                          onChange={(e) => setFinanceSeasonId(e.target.value)}
+                      >
                           <option value="all">Todas las Temporadas</option>
                           {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                       </select>
@@ -960,94 +973,193 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
               
               <div className="space-y-12">
                   {accountingData.map(({ club, batches }) => (
-                      <div key={club.id} className="border rounded-xl overflow-hidden">
+                      <div key={club.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
                           <div className="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
-                              <h4 className="font-bold text-lg">{club.name}</h4>
-                              <span className="text-xs bg-gray-700 px-2 py-1 rounded text-gray-300">{batches.length} Pedidos Globales</span>
+                              <div className="flex items-center gap-3">
+                                  <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs">{club.code}</div>
+                                  <h4 className="font-bold text-lg">{club.name}</h4>
+                              </div>
+                              <span className="text-xs bg-gray-700 px-3 py-1 rounded-full text-gray-300">{batches.length} Lotes</span>
                           </div>
                           
                           {batches.length === 0 ? (
-                              <p className="p-4 text-gray-400 text-sm text-center">No hay actividad en este periodo.</p>
+                              <p className="p-8 text-gray-400 text-sm text-center italic">No hay pedidos registrados.</p>
                           ) : (
                               <div className="divide-y divide-gray-200">
                                   {batches.map(batch => {
+                                      const isSpecialBatch = batch.id === 'SPECIAL';
                                       const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
-                                      const batchStatus = batch.orders[0]?.status || 'recopilando';
-                                      const incidentCosts = batch.orders.reduce((sum, o) => sum + (o.incidents?.reduce((iSum, inc) => iSum + (inc.cost || 0), 0) || 0), 0);
-
+                                      // Calcular estado mayoritario del lote si no es especial
+                                      const batchStatus = isSpecialBatch ? 'special' : (batch.orders[0]?.status || 'recopilando');
+                                      
                                       return (
-                                          <div key={batch.id} className="p-4 bg-white hover:bg-gray-50">
-                                              <div className="flex flex-wrap justify-between items-center mb-4">
+                                          <div key={batch.id} className={`p-4 ${isSpecialBatch ? 'bg-indigo-50/30' : 'bg-white hover:bg-gray-50'}`}>
+                                              {/* CABECERA DEL LOTE */}
+                                              <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                                                   <div className="flex items-center gap-4">
-                                                      <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
-                                                      <Badge status={batchStatus} />
-                                                      {incidentCosts > 0 && <span className="text-xs bg-red-100 text-red-600 px-2 py-1 rounded font-bold border border-red-200 flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Coste Incidencias: -{incidentCosts.toFixed(2)}€</span>}
+                                                      {isSpecialBatch ? (
+                                                          <span className="font-black text-lg text-indigo-700 flex items-center gap-2">
+                                                              <Briefcase className="w-5 h-5"/> PEDIDOS ESPECIALES
+                                                          </span>
+                                                      ) : (
+                                                          <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
+                                                      )}
+                                                      
+                                                      {!isSpecialBatch && <Badge status={batchStatus} />}
+                                                      <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
+                                                          Total: {batchTotal.toFixed(2)}€
+                                                      </span>
                                                   </div>
+
                                                   <div className="flex items-center gap-2">
-                                                      <Button size="xs" variant="outline" className="mr-2" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)}>
-                                                          <FileDown className="w-3 h-3 text-green-600"/> Excel Global
+                                                      <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)}>
+                                                          <FileDown className="w-3 h-3 mr-1"/> {isSpecialBatch ? 'Excel Completo' : 'Excel Lote'}
                                                       </Button>
-                                                      <Button size="xs" variant="outline" className="mr-2" onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)}>
-                                                          <Printer className="w-3 h-3 text-blue-600"/> Albarán Global
+                                                      <Button size="xs" variant="outline" onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)}>
+                                                          <Printer className="w-3 h-3 mr-1"/> {isSpecialBatch ? 'Albarán Completo' : 'Albarán Lote'}
                                                       </Button>
 
-                                                      <label className="text-xs font-bold text-gray-500 uppercase ml-2">Fase Lote:</label>
-                                                      <select 
-                                                          value={batchStatus}
-                                                          onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
-                                                          className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer focus:outline-none focus:ring-2 focus:ring-offset-1 ${
-                                                              batchStatus === 'recopilando' ? 'bg-blue-50 text-blue-700 border-blue-200 focus:ring-blue-500' :
-                                                              batchStatus === 'en_produccion' ? 'bg-purple-50 text-purple-700 border-purple-200 focus:ring-purple-500' :
-                                                              'bg-green-50 text-green-700 border-green-200 focus:ring-green-500'
-                                                          }`}
-                                                      >
-                                                          <option value="recopilando">Recopilando</option>
-                                                          <option value="en_produccion">En Producción</option>
-                                                          <option value="entregado_club">Entregado</option>
-                                                      </select>
+                                                      {!isSpecialBatch && (
+                                                          <div className="flex items-center gap-2 ml-4 border-l pl-4 border-gray-300">
+                                                              <label className="text-[10px] font-bold text-gray-500 uppercase">Estado Lote:</label>
+                                                              <select 
+                                                                  value={batchStatus}
+                                                                  onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
+                                                                  className="text-xs border rounded py-1 px-2 font-bold cursor-pointer bg-white"
+                                                              >
+                                                                  <option value="recopilando">Recopilando</option>
+                                                                  <option value="en_produccion">En Producción</option>
+                                                                  <option value="entregado_club">Entregado</option>
+                                                              </select>
+                                                          </div>
+                                                      )}
                                                   </div>
                                               </div>
 
-                                              <div className="pl-4 border-l-2 border-gray-200">
-                                                  <p className="text-xs font-bold text-gray-400 uppercase mb-2">Desglose Individual</p>
-                                                  <div className="space-y-2">
-                                                      {batch.orders.map(order => (
-                                                          <div key={order.id} className="border rounded-lg bg-gray-50">
-                                                              <div onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-100">
-                                                                  <div className="flex gap-4 items-center">
-                                                                      {order.type === 'special' ? <Badge status="special_order"/> : <span className="font-mono text-xs font-bold bg-white border px-1 rounded">#{order.id.slice(0,6)}</span>}
-                                                                      <span className="font-medium text-sm">{order.customer.name}</span>
-                                                                  </div>
-                                                                  <div className="flex gap-4 items-center text-sm">
-                                                                      <span className="font-bold">{order.total}€</span>
-                                                                      <ChevronRight className={`w-4 h-4 transition-transform ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
+                                              {/* LISTA DE PEDIDOS DEL LOTE */}
+                                              <div className="pl-4 border-l-4 border-gray-200 space-y-2">
+                                                  {batch.orders.map(order => (
+                                                      <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all">
+                                                          {/* RESUMEN PEDIDO (Click para expandir) */}
+                                                          <div 
+                                                              onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
+                                                              className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
+                                                          >
+                                                              <div className="flex gap-4 items-center">
+                                                                  {order.type === 'special' ? (
+                                                                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
+                                                                  ) : (
+                                                                      <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded">#{order.id.slice(0,6)}</span>
+                                                                  )}
+                                                                  <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
+                                                                  <Badge status={order.status} />
+                                                              </div>
+                                                              <div className="flex gap-4 items-center text-sm">
+                                                                  <span className="font-bold">{order.total.toFixed(2)}€</span>
+                                                                  <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
+                                                              </div>
+                                                          </div>
+                                                          
+                                                          {/* DETALLE EXPANDIDO */}
+                                                          {expandedOrderId === order.id && (
+                                                              <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
+                                                                  
+                                                                  {/* --- PANEL DE CONTROL INDIVIDUAL (SOLO PEDIDOS ESPECIALES) --- */}
+                                                                  {order.type === 'special' && (
+                                                                      <div className="mb-6 bg-white p-4 rounded-lg border-2 border-indigo-100 shadow-sm flex flex-wrap items-center gap-4">
+                                                                          <div className="flex items-center gap-2 text-indigo-700">
+                                                                              <Briefcase className="w-5 h-5"/>
+                                                                              <span className="font-bold text-xs uppercase tracking-wide">Gestión Individual</span>
+                                                                          </div>
+                                                                          
+                                                                          {/* Selector de Estado */}
+                                                                          <div className="flex flex-col">
+                                                                              <label className="text-[10px] text-gray-400 font-bold uppercase mb-1">Estado</label>
+                                                                              <select 
+                                                                                  value={order.status} 
+                                                                                  onChange={(e) => updateOrderStatus(order.id, e.target.value, e.target.options[e.target.selectedIndex].text)}
+                                                                                  className="text-xs border-indigo-200 rounded py-1.5 px-2 bg-indigo-50 font-medium focus:ring-2 focus:ring-indigo-500 cursor-pointer"
+                                                                              >
+                                                                                  <option value="recopilando">Recopilando</option>
+                                                                                  <option value="en_produccion">En Producción</option>
+                                                                                  <option value="entregado_club">Entregado</option>
+                                                                              </select>
+                                                                          </div>
+
+                                                                          <div className="h-8 w-px bg-gray-200 mx-2"></div>
+
+                                                                          {/* Botones de Acción Individual */}
+                                                                          <div className="flex gap-2">
+                                                                              <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" 
+                                                                                  onClick={() => generateBatchExcel(`ESP-${order.id.slice(0,6)}`, [order], club.name)}>
+                                                                                  <FileDown className="w-4 h-4 mr-1"/> Descargar Excel
+                                                                              </Button>
+                                                                              <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" 
+                                                                                  onClick={() => printBatchAlbaran(`ESP-${order.id.slice(0,6)}`, [order], club.name, 0)}>
+                                                                                  <Printer className="w-4 h-4 mr-1"/> Imprimir Albarán
+                                                                              </Button>
+                                                                          </div>
+                                                                      </div>
+                                                                  )}
+                                                                  {/* -------------------------------------------------------- */}
+
+                                                                  <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2">
+                                                                      <Package className="w-3 h-3"/> Productos del Pedido
+                                                                  </h5>
+                                                                  
+                                                                  <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100">
+                                                                      {order.items.map(item => {
+                                                                          const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
+                                                                          const itemTotal = (item.quantity || 1) * item.price;
+                                                                          
+                                                                          return (
+                                                                            <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                                                                                <div className="flex gap-3 items-center flex-1">
+                                                                                    {item.image ? (
+                                                                                        <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" />
+                                                                                    ) : (
+                                                                                        <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>
+                                                                                    )}
+                                                                                    <div>
+                                                                                        <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                                                                                        <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
+                                                                                    </div>
+                                                                                </div>
+                                                                                
+                                                                                {/* DATOS ECONÓMICOS INDIVIDUALES */}
+                                                                                <div className="flex items-center gap-6 mr-4">
+                                                                                    <div className="text-right">
+                                                                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Cantidad</p>
+                                                                                        <p className="font-medium text-sm">{item.quantity || 1} ud.</p>
+                                                                                    </div>
+                                                                                    <div className="text-right">
+                                                                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Precio Unit.</p>
+                                                                                        <p className="font-medium text-sm">{item.price.toFixed(2)}€</p>
+                                                                                    </div>
+                                                                                    <div className="text-right w-20">
+                                                                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Subtotal</p>
+                                                                                        <p className="font-bold text-emerald-600 text-sm">{itemTotal.toFixed(2)}€</p>
+                                                                                    </div>
+                                                                                </div>
+
+                                                                                <div className="flex items-center gap-3 border-l pl-4">
+                                                                                    {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
+                                                                                    <button 
+                                                                                        onClick={(e) => { e.stopPropagation(); setIncidentForm({ active: true, orderId: order.id, item: item, cost: item.cost || 0, note: '' }); }} 
+                                                                                        className="text-gray-300 hover:text-red-500 p-1 hover:bg-red-50 rounded transition-colors" 
+                                                                                        title="Reportar Incidencia"
+                                                                                    >
+                                                                                        <AlertTriangle className="w-4 h-4"/>
+                                                                                    </button>
+                                                                                </div>
+                                                                            </div>
+                                                                        );
+                                                                      })}
                                                                   </div>
                                                               </div>
-                                                              
-                                                              {expandedOrderId === order.id && (
-                                                                  <div className="p-4 bg-white border-t text-sm animate-fade-in-down">
-                                                                      <h5 className="font-bold text-gray-500 mb-2 text-xs uppercase">Productos</h5>
-                                                                      <ul className="space-y-3 mb-4">
-                                                                          {order.items.map(item => {
-                                                                              const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
-                                                                              return (
-                                                                                <li key={item.cartId || Math.random()} className="flex justify-between items-start group">
-                                                                                    <div className="flex gap-3">
-                                                                                        {item.image && <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-100" />}
-                                                                                        <div><p className="font-bold text-gray-800">{item.name}</p><p className="text-xs text-gray-500">{renderProductDetails(item)}</p></div>
-                                                                                    </div>
-                                                                                    <div className="flex items-center gap-3">
-                                                                                        {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
-                                                                                        <button onClick={(e) => { e.stopPropagation(); setIncidentForm({ active: true, orderId: order.id, item: item, cost: item.cost || 0, note: '' }); }} className="text-gray-300 hover:text-red-500 text-xs flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity"><AlertTriangle className="w-3 h-3"/> Reportar Fallo</button>
-                                                                                    </div>
-                                                                                </li>
-                                                                            )})}
-                                                                      </ul>
-                                                                  </div>
-                                                              )}
-                                                          </div>
-                                                      ))}
-                                                  </div>
+                                                          )}
+                                                      </div>
+                                                  ))}
                                               </div>
                                           </div>
                                       )
@@ -1060,7 +1172,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-{/* --- PESTAÑA DE CONTABILIDAD (VERSIÓN V4 - DOBLE CAJA DE AJUSTE) --- */}
+{/* --- PESTAÑA DE CONTABILIDAD (VERSIÓN V5 - CON PEDIDOS ESPECIALES SEPARADOS) --- */}
       {tab === 'accounting-control' && (
           <div className="bg-white p-6 rounded-xl shadow space-y-8 animate-fade-in-up">
               <div className="flex justify-between items-center border-b pb-4">
@@ -1069,7 +1181,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                           <Banknote className="w-8 h-8 text-emerald-600"/> 
                           Control de Contabilidad
                       </h2>
-                      <p className="text-gray-500">Gestión de caja y pagos con desglose de sobrantes y faltantes.</p>
+                      <p className="text-gray-500">Gestión de caja, pedidos especiales y lotes globales.</p>
                   </div>
                   <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
                       <Calendar className="w-4 h-4 text-gray-500"/>
@@ -1094,7 +1206,6 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   batches.forEach(batch => {
                       const log = club.accountingLog?.[batch.id] || {};
                       
-                      // Importes Base del Lote
                       const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
                       const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
                       const bTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
@@ -1103,28 +1214,16 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                       const bCommComm = bTotal * financialConfig.commercialCommissionPct;
                       const bCommClub = bTotal * financialConfig.clubCommissionPct;
 
-                      // LÓGICA DE SALDOS:
-                      // Formula: (Base si no está pagado) + (Lo pagado de Menos) - (Lo pagado de Más)
-                      
-                      // Efectivo Pendiente (Nos deben los clientes)
-                      // Si marcamos "RECOGIDO", asumimos que tenemos todo, salvo lo que pongamos en "De menos" (falta) o "De más" (sobra).
                       totalPendingCash += (!log.cashCollected ? cashTotal : 0) + (log.cashUnder || 0) - (log.cashOver || 0);
-                      
-                      // Proveedor (Debemos nosotros)
                       balanceProvider += (!log.supplierPaid ? bCost : 0) + (log.supplierUnder || 0) - (log.supplierOver || 0);
-                      
-                      // Comercial (Debemos nosotros)
                       balanceCommercial += (!log.commercialPaid ? bCommComm : 0) + (log.commercialUnder || 0) - (log.commercialOver || 0);
-                      
-                      // Club (Debemos nosotros)
                       balanceClub += (!log.clubPaid ? bCommClub : 0) + (log.clubUnder || 0) - (log.clubOver || 0);
                   });
 
-                  // Función auxiliar para renderizar el estado del saldo
                   const renderBalance = (amount, labelPositive, labelNegative) => {
                       if (Math.abs(amount) < 0.01) return <span className="text-green-600 font-bold">Al día (0.00€)</span>;
-                      if (amount > 0) return <span className="text-red-600 font-bold">{labelPositive} {amount.toFixed(2)}€</span>; // Falta dinero / Debemos
-                      return <span className="text-blue-600 font-bold">{labelNegative} {Math.abs(amount).toFixed(2)}€</span>; // Sobra dinero / Nos deben
+                      if (amount > 0) return <span className="text-red-600 font-bold">{labelPositive} {amount.toFixed(2)}€</span>; 
+                      return <span className="text-blue-600 font-bold">{labelNegative} {Math.abs(amount).toFixed(2)}€</span>; 
                   };
 
                   return (
@@ -1137,45 +1236,36 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   </div>
                                   <div>
                                       <h3 className="font-bold text-lg">{club.name}</h3>
-                                      <p className="text-xs text-gray-400">{batches.length} Lotes Gestionados</p>
+                                      <p className="text-xs text-gray-400">{batches.length} Bloques de Pedidos</p>
                                   </div>
                               </div>
                           </div>
 
-                          {/* PANEL DE ESTADO DE CUENTAS */}
+                          {/* PANEL DE ESTADO */}
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-200 border-b border-gray-200">
                               <div className="bg-white p-4 text-center">
                                   <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Caja Efectivo</p>
-                                  <p className="text-xl">
-                                      {renderBalance(totalPendingCash, 'Faltan', 'Sobra')}
-                                  </p>
+                                  <p className="text-xl">{renderBalance(totalPendingCash, 'Faltan', 'Sobra')}</p>
                               </div>
                               <div className="bg-white p-4 text-center border-l border-gray-100">
                                   <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Saldo Proveedor</p>
-                                  <p className="text-xl">
-                                      {renderBalance(balanceProvider, 'Debemos', 'A favor')}
-                                  </p>
+                                  <p className="text-xl">{renderBalance(balanceProvider, 'Debemos', 'A favor')}</p>
                               </div>
                               <div className="bg-white p-4 text-center border-l border-gray-100">
                                   <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Saldo Comercial</p>
-                                  <p className="text-xl">
-                                      {renderBalance(balanceCommercial, 'Debemos', 'A favor')}
-                                  </p>
+                                  <p className="text-xl">{renderBalance(balanceCommercial, 'Debemos', 'A favor')}</p>
                               </div>
                               <div className="bg-white p-4 text-center border-l border-gray-100">
                                   <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Saldo Club</p>
-                                  <p className="text-xl">
-                                      {renderBalance(balanceClub, 'Debemos', 'A favor')}
-                                  </p>
+                                  <p className="text-xl">{renderBalance(balanceClub, 'Debemos', 'A favor')}</p>
                               </div>
                           </div>
 
-                          {/* TABLA DETALLADA */}
                           <div className="overflow-x-auto">
                               <table className="w-full text-sm text-left">
                                   <thead className="bg-gray-50 text-gray-600 text-xs uppercase font-bold">
                                       <tr>
-                                          <th className="px-4 py-3 min-w-[100px]">Lote</th>
+                                          <th className="px-4 py-3 min-w-[120px]">Bloque / Lote</th>
                                           <th className="px-4 py-3 text-right bg-blue-50/30">Tarjeta</th>
                                           <th className="px-4 py-3 text-right bg-orange-50/30">Efectivo</th>
                                           <th className="px-4 py-3 text-center bg-orange-50/30 min-w-[160px]">Control Caja</th>
@@ -1186,6 +1276,9 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   </thead>
                                   <tbody className="divide-y divide-gray-100 bg-white">
                                       {batches.map(batch => {
+                                          // DETECTAR SI ES ESPECIAL
+                                          const isSpecial = batch.id === 'SPECIAL';
+                                          
                                           const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
                                           const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
                                           
@@ -1199,55 +1292,34 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
                                           const status = club.accountingLog?.[batch.id] || {};
 
-                                          // Helper para inputs de ajuste
-                                          const AdjustmentInputs = ({ fieldOver, fieldUnder, colorClass = "gray" }) => (
+                                          const AdjustmentInputs = ({ fieldOver, fieldUnder }) => (
                                               <div className="flex gap-2 mt-2">
-                                                  <div className="flex-1">
-                                                      <label className="text-[9px] text-gray-400 block mb-0.5">De más</label>
-                                                      <input 
-                                                          type="number" 
-                                                          placeholder="0" 
-                                                          className={`w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300`}
-                                                          value={status[fieldOver] || ''}
-                                                          onChange={(e) => updateBatchValue(club, batch.id, fieldOver, e.target.value)}
-                                                      />
-                                                  </div>
-                                                  <div className="flex-1">
-                                                      <label className="text-[9px] text-gray-400 block mb-0.5">De menos</label>
-                                                      <input 
-                                                          type="number" 
-                                                          placeholder="0" 
-                                                          className={`w-full text-right text-xs border rounded px-1 py-0.5 bg-red-50 border-red-100 focus:border-red-300`}
-                                                          value={status[fieldUnder] || ''}
-                                                          onChange={(e) => updateBatchValue(club, batch.id, fieldUnder, e.target.value)}
-                                                      />
-                                                  </div>
+                                                  <div className="flex-1"><label className="text-[9px] text-gray-400 block mb-0.5">De más</label><input type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300" value={status[fieldOver] || ''} onChange={(e) => updateBatchValue(club, batch.id, fieldOver, e.target.value)}/></div>
+                                                  <div className="flex-1"><label className="text-[9px] text-gray-400 block mb-0.5">De menos</label><input type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-red-50 border-red-100 focus:border-red-300" value={status[fieldUnder] || ''} onChange={(e) => updateBatchValue(club, batch.id, fieldUnder, e.target.value)}/></div>
                                               </div>
                                           );
 
                                           return (
-                                              <tr key={batch.id} className="hover:bg-gray-50 transition-colors align-top">
+                                              <tr key={batch.id} className={`align-top hover:bg-gray-50 transition-colors ${isSpecial ? 'bg-indigo-50/40' : ''}`}>
                                                   <td className="px-4 py-4">
-                                                      <span className="font-bold text-gray-800 bg-gray-100 px-2 py-1 rounded">#{batch.id}</span>
-                                                      <div className="text-[10px] text-gray-400 mt-1">{batch.orders.length} pedidos</div>
+                                                      {isSpecial ? (
+                                                          <div className="inline-block">
+                                                              <span className="font-bold text-indigo-700 bg-indigo-100 border border-indigo-200 px-3 py-1 rounded-md text-xs uppercase tracking-wide shadow-sm flex items-center gap-1">
+                                                                  <Briefcase className="w-3 h-3"/> Especiales
+                                                              </span>
+                                                          </div>
+                                                      ) : (
+                                                          <span className="font-bold text-gray-800 bg-gray-100 px-2 py-1 rounded">Lote Global #{batch.id}</span>
+                                                      )}
+                                                      <div className="text-[10px] text-gray-400 mt-2">{batch.orders.length} pedidos</div>
                                                   </td>
                                                   
-                                                  <td className="px-4 py-4 text-right bg-blue-50/30">
-                                                      <span className="font-mono font-bold text-blue-700">{cardTotal.toFixed(2)}€</span>
-                                                  </td>
-
-                                                  <td className="px-4 py-4 text-right bg-orange-50/30">
-                                                      <span className="font-mono font-bold text-orange-700">{cashTotal.toFixed(2)}€</span>
-                                                  </td>
+                                                  <td className="px-4 py-4 text-right bg-blue-50/30"><span className="font-mono font-bold text-blue-700">{cardTotal.toFixed(2)}€</span></td>
+                                                  <td className="px-4 py-4 text-right bg-orange-50/30"><span className="font-mono font-bold text-orange-700">{cashTotal.toFixed(2)}€</span></td>
                                                   
                                                   <td className="px-4 py-4 bg-orange-50/30">
                                                       {cashTotal > 0 ? (
-                                                          <button 
-                                                              onClick={() => toggleBatchPaymentStatus(club, batch.id, 'cashCollected')}
-                                                              className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all mb-1 ${status.cashCollected 
-                                                                  ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' 
-                                                                  : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}
-                                                          >
+                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'cashCollected')} className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all mb-1 ${status.cashCollected ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}>
                                                               {status.cashCollected ? 'RECOGIDO' : 'PENDIENTE'}
                                                           </button>
                                                       ) : <div className="text-center text-xs text-gray-300 py-1">-</div>}
@@ -1255,32 +1327,17 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                   </td>
 
                                                   <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-xs text-red-500 font-bold">-{bCost.toFixed(2)}€</span>
-                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                              {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                          </button>
-                                                      </div>
+                                                      <div className="flex justify-between items-center mb-1"><span className="text-xs text-red-500 font-bold">-{bCost.toFixed(2)}€</span><button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>{status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}</button></div>
                                                       <AdjustmentInputs fieldOver="supplierOver" fieldUnder="supplierUnder" />
                                                   </td>
 
                                                   <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-xs text-blue-500 font-bold">-{bCommComm.toFixed(2)}€</span>
-                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                              {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                          </button>
-                                                      </div>
+                                                      <div className="flex justify-between items-center mb-1"><span className="text-xs text-blue-500 font-bold">-{bCommComm.toFixed(2)}€</span><button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>{status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}</button></div>
                                                       <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
                                                   </td>
 
                                                   <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-xs text-purple-500 font-bold">-{bCommClub.toFixed(2)}€</span>
-                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                              {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                          </button>
-                                                      </div>
+                                                      <div className="flex justify-between items-center mb-1"><span className="text-xs text-purple-500 font-bold">-{bCommClub.toFixed(2)}€</span><button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>{status.clubPaid ? 'PAGADO' : 'PENDIENTE'}</button></div>
                                                       <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
                                                   </td>
                                               </tr>
@@ -1357,7 +1414,22 @@ export default function App() {
   const addToCart = (product, customization, finalPrice) => { if (!storeConfig.isOpen) { showNotification('La tienda está cerrada temporalmente.', 'error'); return; } setCart([...cart, { ...product, ...customization, price: finalPrice, cartId: Date.now() }]); showNotification('Producto añadido al carrito'); };
   const removeFromCart = (cartId) => { setCart(cart.filter(item => item.cartId !== cartId)); };
   const createOrder = async (orderData) => { if (!user) return; const targetClub = clubs.find(c => c.id === orderData.clubId); const activeGlobalBatch = targetClub ? targetClub.activeGlobalOrderId : 1; try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { ...orderData, createdAt: serverTimestamp(), globalBatch: activeGlobalBatch, status: orderData.paymentMethod === 'cash' ? 'pendiente_validacion' : 'recopilando', visibleStatus: orderData.paymentMethod === 'cash' ? 'Pendiente pago en Club' : 'Recopilando Pedidos', type: 'standard', incidents: [] }); setCart([]); setView('order-success'); } catch (e) { showNotification('Error al crear el pedido', 'error'); } };
-  const createSpecialOrder = async (orderData) => { try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { ...orderData, createdAt: serverTimestamp(), status: 'en_produccion', visibleStatus: 'Pedido Especial en Curso', type: 'special', incidents: [] }); showNotification('Pedido especial registrado con éxito'); } catch(e) { showNotification('Error al crear pedido especial', 'error'); } };
+  const createSpecialOrder = async (orderData) => { 
+      try { 
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { 
+              ...orderData, 
+              createdAt: serverTimestamp(), 
+              status: 'en_produccion', 
+              visibleStatus: 'Pedido Especial en Curso', 
+              type: 'special', 
+              globalBatch: 'SPECIAL', // <--- CAMBIO AQUÍ (Antes era club.activeGlobalOrderId)
+              incidents: [] 
+          }); 
+          showNotification('Pedido especial registrado con éxito'); 
+      } catch(e) { 
+          showNotification('Error al crear pedido especial', 'error'); 
+      } 
+  };
   const updateOrderStatus = async (orderId, newStatus, newVisibleStatus) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { status: newStatus, visibleStatus: newVisibleStatus || 'Actualizado' }); showNotification('Estado actualizado'); } catch (e) { showNotification('Error actualizando pedido', 'error'); } };
   const addIncident = async (orderId, incidentData) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents: arrayUnion(incidentData) }); showNotification('Incidencia/Reimpresión registrada'); } catch (e) { showNotification('Error registrando incidencia', 'error'); } };
   const updateIncidentStatus = async (orderId, incidents) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents }); showNotification('Estado de incidencia actualizado'); } catch(e) { showNotification('Error actualizando incidencia', 'error'); } };

@@ -8,7 +8,7 @@ import {
   Edit3, ToggleLeft, ToggleRight, Lock, Unlock, EyeOff, Folder, FileImage, CornerDownRight,
   ArrowRight, Calendar, Ban, Store, Calculator, DollarSign, FileSpreadsheet,
   Layers, Archive, Globe, AlertTriangle, RefreshCw, Briefcase, RotateCcw, MoveLeft,
-  Landmark, Printer, FileDown
+  Landmark, Printer, FileDown, Users, Table,
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -921,6 +921,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   const [selectedClubId, setSelectedClubId] = useState(clubs[0]?.id || '');
   const [selectedClubFiles, setSelectedClubFiles] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState(null);
+  const [statsClubFilter, setStatsClubFilter] = useState('all');
   // --- ESTADOS PARA EDICIÓN Y MOVIMIENTOS ---
   const [editOrderModal, setEditOrderModal] = useState({ 
       active: false, 
@@ -1188,6 +1189,83 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       }
   };
   
+
+// --- LÓGICA AVANZADA DE ESTADÍSTICAS ---
+  const statsData = useMemo(() => {
+      // 1. Filtrar pedidos por temporada (financeSeasonId) y por club (statsClubFilter)
+      let filteredOrders = financialOrders;
+      
+      if (statsClubFilter !== 'all') {
+          filteredOrders = filteredOrders.filter(o => o.clubId === statsClubFilter);
+      }
+
+      // 2. Agregación por Categoría (Facturación) y Producto
+      const categorySales = {};
+      const productSales = {};
+      
+      filteredOrders.forEach(order => {
+          order.items.forEach(item => {
+              const qty = item.quantity || 1;
+              const subtotal = qty * item.price; // Importe total de la línea
+
+              // --- NORMALIZACIÓN DE CATEGORÍA (CARPETAS) ---
+              // "Alevin A" -> "Alevin", "Prebenjamin" -> "Prebenjamin"
+              let catName = item.category || 'General';
+              // Regex: Elimina espacio + letra/número final (ej: " A", " 1")
+              const normalizedCat = catName.trim().replace(/\s+[A-Z0-9]$/i, ''); 
+              
+              if (!categorySales[normalizedCat]) categorySales[normalizedCat] = 0;
+              
+              // >>> CAMBIO CLAVE: Sumamos SUBTOTAL (€) en vez de QTY <<<
+              categorySales[normalizedCat] += subtotal; 
+
+              // Productos (Seguimos contando unidades para "Más Vendidos")
+              if (!productSales[item.name]) productSales[item.name] = { qty: 0, total: 0 };
+              productSales[item.name].qty += qty;
+              productSales[item.name].total += subtotal;
+          });
+      });
+
+      // Convertir a arrays para ordenar y graficar
+      const sortedCategories = Object.entries(categorySales)
+          .map(([name, value]) => ({ name, value }))
+          .sort((a, b) => b.value - a.value) // Ordenar por mayor facturación
+          .slice(0, 8); // Top 8 categorías
+
+      const sortedProducts = Object.entries(productSales)
+          .map(([name, data]) => ({ name, ...data }))
+          .sort((a, b) => b.qty - a.qty) 
+          .slice(0, 5); 
+
+      // 4. Tabla Financiera Comparativa (Sin cambios en lógica, igual que antes)
+      const clubFinancials = clubs.map(club => {
+          const clubOrders = financialOrders.filter(o => o.clubId === club.id);
+          let grossSales = 0;
+          let supplierCost = 0;
+          
+          clubOrders.forEach(order => {
+              grossSales += order.total;
+              const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
+              const incidentCost = order.incidents?.reduce((sum, inc) => sum + (inc.cost || 0), 0) || 0;
+              supplierCost += (orderCost + incidentCost);
+          });
+
+          const commClub = grossSales * financialConfig.clubCommissionPct;
+          const commCommercial = grossSales * financialConfig.commercialCommissionPct;
+          const netIncome = grossSales - supplierCost - commClub - commCommercial;
+
+          return {
+              id: club.id, name: club.name, ordersCount: clubOrders.length,
+              grossSales, supplierCost, commClub, commCommercial, netIncome
+          };
+      }).sort((a, b) => b.grossSales - a.grossSales);
+
+      return { sortedCategories, sortedProducts, clubFinancials };
+  }, [financialOrders, statsClubFilter, clubs, financialConfig]);
+
+  // Función auxiliar para calcular porcentajes de ancho en gráficas
+  const getWidth = (val, max) => max > 0 ? `${(val / max) * 100}%` : '0%';
+
 // Lógica de agrupación de pedidos (V4 - Con Lote Activo siempre visible)
   const accountingData = useMemo(() => {
       const visibleClubs = filterClubId === 'all' 
@@ -2375,7 +2453,168 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
       {tab === 'seasons' && (<div className="bg-white p-6 rounded-xl shadow max-w-4xl mx-auto"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Calendar className="w-5 h-5 text-emerald-600"/> Gestión de Temporadas</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 bg-gray-50 p-6 rounded-xl border border-gray-100"><div><label className="block text-sm font-medium mb-1">Nombre</label><input id="sName" className="w-full border p-2 rounded" placeholder="Ej. 24/25" /></div><div><label className="block text-sm font-medium mb-1">Inicio</label><input id="sStart" type="date" className="w-full border p-2 rounded" /></div><div><label className="block text-sm font-medium mb-1">Fin</label><div className="flex gap-2"><input id="sEnd" type="date" className="w-full border p-2 rounded" /><Button onClick={() => { const name = document.getElementById('sName').value; const start = document.getElementById('sStart').value; const end = document.getElementById('sEnd').value; if(name && start && end) addSeason({name, startDate: start, endDate: end}); }}><Plus className="w-4 h-4"/></Button></div></div></div><div className="border rounded-lg overflow-hidden"><table className="w-full text-left"><thead className="bg-gray-100 text-gray-600 text-xs uppercase"><tr><th className="p-4">Nombre</th><th className="p-4">Inicio</th><th className="p-4">Fin</th><th className="p-4 text-right">Acciones</th></tr></thead><tbody className="divide-y">{seasons.map(s => (<tr key={s.id}><td className="p-4 font-medium">{s.name}</td><td className="p-4 text-gray-500">{new Date(s.startDate).toLocaleDateString()}</td><td className="p-4 text-gray-500">{new Date(s.endDate).toLocaleDateString()}</td><td className="p-4 text-right"><button onClick={() => deleteSeason(s.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table></div></div>)}
       {tab === 'files' && (<div className="bg-white p-6 rounded-xl shadow h-full min-h-[500px]"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Folder className="w-5 h-5 text-emerald-600"/> Explorador de Archivos</h3><div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-full"><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Clubes</h4><div className="space-y-1">{clubs.map(c => (<div key={c.id} onClick={() => { setSelectedClubFiles(c.id); setSelectedFolder(null); }} className={`p-2 rounded cursor-pointer text-sm flex items-center justify-between ${selectedClubFiles === c.id ? 'bg-emerald-50 text-emerald-700 font-medium' : 'hover:bg-gray-50'}`}>{c.name}<ChevronRight className="w-4 h-4 opacity-50"/></div>))}</div></div><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Carpetas</h4>{!selectedClubFiles ? <p className="text-sm text-gray-400 italic">Selecciona un club</p> : <div className="space-y-1">{getClubFolders(selectedClubFiles).map(folder => (<div key={folder} onClick={() => setSelectedFolder(folder)} className={`p-2 rounded cursor-pointer text-sm flex items-center gap-2 ${selectedFolder === folder ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'}`}><Folder className={`w-4 h-4 ${selectedFolder === folder ? 'fill-current' : ''}`}/>{folder}</div>))}</div>}</div><div className="col-span-2"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Archivos</h4>{!selectedFolder ? <div className="flex flex-col items-center justify-center h-48 text-gray-400 border-2 border-dashed rounded-lg"><CornerDownRight className="w-8 h-8 mb-2 opacity-50"/><p className="text-sm">Selecciona carpeta</p></div> : <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">{getFolderPhotos(selectedClubFiles, selectedFolder).map(photo => (<div key={photo.id} className="group relative border rounded-lg p-2 hover:shadow-md transition-shadow"><div className="aspect-square bg-gray-100 rounded mb-2 overflow-hidden"><img src={photo.url} className="w-full h-full object-cover" /></div><p className="text-xs font-medium truncate" title={photo.filename}>{photo.filename}</p></div>))}</div>}</div></div></div>)}
-      {tab === 'finances' && (<div className="space-y-6"><div className="flex justify-between items-center bg-white p-4 rounded-xl shadow-sm"><h2 className="text-xl font-bold flex items-center gap-2"><Euro className="w-6 h-6 text-emerald-600"/> Dashboard Financiero</h2><div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg"><Calendar className="w-4 h-4 text-gray-500"/><select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer" value={financeSeasonId} onChange={(e) => setFinanceSeasonId(e.target.value)}><option value="all">Todas las Temporadas</option>{seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}</select></div></div><div className="grid grid-cols-2 md:grid-cols-4 gap-4"><StatCard title="Ventas Totales" value={`${totalRevenue.toFixed(2)}€`} color="blue" /><StatCard title="Beneficio Neto" value={`${netProfit.toFixed(2)}€`} color="emerald" highlight /><StatCard title="Ticket Medio" value={`${averageTicket.toFixed(2)}€`} color="gray" /><StatCard title="Coste Incidencias" value={`${totalIncidentCosts.toFixed(2)}€`} color="red" /></div></div>)}
+      {tab === 'finances' && (
+          <div className="space-y-8 animate-fade-in-up pb-10">
+              {/* CABECERA CON FILTROS GLOBALES */}
+              <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
+                  <div>
+                      <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-800">
+                          <BarChart3 className="w-8 h-8 text-emerald-600"/> 
+                          Análisis de Rendimiento
+                      </h2>
+                      <p className="text-gray-500 text-sm">Visualización de ventas, productos top y rentabilidad por club.</p>
+                  </div>
+                  
+                  <div className="flex flex-wrap gap-3">
+                      {/* Filtro Temporada */}
+                      <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-lg border border-gray-200">
+                          <Calendar className="w-4 h-4 text-gray-500"/>
+                          <select 
+                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
+                              value={financeSeasonId} 
+                              onChange={(e) => setFinanceSeasonId(e.target.value)}
+                          >
+                              <option value="all">Histórico Completo</option>
+                              {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                      </div>
+
+                      {/* Filtro Club (Afecta a Gráficos) */}
+                      <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-lg border border-gray-200">
+                          <Store className="w-4 h-4 text-gray-500"/>
+                          <select 
+                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
+                              value={statsClubFilter} 
+                              onChange={(e) => setStatsClubFilter(e.target.value)}
+                          >
+                              <option value="all">Todos los Clubes</option>
+                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                      </div>
+                  </div>
+              </div>
+
+              {/* TARJETAS DE RESUMEN (KPIs) */}
+              <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+                  <StatCard title="Ventas Totales" value={`${totalRevenue.toFixed(2)}€`} color="#3b82f6" />
+                  <StatCard title="Beneficio Neto" value={`${netProfit.toFixed(2)}€`} color="#10b981" highlight />
+                  <StatCard title="Pedidos Totales" value={financialOrders.length} color="#f59e0b" />
+                  <StatCard title="Ticket Medio" value={`${averageTicket.toFixed(2)}€`} color="#6b7280" />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
+                {/* GRÁFICO: FACTURACIÓN POR CATEGORÍA */}
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                      <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+                          <Users className="w-5 h-5 text-indigo-600"/> 
+                          Facturación por Categoría
+                          <span className="text-xs font-normal text-gray-400 ml-auto">(Agrupado por carpetas)</span>
+                      </h3>
+                      <div className="space-y-4">
+                          {statsData.sortedCategories.length > 0 ? statsData.sortedCategories.map((cat, idx) => (
+                              <div key={idx} className="relative">
+                                  <div className="flex justify-between text-xs font-bold mb-1 text-gray-600">
+                                      <span className="capitalize">{cat.name}</span>
+                                      {/* FORMATO EN EUROS */}
+                                      <span>{cat.value.toFixed(2)}€</span> 
+                                  </div>
+                                  <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
+                                      <div 
+                                          className="bg-indigo-500 h-full rounded-full transition-all duration-1000 ease-out" 
+                                          // Calculamos ancho basado en la facturación máxima
+                                          style={{ width: getWidth(cat.value, statsData.sortedCategories[0].value) }}
+                                      ></div>
+                                  </div>
+                              </div>
+                          )) : <p className="text-center text-gray-400 text-sm py-10">No hay datos de ventas.</p>}
+                      </div>
+                  </div>
+
+                {/* GRÁFICO: TOP PRODUCTOS */}
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                      <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+                          <Package className="w-5 h-5 text-emerald-600"/> 
+                          Productos Más Vendidos
+                      </h3>
+                      <div className="space-y-5">
+                          {statsData.sortedProducts.length > 0 ? statsData.sortedProducts.map((prod, idx) => (
+                              <div key={idx} className="flex items-center gap-4">
+                                  <div className="w-8 h-8 rounded bg-gray-100 flex items-center justify-center font-bold text-gray-500 text-xs">#{idx+1}</div>
+                                  <div className="flex-1">
+                                      <div className="flex justify-between text-sm font-medium mb-1">
+                                          <span className="text-gray-800">{prod.name}</span>
+                                          {/* CAMBIO AQUÍ: Unidades e Importe juntos con el mismo estilo */}
+                                          <span className="text-emerald-700 font-bold">
+                                              {prod.total.toFixed(0)}€ / {prod.qty} uds
+                                          </span>
+                                      </div>
+                                      <div className="w-full bg-gray-100 rounded-full h-2">
+                                          <div 
+                                              className="bg-emerald-500 h-full rounded-full transition-all duration-1000" 
+                                              style={{ width: getWidth(prod.qty, statsData.sortedProducts[0].qty) }}
+                                          ></div>
+                                      </div>
+                                  </div>
+                              </div>
+                          )) : <p className="text-center text-gray-400 text-sm py-10">No hay productos vendidos.</p>}
+                      </div>
+                  </div>
+              </div>
+
+              {/* TABLA DE RENDIMIENTO FINANCIERO DETALLADO */}
+              <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
+                  <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
+                      <h3 className="font-bold text-gray-800 flex items-center gap-2">
+                          <Table className="w-5 h-5 text-blue-600"/> 
+                          Reporte Financiero por Club
+                      </h3>
+                  </div>
+                  <div className="overflow-x-auto">
+                      <table className="w-full text-sm text-left">
+                          <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold tracking-wider">
+                              <tr>
+                                  <th className="px-6 py-4">Club</th>
+                                  <th className="px-6 py-4 text-center">Pedidos</th>
+                                  <th className="px-6 py-4 text-right text-blue-800">Facturación</th>
+                                  <th className="px-6 py-4 text-right text-red-800">Coste Prov.</th>
+                                  <th className="px-6 py-4 text-right text-purple-800">Com. Club</th>
+                                  <th className="px-6 py-4 text-right text-orange-800">Neto Merch (Bruto)</th>
+                                  <th className="px-6 py-4 text-right bg-emerald-50 text-emerald-800">Beneficio Neto</th>
+                              </tr>
+                          </thead>
+                          <tbody className="divide-y divide-gray-100">
+                              {statsData.clubFinancials.map(cf => (
+                                  <tr key={cf.id} className="hover:bg-gray-50 transition-colors">
+                                      <td className="px-6 py-4 font-bold text-gray-800">{cf.name}</td>
+                                      <td className="px-6 py-4 text-center">
+                                          <span className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-bold">{cf.ordersCount}</span>
+                                      </td>
+                                      <td className="px-6 py-4 text-right font-medium">{cf.grossSales.toFixed(2)}€</td>
+                                      <td className="px-6 py-4 text-right text-red-600 font-medium">-{cf.supplierCost.toFixed(2)}€</td>
+                                      <td className="px-6 py-4 text-right text-purple-600">-{cf.commClub.toFixed(2)}€</td>
+                                      {/* Neto Merch (Antes de costes internos si los hubiera) - Aquí asumo es el comercial */}
+                                      <td className="px-6 py-4 text-right text-orange-600">+{cf.commCommercial.toFixed(2)}€</td>
+                                      <td className="px-6 py-4 text-right font-black text-emerald-600 bg-emerald-50/50">
+                                          {cf.netIncome.toFixed(2)}€
+                                      </td>
+                                  </tr>
+                              ))}
+                              {/* TOTALES */}
+                              <tr className="bg-gray-100 font-bold border-t-2 border-gray-300">
+                                  <td className="px-6 py-4">TOTALES</td>
+                                  <td className="px-6 py-4 text-center">{financialOrders.length}</td>
+                                  <td className="px-6 py-4 text-right">{statsData.clubFinancials.reduce((s, c) => s + c.grossSales, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-red-700">-{statsData.clubFinancials.reduce((s, c) => s + c.supplierCost, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-purple-700">-{statsData.clubFinancials.reduce((s, c) => s + c.commClub, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-orange-700">+{statsData.clubFinancials.reduce((s, c) => s + c.commCommercial, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-emerald-700">{statsData.clubFinancials.reduce((s, c) => s + c.netIncome, 0).toFixed(2)}€</td>
+                              </tr>
+                          </tbody>
+                      </table>
+                  </div>
+              </div>
+          </div>
+      )}
     </div>
   );
 }

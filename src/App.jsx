@@ -478,7 +478,7 @@ function HomeView({ setView }) {
   );
 }
 
-function ShopView({ products, addToCart, clubs, modificationFee, storeConfig }) {
+function ShopView({ products, addToCart, clubs, modificationFee, storeConfig, setConfirmation }) {
   const [selectedProduct, setSelectedProduct] = useState(null);
   return (
     <div>
@@ -492,19 +492,109 @@ function ShopView({ products, addToCart, clubs, modificationFee, storeConfig }) 
             </div>
           ))}
         </div>
-      ) : <ProductCustomizer product={selectedProduct} onBack={() => setSelectedProduct(null)} onAdd={addToCart} clubs={clubs} modificationFee={modificationFee} storeConfig={storeConfig} />}
+      ) : (
+        // Pasar setConfirmation al ProductCustomizer
+        <ProductCustomizer 
+            product={selectedProduct} 
+            onBack={() => setSelectedProduct(null)} 
+            onAdd={addToCart} 
+            clubs={clubs} 
+            modificationFee={modificationFee} 
+            storeConfig={storeConfig} 
+            setConfirmation={setConfirmation} 
+        />
+      )}
     </div>
   );
 }
 
-function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, storeConfig }) {
+function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation }) {
   const defaults = product.defaults || {};
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
-  const [customization, setCustomization] = useState({ clubId: '', playerName: '', playerNumber: '', color: 'white', includeName: defaults.name ?? true, includeNumber: defaults.number ?? true, includePhoto: defaults.photo ?? false, includeShield: defaults.shield ?? true });
+  
+  // Estados para los inputs del buscador
+  const [clubInput, setClubInput] = useState('');
+  const [categoryInput, setCategoryInput] = useState('');
+  const [showClubSuggestions, setShowClubSuggestions] = useState(false);
+  const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
+
+  const [customization, setCustomization] = useState({ 
+      clubId: '', 
+      category: '', 
+      playerName: '', 
+      playerNumber: '', 
+      color: 'white', 
+      includeName: defaults.name ?? true, 
+      includeNumber: defaults.number ?? true, 
+      includePhoto: defaults.photo ?? false, 
+      includeShield: defaults.shield ?? true 
+  });
+
+  // Sugerencias de Clubes
+  const clubSuggestions = useMemo(() => {
+      if (clubInput.length < 2) return [];
+      return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase()));
+  }, [clubInput, clubs]);
+
+  // Obtener carpetas del club seleccionado
+  const availableCategories = useMemo(() => {
+      return getClubFolders(customization.clubId);
+  }, [customization.clubId]);
+
+  // Sugerencias de Categorías
+  const categorySuggestions = useMemo(() => {
+      if (categoryInput.length < 2) return [];
+      return availableCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase()));
+  }, [categoryInput, availableCategories]);
+
+  // Selección de Club
+  const handleSelectClub = (club) => {
+      setCustomization({ ...customization, clubId: club.id, category: '' });
+      setClubInput(club.name);
+      setCategoryInput(''); // Reset categoría
+      setShowClubSuggestions(false);
+  };
+
+  // Selección de Categoría
+  const handleSelectCategory = (cat) => {
+      setCustomization({ ...customization, category: cat });
+      setCategoryInput(cat);
+      setShowCategorySuggestions(false);
+  };
+
   const isModified = useMemo(() => { const checkDiff = (key) => { if (!features[key]) return false; if (!modifiable[key]) return false; return customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`] !== defaults[key]; }; return checkDiff('name') || checkDiff('number') || checkDiff('photo') || checkDiff('shield'); }, [customization, defaults, features, modifiable]);
   const finalPrice = product.price + (isModified ? modificationFee : 0);
-  const handleSubmit = (e) => { e.preventDefault(); if(!storeConfig.isOpen) return; onAdd(product, customization, finalPrice); onBack(); };
+  
+  const handleSubmit = (e) => { 
+      e.preventDefault(); 
+      if (!storeConfig.isOpen) return; 
+      
+      // Validaciones
+      if (!customization.clubId) { alert("Debes seleccionar un club válido de la lista."); return; }
+      if (!customization.category) { alert("Debes seleccionar una categoría (archivo) de la lista."); return; }
+      if (customization.includeName && !customization.playerName) { alert("El nombre es obligatorio."); return; }
+      if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal es obligatorio."); return; }
+
+      // --- MENSAJE PARA EL MODAL ---
+      let confirmMsg = "Por favor, verifica los datos de tu pedido:\n\n";
+      confirmMsg += `• Club: ${clubInput}\n`;
+      confirmMsg += `• Categoría: ${customization.category}\n`;
+      if (customization.includeName) confirmMsg += `• Nombre: ${customization.playerName}\n`;
+      if (customization.includeNumber) confirmMsg += `• Dorsal: ${customization.playerNumber}\n`;
+      
+      confirmMsg += "\nIMPORTANTE: El nombre y dorsal indicados serán los que aparezcan en el producto final (revisar mayúsculas y acentos).\n\n¿Son correctos estos datos?";
+
+      // USAR MODAL VISUAL
+      setConfirmation({
+          msg: confirmMsg,
+          onConfirm: () => {
+              onAdd(product, customization, finalPrice); 
+              onBack(); 
+          }
+      });
+  };
+
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col md:flex-row">
       <div className="md:w-1/2 bg-gray-100 p-8 flex items-center justify-center relative"><img src={product.image} className="max-w-full h-auto rounded-lg shadow-md" /></div>
@@ -512,14 +602,90 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
         <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1"><ChevronLeft className="rotate-180 w-4 h-4" /> Volver</button>
         <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
         <div className="flex items-end gap-2 mb-6"><p className="text-emerald-600 font-bold text-3xl">{finalPrice.toFixed(2)}€</p>{isModified && (<span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-1 rounded mb-1 border border-orange-200">+{modificationFee}€ por modificación</span>)}</div>
+        
         <form onSubmit={handleSubmit} className="space-y-6">
-          <div><label className="block text-sm font-medium text-gray-700 mb-1">Selecciona tu Club</label><select required className="w-full px-3 py-2 border rounded-md bg-white" value={customization.clubId} onChange={e => setCustomization({...customization, clubId: e.target.value})}><option value="">-- Elige Club --</option>{clubs.map(c => (<option key={c.id} value={c.id} disabled={c.blocked}>{c.name} {c.blocked ? '(Suspendido)' : ''}</option>))}</select></div>
-          <div className="grid grid-cols-2 gap-4">
-            {features.name && (<div className={`${!customization.includeName ? 'opacity-50' : ''}`}><div className="flex justify-between items-center mb-1"><label className="text-sm font-medium text-gray-700 flex items-center gap-1">Nombre</label><input type="checkbox" disabled={!modifiable.name} checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" /></div><Input disabled={!customization.includeName} placeholder="Ej. García" value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/></div>)}
-            {features.number && (<div className={`${!customization.includeNumber ? 'opacity-50' : ''}`}><div className="flex justify-between items-center mb-1"><label className="text-sm font-medium text-gray-700 flex items-center gap-1">Dorsal</label><input type="checkbox" disabled={!modifiable.number} checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" /></div><Input disabled={!customization.includeNumber} type="number" placeholder="10" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/></div>)}
+          
+          {/* BUSCADOR DE CLUB (Estilo Autocomplete) */}
+          <div className="relative">
+              <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona tu Club <span className="text-red-500">*</span></label>
+              <Input 
+                  placeholder="Escribe para buscar club..." 
+                  value={clubInput} 
+                  onChange={e => { setClubInput(e.target.value); setCustomization({...customization, clubId: ''}); setShowClubSuggestions(true); }}
+                  onFocus={() => setShowClubSuggestions(true)}
+                  onBlur={() => setTimeout(() => setShowClubSuggestions(false), 200)}
+              />
+              {showClubSuggestions && clubSuggestions.length > 0 && (
+                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {clubSuggestions.map(c => (
+                          <div key={c.id} onClick={() => handleSelectClub(c)} className={`px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group ${c.blocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
+                              <span className="font-medium text-gray-700 group-hover:text-emerald-700">{c.name}</span>
+                              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
+                          </div>
+                      ))}
+                  </div>
+              )}
           </div>
+
+          {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
+          {customization.clubId && (
+              <div className="relative animate-fade-in">
+                  <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona Categoría <span className="text-red-500">*</span></label>
+                  <Input 
+                      placeholder="Escribe para buscar categoría..." 
+                      value={categoryInput} 
+                      onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: ''}); setShowCategorySuggestions(true); }}
+                      onFocus={() => setShowCategorySuggestions(true)}
+                      onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)}
+                  />
+                  {showCategorySuggestions && categorySuggestions.length > 0 && (
+                      <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                          {categorySuggestions.map(cat => (
+                              <div key={cat} onClick={() => handleSelectCategory(cat)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
+                                  <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
+                                  <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
+                              </div>
+                          ))}
+                      </div>
+                  )}
+              </div>
+          )}
+
+          <div className="grid grid-cols-2 gap-4">
+            {features.name && (
+                <div className={`${!customization.includeName ? 'opacity-50' : ''}`}>
+                    <div className="flex justify-between items-center mb-1">
+                        <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Nombre <span className="text-red-500">*</span></label>
+                        <input type="checkbox" disabled={!modifiable.name} checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
+                    </div>
+                    <Input disabled={!customization.includeName} required={customization.includeName} placeholder="Ej. García" value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/>
+                </div>
+            )}
+            {features.number && (
+                <div className={`${!customization.includeNumber ? 'opacity-50' : ''}`}>
+                    <div className="flex justify-between items-center mb-1">
+                        <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Dorsal <span className="text-red-500">*</span></label>
+                        <input type="checkbox" disabled={!modifiable.number} checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
+                    </div>
+                    <Input disabled={!customization.includeNumber} required={customization.includeNumber} type="number" placeholder="10" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/>
+                </div>
+            )}
+          </div>
+          
           {features.color && (<div><label className="block text-sm font-medium text-gray-700 mb-2">Color Principal</label><div className="flex gap-3">{['white', 'red', 'blue', 'green', 'black', 'yellow'].map(color => (<button key={color} type="button" onClick={() => setCustomization({...customization, color})} className={`w-8 h-8 rounded-full border-2 transition-transform ${customization.color === color ? 'border-gray-900 scale-125 ring-2 ring-offset-2 ring-emerald-500' : 'border-gray-200 hover:scale-110'}`} style={{ backgroundColor: color }} />))}</div></div>)}
-          <div className="pt-4 border-t"><Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg shadow-lg shadow-emerald-200">{storeConfig.isOpen ? `Añadir al Carrito (${finalPrice.toFixed(2)}€)` : 'TIENDA CERRADA'}</Button></div>
+          
+          {/* AVISO LEGAL VISUAL (Nuevo) */}
+          {(features.name || features.number) && (
+              <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 text-xs text-yellow-800 flex gap-2 items-start animate-fade-in">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p>
+                      El nombre y dorsal que se indique en el pedido será el que aparezca en el producto final. 
+                      Por favor comprueba escribir correctamente indicando mayúsculas, acentos, etc.
+                  </p>
+              </div>
+          )}
+
+          <div className="pt-2 border-t"><Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg shadow-lg shadow-emerald-200">{storeConfig.isOpen ? `Añadir al Carrito (${finalPrice.toFixed(2)}€)` : 'TIENDA CERRADA'}</Button></div>
         </form>
       </div>
     </div>
@@ -543,17 +709,169 @@ function PhotoSearchView({ clubs }) {
   const [step, setStep] = useState(1);
   const [clubInput, setClubInput] = useState('');
   const [selectedClub, setSelectedClub] = useState(null);
-  const [search, setSearch] = useState({ name: '', number: '' });
+  
+  // Estado de búsqueda y inputs
+  const [search, setSearch] = useState({ category: '', name: '', number: '' });
+  const [categoryInput, setCategoryInput] = useState('');
+  const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
+
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  // Sugerencias Clubs
   const clubSuggestions = useMemo(() => { if (clubInput.length < 2) return []; return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase())); }, [clubInput, clubs]);
+  
+  // Sugerencias Categorías
+  const clubCategories = useMemo(() => { return selectedClub ? getClubFolders(selectedClub.id) : []; }, [selectedClub]);
+  const categorySuggestions = useMemo(() => {
+      if (categoryInput.length < 2) return [];
+      return clubCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase()));
+  }, [categoryInput, clubCategories]);
+
   const selectClub = (club) => { setSelectedClub(club); setClubInput(club.name); setStep(2); setError(''); setResult(null); };
-  const clearSelection = () => { setSelectedClub(null); setClubInput(''); setStep(1); setSearch({ name: '', number: '' }); setResult(null); };
-  const handleSearch = (e) => { e.preventDefault(); if (!selectedClub) return; setLoading(true); setError(''); setResult(null); setTimeout(() => { setLoading(false); const formattedName = search.name.trim().replace(/\s+/g, '_'); const dorsalSuffix = search.number ? `_${search.number}` : ''; const searchPattern = formattedName + dorsalSuffix; const photo = MOCK_PHOTOS_DB.find(p => { const matchesClub = p.clubId === selectedClub.id; const matchesName = p.filename.toLowerCase().includes(searchPattern.toLowerCase()); return matchesClub && matchesName; }); if (photo) { setResult(photo.url); } else { setError(`No se encontraron fotos en ${selectedClub.name} para "${formattedName.replace(/_/g, ' ')}" ${search.number ? `con dorsal ${search.number}` : ''}.`); } }, 1200); };
+  
+  const selectCategory = (cat) => {
+      setSearch({ ...search, category: cat });
+      setCategoryInput(cat);
+      setShowCategorySuggestions(false);
+  };
+
+  const clearSelection = () => { setSelectedClub(null); setClubInput(''); setStep(1); setSearch({ category: '', name: '', number: '' }); setCategoryInput(''); setResult(null); };
+  
+  const handleSearch = (e) => { 
+      e.preventDefault(); 
+      if (!selectedClub) return; 
+      
+      // Validación estricta
+      if (!search.category) { setError("Debes seleccionar una categoría."); return; }
+      if (!search.name) { setError("El nombre es obligatorio."); return; }
+      if (!search.number) { setError("El dorsal es obligatorio."); return; }
+
+      setLoading(true); setError(''); setResult(null); 
+      
+      setTimeout(() => { 
+          setLoading(false); 
+          const formattedName = search.name.trim().replace(/\s+/g, '_'); 
+          const dorsalSuffix = search.number ? `_${search.number}` : ''; 
+          const searchPattern = formattedName + dorsalSuffix; 
+          
+          const photo = MOCK_PHOTOS_DB.find(p => { 
+              const matchesClub = p.clubId === selectedClub.id;
+              const matchesCategory = p.folder === search.category;
+              const matchesName = p.filename.toLowerCase().includes(searchPattern.toLowerCase()); 
+              return matchesClub && matchesCategory && matchesName; 
+          }); 
+          
+          if (photo) { 
+              setResult(photo.url); 
+          } else { 
+              setError(`No se encontraron fotos en ${selectedClub.name} (${search.category}) para "${formattedName.replace(/_/g, ' ')}" con dorsal ${search.number}.`); 
+          } 
+      }, 1200); 
+  };
 
   return (
-    <div className="max-w-2xl mx-auto py-8"><div className="text-center mb-8"><h2 className="text-3xl font-bold mb-2">Buscador de Fotos Segura</h2><p className="text-gray-500">Área protegida. Solo para jugadores y familiares.</p><div className="bg-yellow-50 text-yellow-800 text-xs inline-block px-3 py-1 rounded-full mt-2 border border-yellow-200">Pista Demo: Selecciona "Demo Sport" y busca "Juan Perez" + "10"</div></div><div className="bg-white p-6 rounded-xl shadow-md mb-8"><div className={`transition-all duration-300 ${step === 1 ? 'opacity-100' : 'hidden'}`}><label className="block text-sm font-bold text-gray-700 mb-2">1. Selecciona tu Club</label><div className="relative"><Input placeholder="Escribe el nombre de tu club (ej. Demo)" value={clubInput} onChange={e => setClubInput(e.target.value)} autoFocus />{clubSuggestions.length > 0 && (<div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-10 max-h-48 overflow-y-auto">{clubSuggestions.map(c => (<div key={c.id} onClick={() => selectClub(c)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group"><span className="font-medium text-gray-700 group-hover:text-emerald-700">{c.name}</span><ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/></div>))}</div>)}</div></div>{step === 2 && selectedClub && (<div className="animate-fade-in-up"><div className="flex justify-between items-center mb-6 bg-emerald-50 p-3 rounded-lg border border-emerald-100"><div><p className="text-xs text-emerald-600 font-bold uppercase mb-1">Club Seleccionado</p><p className="font-bold text-lg text-emerald-900">{selectedClub.name}</p></div><button onClick={clearSelection} className="text-xs text-gray-500 hover:text-red-500 underline">Cambiar Club</button></div><form onSubmit={handleSearch} className="grid grid-cols-1 md:grid-cols-3 gap-4 items-end"><div className="md:col-span-2"><Input label="Nombre o Texto (Espacios = _)" placeholder="Ej. Juan Perez" value={search.name} onChange={e => setSearch({...search, name: e.target.value})} required /></div><div className="md:col-span-1"><Input label="Dorsal (Opcional)" placeholder="Ej. 10" value={search.number} onChange={e => setSearch({...search, number: e.target.value})} /></div><div className="md:col-span-3 mt-2"><Button type="submit" disabled={loading} className="w-full h-[48px] text-lg shadow-emerald-200 shadow-lg">{loading ? 'Buscando...' : 'Buscar Fotos'}</Button></div></form></div>)}{error && <p className="text-red-500 text-sm mt-4 text-center bg-red-50 p-2 rounded border border-red-100">{error}</p>}</div>{result && (<div className="bg-white p-4 rounded-xl shadow-lg relative overflow-hidden group animate-fade-in-up border border-gray-100"><div className="relative"><img src={result} alt="Resultado" className="w-full rounded-lg" onContextMenu={(e) => e.preventDefault()} /><div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden"><div className="w-full h-full flex flex-wrap content-center justify-center opacity-40 rotate-12 scale-150">{Array.from({ length: 20 }).map((_, i) => <span key={i} className="text-3xl font-black text-white m-8 shadow-sm">MUESTRA</span>)}</div></div><div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white p-4 text-center"><ShieldCheck className="w-12 h-12 mb-2 text-emerald-400" /><p className="font-bold text-lg">Protegido por Copyright</p><p className="text-sm text-gray-300">Prohibida la descarga. Compra la foto para obtener el original sin marca de agua.</p><Button className="mt-4 bg-white text-black hover:bg-gray-200">Añadir al Carrito (8.00€)</Button></div></div></div>)}</div>
+    <div className="max-w-2xl mx-auto py-8">
+        <div className="text-center mb-8">
+            <h2 className="text-3xl font-bold mb-2">Buscador de Fotos Segura</h2>
+            <p className="text-gray-500">Área protegida. Solo para jugadores y familiares.</p>
+            {/* CORRECCIÓN: Se han cambiado los '->' por '→' para evitar errores de sintaxis JSX */}
+            <div className="bg-yellow-50 text-yellow-800 text-xs inline-block px-3 py-1 rounded-full mt-2 border border-yellow-200">
+                Pista Demo: "Demo Sport" → "Temporada_23_24" → "Lopez" + "10"
+            </div>
+        </div>
+        
+        <div className="bg-white p-6 rounded-xl shadow-md mb-8">
+            <div className={`transition-all duration-300 ${step === 1 ? 'opacity-100' : 'hidden'}`}>
+                <label className="block text-sm font-bold text-gray-700 mb-2">1. Selecciona tu Club</label>
+                <div className="relative">
+                    <Input placeholder="Escribe el nombre de tu club (ej. Demo)" value={clubInput} onChange={e => setClubInput(e.target.value)} autoFocus />
+                    {clubSuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-10 max-h-48 overflow-y-auto">
+                            {clubSuggestions.map(c => (
+                                <div key={c.id} onClick={() => selectClub(c)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
+                                    <span className="font-medium text-gray-700 group-hover:text-emerald-700">{c.name}</span>
+                                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            </div>
+            
+            {step === 2 && selectedClub && (
+                <div className="animate-fade-in-up">
+                    <div className="flex justify-between items-center mb-6 bg-emerald-50 p-3 rounded-lg border border-emerald-100">
+                        <div>
+                            <p className="text-xs text-emerald-600 font-bold uppercase mb-1">Club Seleccionado</p>
+                            <p className="font-bold text-lg text-emerald-900">{selectedClub.name}</p>
+                        </div>
+                        <button onClick={clearSelection} className="text-xs text-gray-500 hover:text-red-500 underline">Cambiar Club</button>
+                    </div>
+                    
+                    <form onSubmit={handleSearch} className="space-y-4">
+                        
+                        {/* BUSCADOR DE CATEGORÍA (Mismo sistema) */}
+                        <div className="relative">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Categoría / Archivo <span className="text-red-500">*</span></label>
+                            <Input 
+                                placeholder="Escribe para buscar categoría..." 
+                                value={categoryInput} 
+                                onChange={e => { setCategoryInput(e.target.value); setSearch({...search, category: ''}); setShowCategorySuggestions(true); }}
+                                onFocus={() => setShowCategorySuggestions(true)}
+                                onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)}
+                            />
+                            {showCategorySuggestions && categorySuggestions.length > 0 && (
+                                <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                                    {categorySuggestions.map(cat => (
+                                        <div key={cat} onClick={() => selectCategory(cat)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
+                                            <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
+                                            <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+
+                        <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                            <div className="md:col-span-2">
+                                <Input label="Nombre o Texto (Espacios = _)" placeholder="Ej. Juan Perez" value={search.name} onChange={e => setSearch({...search, name: e.target.value})} required />
+                            </div>
+                            <div className="md:col-span-1">
+                                <Input label="Dorsal" placeholder="Ej. 10" value={search.number} onChange={e => setSearch({...search, number: e.target.value})} required />
+                            </div>
+                        </div>
+                        
+                        <div className="mt-2">
+                            <Button type="submit" disabled={loading} className="w-full h-[48px] text-lg shadow-emerald-200 shadow-lg">{loading ? 'Buscando...' : 'Buscar Fotos'}</Button>
+                        </div>
+                    </form>
+                </div>
+            )}
+            
+            {error && <p className="text-red-500 text-sm mt-4 text-center bg-red-50 p-2 rounded border border-red-100">{error}</p>}
+        </div>
+        
+        {result && (
+            <div className="bg-white p-4 rounded-xl shadow-lg relative overflow-hidden group animate-fade-in-up border border-gray-100">
+                <div className="relative">
+                    <img src={result} alt="Resultado" className="w-full rounded-lg" onContextMenu={(e) => e.preventDefault()} />
+                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
+                        <div className="w-full h-full flex flex-wrap content-center justify-center opacity-40 rotate-12 scale-150">
+                            {Array.from({ length: 20 }).map((_, i) => <span key={i} className="text-3xl font-black text-white m-8 shadow-sm">MUESTRA</span>)}
+                        </div>
+                    </div>
+                    <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white p-4 text-center">
+                        <ShieldCheck className="w-12 h-12 mb-2 text-emerald-400" />
+                        <p className="font-bold text-lg">Protegido por Copyright</p>
+                        <p className="text-sm text-gray-300">Prohibida la descarga. Compra la foto para obtener el original sin marca de agua.</p>
+                        <Button className="mt-4 bg-white text-black hover:bg-gray-200">Añadir al Carrito (8.00€)</Button>
+                    </div>
+                </div>
+            </div>
+        )}
+    </div>
   );
 }
 
@@ -2198,11 +2516,26 @@ export default function App() {
           </div>
         </div>
       </header>
-      {confirmation && <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[70] backdrop-blur-sm animate-fade-in"><div className="bg-white p-6 rounded-xl shadow-2xl max-w-sm w-full mx-4 border-2 border-gray-100"><div className="flex items-center gap-2 mb-4 text-red-600"><AlertCircle className="w-6 h-6"/><h3 className="font-bold text-lg text-gray-900">Confirmar Acción</h3></div><p className="text-gray-600 mb-6">{confirmation.msg}</p><div className="flex justify-end gap-3"><Button variant="secondary" onClick={() => setConfirmation(null)}>Cancelar</Button><Button variant="danger" onClick={() => { confirmation.onConfirm(); setConfirmation(null); }}>Confirmar</Button></div></div></div>}
+      {confirmation && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[300] backdrop-blur-sm animate-fade-in">
+              <div className="bg-white p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border-2 border-gray-100">
+                  <div className="flex items-center gap-2 mb-4 text-emerald-700">
+                      <AlertCircle className="w-6 h-6"/>
+                      <h3 className="font-bold text-lg text-gray-900">Confirmar Acción</h3>
+                  </div>
+                  {/* whitespace-pre-line permite que los saltos de línea (\n) se muestren correctamente */}
+                  <p className="text-gray-600 mb-6 whitespace-pre-line text-sm leading-relaxed">{confirmation.msg}</p>
+                  <div className="flex justify-end gap-3">
+                      <Button variant="secondary" onClick={() => setConfirmation(null)}>Cancelar</Button>
+                      <Button variant="primary" onClick={() => { confirmation.onConfirm(); setConfirmation(null); }}>Confirmar</Button>
+                  </div>
+              </div>
+          </div>
+      )}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[calc(100vh-200px)]">
         {notification && <div className={`fixed top-20 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white flex items-center gap-3 ${notification.type === 'error' ? 'bg-red-500' : 'bg-gray-800'} transition-all animate-fade-in-down`}>{notification.type === 'success' && <Check className="w-5 h-5 text-emerald-400" />}{notification.type === 'error' && <AlertCircle className="w-5 h-5 text-white" />}<span className="font-medium">{notification.msg}</span></div>}
         {view === 'home' && <HomeView setView={setView} />}
-        {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={modificationFee} storeConfig={storeConfig} />}
+        {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={modificationFee} storeConfig={storeConfig} setConfirmation={setConfirmation} />}
         {view === 'cart' && <CartView cart={cart} removeFromCart={removeFromCart} createOrder={createOrder} total={cart.reduce((sum, item) => sum + item.price, 0)} clubs={clubs} storeConfig={storeConfig} />}
         {view === 'photo-search' && <PhotoSearchView clubs={clubs} />}
         {view === 'tracking' && <TrackingView orders={orders} />}

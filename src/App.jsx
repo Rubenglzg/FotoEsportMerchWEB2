@@ -607,7 +607,34 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   });
   
   const [expandedOrderId, setExpandedOrderId] = useState(null);
-  const [incidentForm, setIncidentForm] = useState({ active: false, orderId: null, item: null, cost: 0, note: '' });
+// --- ESTADO MEJORADO PARA INCIDENCIAS ---
+  const [incidentForm, setIncidentForm] = useState({ 
+      active: false, 
+      order: null,      // El pedido original completo
+      item: null,       // El producto afectado
+      qty: 1,           // Cantidad a reponer
+      cost: 0,          // Coste de reimpresión
+      reason: '', 
+      responsibility: 'internal', // 'internal' o 'club'
+      recharge: false,  // Si es fallo del club, ¿se cobra?
+      targetBatch: ''   // A qué lote va la reposición
+  });
+
+  // --- FUNCIÓN PARA ABRIR EL MODAL ---
+  const handleOpenIncident = (order, item) => {
+      const club = clubs.find(c => c.id === order.clubId);
+      setIncidentForm({
+          active: true,
+          order: order,
+          item: item,
+          qty: item.quantity || 1, // Por defecto toda la cantidad
+          cost: item.cost || 0,    // Por defecto el coste original
+          reason: '',
+          responsibility: 'internal',
+          recharge: false,
+          targetBatch: club ? club.activeGlobalOrderId : 1
+      });
+  };
   const [revertModal, setRevertModal] = useState({ active: false, clubId: null, currentBatchId: null, ordersCount: 0 });
 
   const selectedClub = clubs.find(c => c.id === selectedClubId) || clubs[0];
@@ -624,25 +651,31 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       });
   }, [orders, financeSeasonId, seasons]);
   
-// Lógica de agrupación de pedidos 
+// Lógica de agrupación de pedidos (V2 - Con soporte para SPECIAL e INDIVIDUAL)
   const accountingData = useMemo(() => {
       return clubs.map(club => {
           const clubOrders = financialOrders.filter(o => o.clubId === club.id);
           const batches = {};
           
           clubOrders.forEach(order => {
-              // Si el pedido es especial, forzamos el lote 'SPECIAL'
-              const batchId = order.type === 'special' ? 'SPECIAL' : (order.globalBatch || 1);
+              let batchId = order.globalBatch || 1;
+              // Normalizar IDs especiales
+              if (order.type === 'special') batchId = 'SPECIAL';
+              if (batchId === 'INDIVIDUAL') batchId = 'INDIVIDUAL';
+              
               if (!batches[batchId]) batches[batchId] = [];
               batches[batchId].push(order);
           });
 
           const sortedBatches = Object.entries(batches)
-              .map(([id, orders]) => ({ id: id === 'SPECIAL' ? 'SPECIAL' : parseInt(id), orders }))
+              .map(([id, orders]) => ({ id: (id === 'SPECIAL' || id === 'INDIVIDUAL') ? id : parseInt(id), orders }))
               .sort((a, b) => {
-                  if (a.id === 'SPECIAL') return -1; // Los especiales primero
+                  // Orden: Especiales -> Individuales -> Lotes Numéricos (Descendente)
+                  if (a.id === 'SPECIAL') return -1;
                   if (b.id === 'SPECIAL') return 1;
-                  return b.id - a.id; // Orden descendente para los numéricos
+                  if (a.id === 'INDIVIDUAL') return -1;
+                  if (b.id === 'INDIVIDUAL') return 1;
+                  return b.id - a.id; 
               });
 
           return { club, batches: sortedBatches };
@@ -721,18 +754,71 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       });
   };
 
-  const submitIncident = () => {
-      if(!incidentForm.item) return;
-      addIncident(incidentForm.orderId, {
-          id: Date.now(),
-          itemId: incidentForm.item.cartId,
-          itemName: incidentForm.item.name,
-          cost: parseFloat(incidentForm.cost),
-          note: incidentForm.note,
-          resolved: false,
-          date: new Date().toISOString()
-      });
-      setIncidentForm({ active: false, orderId: null, item: null, cost: 0, note: '' });
+// --- LÓGICA DE CREACIÓN DE REPOSICIÓN (V2 - Soporte Individual) ---
+  const submitIncident = async () => {
+      if (!incidentForm.item || !incidentForm.order) return;
+
+      const { order, item, qty, cost, reason, responsibility, recharge, targetBatch } = incidentForm;
+      
+      // Si es fallo interno/fabrica o club sin cobro, precio 0. Si se cobra, precio original.
+      const finalPrice = (responsibility === 'club' && recharge) ? item.price : 0;
+      const totalOrder = finalPrice * qty;
+
+      // Determinar el ID del lote (Número o String 'INDIVIDUAL')
+      const batchIdToSave = targetBatch === 'INDIVIDUAL' ? 'INDIVIDUAL' : parseInt(targetBatch);
+
+      try {
+          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
+              createdAt: serverTimestamp(),
+              clubId: order.clubId,
+              clubName: order.clubName || 'Club',
+              customer: { 
+                  name: `${order.customer.name} (REPOSICIÓN)`, 
+                  email: order.customer.email, 
+                  phone: order.customer.phone 
+              },
+              items: [{
+                  ...item,
+                  quantity: parseInt(qty),
+                  price: finalPrice,
+                  cost: parseFloat(cost),
+                  name: `${item.name} [REP]`
+              }],
+              total: totalOrder,
+              status: targetBatch === 'INDIVIDUAL' ? 'en_produccion' : 'recopilando', // Si es individual pasa directo
+              visibleStatus: 'Reposición / Incidencia',
+              type: 'replacement',
+              paymentMethod: 'incident', 
+              globalBatch: batchIdToSave, // <--- AQUÍ GUARDAMOS EL LOTE O 'INDIVIDUAL'
+              relatedOrderId: order.id,
+              incidentDetails: {
+                  originalItemId: item.cartId,
+                  reason: reason,
+                  responsibility: responsibility
+              },
+              incidents: []
+          });
+
+          // Marcar incidencia resuelta en el original
+          const originalRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
+          await updateDoc(originalRef, {
+              incidents: arrayUnion({
+                  id: Date.now(),
+                  itemId: item.cartId,
+                  itemName: item.name,
+                  date: new Date().toISOString(),
+                  resolved: true,
+                  note: `Reposición generada (${targetBatch === 'INDIVIDUAL' ? 'Entr. Individual' : 'Lote ' + targetBatch})`
+              })
+          });
+
+          showNotification('Pedido de reposición generado correctamente');
+          setIncidentForm({ ...incidentForm, active: false });
+
+      } catch (e) {
+          console.error(e);
+          showNotification('Error al generar la reposición', 'error');
+      }
   };
 
   const toggleIncidentResolved = (order, incidentId) => {
@@ -932,19 +1018,199 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-      {/* --- INCIDENT MODAL --- */}
+{/* --- MODAL DE GESTIÓN DE INCIDENCIAS AVANZADO --- */}
       {incidentForm.active && (
-          <div className="fixed inset-0 bg-black/50 z-[80] flex items-center justify-center p-4">
-              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
-                  <h3 className="font-bold text-lg mb-4 text-orange-600 flex items-center gap-2"><AlertTriangle className="w-5 h-5"/> Reportar Producto Dañado</h3>
-                  <p className="text-sm font-bold text-gray-800 mb-1">{incidentForm.item.name}</p>
-                  <div className="space-y-3">
-                      <div><label className="block text-xs font-bold text-gray-600 mb-1">Coste Reimpresión</label><div className="relative"><input type="number" step="0.01" className="w-full border rounded p-2 pl-6" value={incidentForm.cost} onChange={e => setIncidentForm({...incidentForm, cost: e.target.value})} /><span className="absolute left-2 top-2 text-gray-500">€</span></div></div>
-                      <div><label className="block text-xs font-bold text-gray-600 mb-1">Nota / Motivo</label><textarea className="w-full border rounded p-2 text-sm" rows="3" value={incidentForm.note} onChange={e => setIncidentForm({...incidentForm, note: e.target.value})}></textarea></div>
+          <div className="fixed inset-0 bg-black/60 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+                  <div className="bg-orange-50 px-6 py-4 border-b border-orange-100 flex justify-between items-center">
+                      <h3 className="font-bold text-lg text-orange-800 flex items-center gap-2">
+                          <AlertTriangle className="w-5 h-5"/> Gestión de Incidencia
+                      </h3>
+                      <button onClick={() => setIncidentForm({...incidentForm, active: false})}><X className="w-5 h-5 text-orange-400"/></button>
                   </div>
-                  <div className="flex justify-end gap-2 mt-6">
-                      <Button variant="secondary" onClick={() => setIncidentForm({ active: false, orderId: null, item: null, cost: 0, note: '' })}>Cancelar</Button>
-                      <Button variant="warning" onClick={submitIncident}>Guardar</Button>
+                  
+                  <div className="p-6 space-y-5">
+                    {/* Resumen del Producto */}
+                      <div className="bg-gray-50 p-4 rounded border border-gray-200 text-sm">
+                          <div className="flex justify-between items-start mb-3">
+                              <div>
+                                  <p className="font-bold text-gray-800 text-base">{incidentForm.item.name}</p>
+                                  <p className="text-xs text-gray-500">
+                                      Pedido: {incidentForm.order.customer.name} | Lote Global #{incidentForm.order.globalBatch}
+                                  </p>
+                              </div>
+                              <div className="text-right bg-white px-2 py-1 rounded border border-gray-200">
+                                  <span className="block text-[10px] text-gray-400 uppercase font-bold">Cant. Solicitada</span>
+                                  <span className="font-mono font-bold text-lg text-gray-800">{incidentForm.item.quantity || 1} ud.</span>
+                              </div>
+                          </div>
+                          
+                          {/* Características del Producto */}
+                          <div className="mt-2 pt-2 border-t border-gray-200 text-xs text-gray-700 grid grid-cols-2 gap-y-2 gap-x-4">
+                              {incidentForm.item.playerName && (
+                                  <div className="flex justify-between">
+                                      <span className="font-bold text-gray-400 uppercase text-[10px]">Nombre:</span> 
+                                      <span className="font-medium">{incidentForm.item.playerName}</span>
+                                  </div>
+                              )}
+                              {incidentForm.item.playerNumber && (
+                                  <div className="flex justify-between">
+                                      <span className="font-bold text-gray-400 uppercase text-[10px]">Dorsal:</span> 
+                                      <span className="font-medium">{incidentForm.item.playerNumber}</span>
+                                  </div>
+                              )}
+                              {incidentForm.item.color && (
+                                  <div className="flex justify-between">
+                                      <span className="font-bold text-gray-400 uppercase text-[10px]">Color:</span> 
+                                      <span className="font-medium capitalize">{incidentForm.item.color}</span>
+                                  </div>
+                              )}
+                              {incidentForm.item.size && (
+                                  <div className="flex justify-between">
+                                      <span className="font-bold text-gray-400 uppercase text-[10px]">Talla:</span> 
+                                      <span className="font-medium">{incidentForm.item.size}</span>
+                                  </div>
+                              )}
+                              {/* Si no hay personalización */}
+                              {!incidentForm.item.playerName && !incidentForm.item.playerNumber && !incidentForm.item.color && !incidentForm.item.size && (
+                                  <span className="text-gray-400 italic col-span-2">Producto estándar sin personalización</span>
+                              )}
+                          </div>
+                      </div>
+
+                      {/* Configuración de la Reposición */}
+                      <div className="grid grid-cols-2 gap-4">
+                          <div>
+                              <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Cantidad a Reponer</label>
+                              <input 
+                                  type="number" 
+                                  min="1" 
+                                  max={incidentForm.item.quantity}
+                                  className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none" 
+                                  value={incidentForm.qty} 
+                                  onChange={e => setIncidentForm({...incidentForm, qty: e.target.value})} 
+                              />
+                          </div>
+                          <div>
+                              <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Coste Reimpresión</label>
+                              <div className="relative">
+                                  <input 
+                                      type="number" 
+                                      step="0.01" 
+                                      className="w-full border rounded p-2 pl-6 text-sm focus:ring-2 focus:ring-orange-500 outline-none" 
+                                      value={incidentForm.cost} 
+                                      onChange={e => setIncidentForm({...incidentForm, cost: e.target.value})} 
+                                  />
+                                  <span className="absolute left-2 top-2 text-gray-400 text-sm">€</span>
+                              </div>
+                          </div>
+                      </div>
+
+                      {/* Responsabilidad y Cobro */}
+                      <div>
+                          <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">Origen del Fallo</label>
+                          <div className="grid grid-cols-2 gap-3 mb-3">
+                              <button 
+                                  type="button"
+                                  onClick={() => setIncidentForm({...incidentForm, responsibility: 'internal'})}
+                                  className={`p-2 rounded text-sm border flex flex-col items-center gap-1 ${incidentForm.responsibility === 'internal' ? 'bg-red-50 border-red-200 text-red-700 font-bold' : 'bg-white border-gray-200 text-gray-500'}`}
+                              >
+                                  <span>Interno / Fabrica</span>
+                                  <span className="text-[10px] font-normal">Nosotros asumimos coste</span>
+                              </button>
+                              <button 
+                                  type="button"
+                                  onClick={() => setIncidentForm({...incidentForm, responsibility: 'club'})}
+                                  className={`p-2 rounded text-sm border flex flex-col items-center gap-1 ${incidentForm.responsibility === 'club' ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold' : 'bg-white border-gray-200 text-gray-500'}`}
+                              >
+                                  <span>Error del Club</span>
+                                  <span className="text-[10px] font-normal">Decidir si cobrar</span>
+                              </button>
+                          </div>
+
+                          {/* Opción de Cobrar solo si es fallo del club */}
+                          {incidentForm.responsibility === 'club' && (
+                              <div className="flex items-center gap-2 bg-blue-50 p-2 rounded border border-blue-100 animate-fade-in">
+                                  <input 
+                                      type="checkbox" 
+                                      id="recharge" 
+                                      className="w-4 h-4 text-blue-600 rounded"
+                                      checked={incidentForm.recharge}
+                                      onChange={e => setIncidentForm({...incidentForm, recharge: e.target.checked})}
+                                  />
+                                  <label htmlFor="recharge" className="text-sm text-blue-800 font-medium cursor-pointer">
+                                      ¿Volver a cobrar el precio de venta ({incidentForm.item.price}€)?
+                                  </label>
+                              </div>
+                          )}
+                      </div>
+
+                        {/* Asignación a Lote Inteligente */}
+                      <div>
+                          <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Añadir a Lote de Entrega</label>
+                          <select 
+                              className="w-full border rounded p-2 text-sm bg-gray-50 focus:ring-2 focus:ring-orange-500 outline-none"
+                              value={incidentForm.targetBatch}
+                              onChange={e => setIncidentForm({...incidentForm, targetBatch: e.target.value})}
+                          >
+                              {/* OPCIÓN 1: Entrega Individual */}
+                              <option value="INDIVIDUAL">📦 Entrega Individual (Excepcional)</option>
+                              
+                              {/* OPCIÓN 2: Lotes Activos (Recopilando o Producción) */}
+                              {(() => {
+                                  const cId = incidentForm.order.clubId;
+                                  // Buscar lotes existentes con actividad
+                                  const activeBatchesMap = {};
+                                  orders.filter(o => o.clubId === cId && !['SPECIAL', 'INDIVIDUAL'].includes(o.globalBatch)).forEach(o => {
+                                      if(['recopilando', 'en_produccion'].includes(o.status)) {
+                                          activeBatchesMap[o.globalBatch] = o.status;
+                                      }
+                                  });
+                                  
+                                  // Asegurar que el lote activo del club aparece aunque esté vacío
+                                  const club = clubs.find(c => c.id === cId);
+                                  const currentActive = club ? club.activeGlobalOrderId : 1;
+                                  if (!activeBatchesMap[currentActive]) activeBatchesMap[currentActive] = 'recopilando';
+
+                                  return Object.entries(activeBatchesMap)
+                                      .sort((a,b) => parseInt(a[0]) - parseInt(b[0]))
+                                      .map(([id, status]) => (
+                                          <option key={id} value={id}>
+                                              Lote Global #{id} ({status === 'recopilando' ? 'Abierto' : 'En Producción'})
+                                          </option>
+                                      ));
+                              })()}
+
+                              {/* OPCIÓN 3: Siguiente Lote Futuro */}
+                              {(() => {
+                                  const club = clubs.find(c => c.id === incidentForm.order.clubId);
+                                  const nextId = (club ? club.activeGlobalOrderId : 0) + 1;
+                                  return <option value={nextId}>✨ Nuevo Lote Futuro #{nextId}</option>
+                              })()}
+                          </select>
+                          <p className="text-[10px] text-gray-400 mt-1">
+                              {incidentForm.targetBatch === 'INDIVIDUAL' 
+                                  ? 'No se vinculará a ningún lote grupal. Se gestionará por separado.' 
+                                  : 'Se sumará al listado del lote seleccionado para entrega conjunta.'}
+                          </p>
+                      </div>
+
+                      <div>
+                          <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Motivo / Nota Interna</label>
+                          <textarea 
+                              className="w-full border rounded p-2 text-sm h-20 resize-none focus:ring-2 focus:ring-orange-500 outline-none" 
+                              placeholder="Ej. Camiseta manchada, dorsal incorrecto..."
+                              value={incidentForm.reason} 
+                              onChange={e => setIncidentForm({...incidentForm, reason: e.target.value})}
+                          ></textarea>
+                      </div>
+                  </div>
+
+                  <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3 border-t">
+                      <Button variant="secondary" onClick={() => setIncidentForm({...incidentForm, active: false})}>Cancelar</Button>
+                      <Button variant="warning" onClick={submitIncident}>
+                          Generar Reposición
+                      </Button>
                   </div>
               </div>
           </div>
@@ -1143,13 +1409,17 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                                                 </div>
 
                                                                                 <div className="flex items-center gap-3 border-l pl-4">
+                                                                                    {/* Si ya está reportado, mostramos la etiqueta */}
                                                                                     {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
+                                                                                    
+                                                                                    {/* BOTÓN DE REPORTAR FALLO - AHORA EN ROJO VISIBLE */}
                                                                                     <button 
-                                                                                        onClick={(e) => { e.stopPropagation(); setIncidentForm({ active: true, orderId: order.id, item: item, cost: item.cost || 0, note: '' }); }} 
-                                                                                        className="text-gray-300 hover:text-red-500 p-1 hover:bg-red-50 rounded transition-colors" 
+                                                                                        onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
+                                                                                        // CAMBIO AQUÍ: Se han aplicado colores rojos intensos (text-red-600) y un fondo rojo suave (bg-red-50)
+                                                                                        className="text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-800 p-1.5 rounded-md transition-colors flex items-center gap-1 font-medium text-xs border border-red-100 shadow-sm" 
                                                                                         title="Reportar Incidencia"
                                                                                     >
-                                                                                        <AlertTriangle className="w-4 h-4"/>
+                                                                                        <AlertTriangle className="w-4 h-4"/> Reportar Fallo
                                                                                     </button>
                                                                                 </div>
                                                                             </div>

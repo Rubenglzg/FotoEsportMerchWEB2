@@ -809,13 +809,65 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       }
   };
 
-  // --- FUNCIÓN PARA EDITAR LOTE ACTIVO MANUALMENTE ---
+// --- FUNCIÓN PARA EDITAR LOTE ACTIVO (CON REACTIVACIÓN SEGURA) ---
   const saveActiveBatchManually = () => {
       if (!selectedClubId) return;
-      const club = clubs.find(c => c.id === selectedClubId);
-      updateClub({ ...club, activeGlobalOrderId: parseInt(tempBatchValue) });
-      setIsEditingActiveBatch(false);
-      showNotification('Número de Lote Global actualizado manualmente');
+      
+      const targetBatchId = parseInt(tempBatchValue);
+      if (isNaN(targetBatchId) || targetBatchId < 1) {
+          showNotification('Número de lote inválido', 'error');
+          return;
+      }
+
+      // 1. Buscamos si existen pedidos en ese lote destino
+      const batchOrders = orders.filter(o => 
+          o.clubId === selectedClubId && 
+          o.globalBatch === targetBatchId &&
+          o.status !== 'pendiente_validacion'
+      );
+
+      // 2. Comprobamos si el lote está "cerrado" (tiene pedidos que no están recopilando)
+      const needsReopening = batchOrders.some(o => o.status !== 'recopilando');
+
+      const performUpdate = async (shouldReopenOrders) => {
+          try {
+              // A. Si hay que reactivar, actualizamos los pedidos en Firebase
+              if (shouldReopenOrders && batchOrders.length > 0) {
+                  const batch = writeBatch(db);
+                  batchOrders.forEach(order => {
+                      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
+                      // Forzamos estado 'recopilando'
+                      batch.update(ref, { status: 'recopilando', visibleStatus: 'Recopilando (Reabierto)' });
+                  });
+                  await batch.commit();
+              }
+
+              // B. Actualizamos el puntero del Club (Estado Local)
+              const club = clubs.find(c => c.id === selectedClubId);
+              updateClub({ ...club, activeGlobalOrderId: targetBatchId });
+              
+              setIsEditingActiveBatch(false);
+              showNotification(shouldReopenOrders 
+                  ? `Lote #${targetBatchId} reactivado y establecido como actual.` 
+                  : `Lote activo actualizado a #${targetBatchId}`
+              );
+          } catch (e) {
+              console.error(e);
+              showNotification('Error al actualizar el lote', 'error');
+          }
+      };
+
+      // 3. Lógica de Confirmación
+      if (needsReopening) {
+          setConfirmation({
+              title: "⚠️ ¿Reactivar Lote Cerrado?",
+              msg: `El Lote Global #${targetBatchId} contiene pedidos que ya están EN PRODUCCIÓN o ENTREGADOS.\n\nSi lo seleccionas como ACTIVO, todos sus pedidos volverán al estado "RECOPILANDO" para aceptar cambios o nuevos añadidos.\n\n¿Estás seguro?`,
+              onConfirm: () => performUpdate(true)
+          });
+      } else {
+          // Si el lote está vacío o ya está recopilando, cambiamos directamente
+          performUpdate(false);
+      }
   };
   
 // Lógica de agrupación de pedidos (V4 - Con Lote Activo siempre visible)
@@ -1118,7 +1170,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                               <div>
                                   <p className="text-xs text-gray-500 mb-1">Pedido Global Activo</p>
                                   
-                                  {/* --- SUSTITUIR EL NÚMERO ESTÁTICO POR ESTO: --- */}
+                                    {/* --- EDICIÓN MANUAL DEL LOTE (LÁPIZ VERDE VISIBLE) --- */}
                                   {isEditingActiveBatch ? (
                                       <div className="flex items-center gap-2">
                                           <span className="text-2xl font-bold text-blue-900">#</span>
@@ -1133,14 +1185,15 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                           <button onClick={() => setIsEditingActiveBatch(false)} className="p-1 bg-red-100 text-red-700 rounded hover:bg-red-200"><X className="w-4 h-4"/></button>
                                       </div>
                                   ) : (
-                                      <div className="flex items-center gap-2 group">
+                                      <div className="flex items-center gap-2">
                                           <p className="text-2xl font-bold text-blue-900">#{selectedClub?.activeGlobalOrderId}</p>
                                           <button 
                                               onClick={() => { setTempBatchValue(selectedClub?.activeGlobalOrderId); setIsEditingActiveBatch(true); }}
-                                              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity"
+                                              // CAMBIO AQUÍ: Color verde claro y visible siempre
+                                              className="text-emerald-500 hover:text-emerald-700 transition-colors p-1"
                                               title="Editar manualmente"
                                           >
-                                              <Edit3 className="w-4 h-4"/>
+                                              <Edit3 className="w-5 h-5"/>
                                           </button>
                                       </div>
                                   )}
@@ -1152,10 +1205,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                           </div>
                           
                           {/* ... resto del botón de deshacer (handleRevertGlobalBatch) ... */}
-                          {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
+                            {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
                               <div className="border-t border-dashed border-blue-200 pt-2 flex justify-end">
                                   <button 
-                                      onClick={() => handleRevertGlobalBatch(selectedClubId)}
+                                      onClick={() => setConfirmation({
+                                          title: "⚠️ ¿Reabrir Lote Anterior?",
+                                          msg: `Estás a punto de cancelar el Lote Global #${selectedClub.activeGlobalOrderId} (Actual) para volver a activar el Lote #${selectedClub.activeGlobalOrderId - 1}.\n\nSi el lote actual tiene pedidos, se te pedirá qué hacer con ellos en el siguiente paso.\n\n¿Deseas continuar?`,
+                                          onConfirm: () => handleRevertGlobalBatch(selectedClubId)
+                                      })}
                                       className="text-xs flex items-center gap-1 text-red-500 hover:text-red-700 font-medium px-2 py-1 rounded hover:bg-red-50 transition-colors"
                                   >
                                       <RotateCcw className="w-3 h-3"/> Deshacer / Reabrir Anterior (#{selectedClub.activeGlobalOrderId - 1})
@@ -1469,7 +1526,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                       <div className="col-span-3"><label className="text-[10px] block font-bold text-gray-400">Nombre</label><input className="w-full text-sm border rounded p-1" value={item.playerName || ''} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].playerName = e.target.value; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
                                       
                                       {/* AQUÍ ESTÁ EL CAMBIO DE COLOR: Se quitó 'text-blue-600' y se puso 'text-gray-900' */}
-                                      <div className="col-span-1"><label className="text-[10px] block font-bold text-gray-400">Cant.</label><input type="number" className="w-full text-sm border rounded p-1 font-bold text-gray-900" value={item.quantity} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].quantity = parseInt(e.target.value) || 1; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
+                                      <div className="col-span-1"><label className="text-[10px] block font-bold text-gray-400">Cant.</label><input type="number" className="w-full text-sm border rounded p-1 text-gray-900" value={item.quantity} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].quantity = parseInt(e.target.value) || 1; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
                                       
                                       <div className="col-span-2"><label className="text-[10px] block font-bold text-gray-400">Precio</label><input type="number" className="w-full text-sm border rounded p-1" value={item.price} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].price = parseFloat(e.target.value) || 0; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
                                   </div>
@@ -1745,9 +1802,10 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                                             <button 
                                                                                 onClick={(e) => { 
                                                                                     e.stopPropagation(); 
-                                                                                    const orderClone = JSON.parse(JSON.stringify(order));
-                                                                                    // Guardamos dos copias: una para comparar (original) y otra para editar (modified)
-                                                                                    setEditOrderModal({ active: true, original: orderClone, modified: orderClone }); 
+                                                                                    // CORRECCIÓN: Crear dos copias independientes para que la comparación funcione
+                                                                                    const original = JSON.parse(JSON.stringify(order));
+                                                                                    const modified = JSON.parse(JSON.stringify(order));
+                                                                                    setEditOrderModal({ active: true, original, modified }); 
                                                                                 }}
                                                                                 className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors"
                                                                             >

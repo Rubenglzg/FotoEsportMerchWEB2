@@ -1192,52 +1192,86 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
 // --- LÓGICA AVANZADA DE ESTADÍSTICAS ---
   const statsData = useMemo(() => {
-      // 1. Filtrar pedidos por temporada (financeSeasonId) y por club (statsClubFilter)
+      // 1. Filtrar pedidos por temporada y club
       let filteredOrders = financialOrders;
-      
       if (statsClubFilter !== 'all') {
           filteredOrders = filteredOrders.filter(o => o.clubId === statsClubFilter);
       }
 
-      // 2. Agregación por Categoría (Facturación) y Producto
-      const categorySales = {};
-      const productSales = {};
-      
+      const categorySales = {}; // Ahora guardará { total, subCats: Set }
+      const productSales = {};  
+      const monthlySales = {};  
+      const paymentStats = {}; 
+
       filteredOrders.forEach(order => {
+          // A. Métodos de Pago
+          const pMethod = order.paymentMethod || 'card';
+          if (!paymentStats[pMethod]) paymentStats[pMethod] = { amount: 0, count: 0 };
+          paymentStats[pMethod].amount += order.total;
+          paymentStats[pMethod].count += 1;
+
+          // B. Acumular por Mes
+          const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
+          const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
+          const sortKey = date.getFullYear() * 100 + date.getMonth();
+          
+          if (!monthlySales[monthKey]) monthlySales[monthKey] = { total: 0, sort: sortKey };
+          monthlySales[monthKey].total += order.total;
+
+          // C. Items del pedido
           order.items.forEach(item => {
               const qty = item.quantity || 1;
-              const subtotal = qty * item.price; // Importe total de la línea
+              const subtotal = qty * item.price;
 
-              // --- NORMALIZACIÓN DE CATEGORÍA (CARPETAS) ---
-              // "Alevin A" -> "Alevin", "Prebenjamin" -> "Prebenjamin"
-              let catName = item.category || 'General';
-              // Regex: Elimina espacio + letra/número final (ej: " A", " 1")
-              const normalizedCat = catName.trim().replace(/\s+[A-Z0-9]$/i, ''); 
+              // --- Categoría Equipo ---
+              let teamCat = item.category || 'General';
+              // Normalizamos: "Alevin A" -> "Alevin"
+              const normalizedTeamCat = teamCat.trim().replace(/\s+[A-Z0-9]$/i, ''); 
               
-              if (!categorySales[normalizedCat]) categorySales[normalizedCat] = 0;
+              if (!categorySales[normalizedTeamCat]) {
+                  // Usamos un Set para contar categorías únicas (ej: Alevin A Demo, Alevin B Demo, Alevin Atletico...)
+                  categorySales[normalizedTeamCat] = { total: 0, subCats: new Set() };
+              }
               
-              // >>> CAMBIO CLAVE: Sumamos SUBTOTAL (€) en vez de QTY <<<
-              categorySales[normalizedCat] += subtotal; 
+              categorySales[normalizedTeamCat].total += subtotal;
+              // Añadimos identificador único: Club + NombreCarpetaReal
+              categorySales[normalizedTeamCat].subCats.add(`${order.clubId}-${teamCat}`);
 
-              // Productos (Seguimos contando unidades para "Más Vendidos")
+              // --- Producto Individual ---
               if (!productSales[item.name]) productSales[item.name] = { qty: 0, total: 0 };
               productSales[item.name].qty += qty;
               productSales[item.name].total += subtotal;
           });
       });
 
-      // Convertir a arrays para ordenar y graficar
+      // Procesar Arrays
       const sortedCategories = Object.entries(categorySales)
-          .map(([name, value]) => ({ name, value }))
-          .sort((a, b) => b.value - a.value) // Ordenar por mayor facturación
-          .slice(0, 8); // Top 8 categorías
+          .map(([name, data]) => ({ 
+              name, 
+              value: data.total,
+              count: data.subCats.size // Cantidad de categorías reales
+          }))
+          .sort((a, b) => b.value - a.value)
+          .slice(0, 8);
 
       const sortedProducts = Object.entries(productSales)
           .map(([name, data]) => ({ name, ...data }))
           .sort((a, b) => b.qty - a.qty) 
           .slice(0, 5); 
 
-      // 4. Tabla Financiera Comparativa (Sin cambios en lógica, igual que antes)
+      // Ordenar Métodos de Pago
+      const sortedPaymentMethods = Object.entries(paymentStats)
+          .map(([name, data]) => ({ name, ...data }))
+          .sort((a, b) => {
+              const priorities = { card: 1, cash: 2 };
+              return (priorities[a.name] || 99) - (priorities[b.name] || 99);
+          });
+
+      const sortedMonths = Object.entries(monthlySales)
+          .map(([name, data]) => ({ name, value: data.total, sort: data.sort }))
+          .sort((a, b) => a.sort - b.sort);
+
+      // Tabla Financiera
       const clubFinancials = clubs.map(club => {
           const clubOrders = financialOrders.filter(o => o.clubId === club.id);
           let grossSales = 0;
@@ -1260,8 +1294,8 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           };
       }).sort((a, b) => b.grossSales - a.grossSales);
 
-      return { sortedCategories, sortedProducts, clubFinancials };
-  }, [financialOrders, statsClubFilter, clubs, financialConfig]);
+      return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, clubFinancials };
+  }, [financialOrders, statsClubFilter, clubs, financialConfig, products]);
 
   // Función auxiliar para calcular porcentajes de ancho en gráficas
   const getWidth = (val, max) => max > 0 ? `${(val / max) * 100}%` : '0%';
@@ -2455,38 +2489,26 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       {tab === 'files' && (<div className="bg-white p-6 rounded-xl shadow h-full min-h-[500px]"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Folder className="w-5 h-5 text-emerald-600"/> Explorador de Archivos</h3><div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-full"><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Clubes</h4><div className="space-y-1">{clubs.map(c => (<div key={c.id} onClick={() => { setSelectedClubFiles(c.id); setSelectedFolder(null); }} className={`p-2 rounded cursor-pointer text-sm flex items-center justify-between ${selectedClubFiles === c.id ? 'bg-emerald-50 text-emerald-700 font-medium' : 'hover:bg-gray-50'}`}>{c.name}<ChevronRight className="w-4 h-4 opacity-50"/></div>))}</div></div><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Carpetas</h4>{!selectedClubFiles ? <p className="text-sm text-gray-400 italic">Selecciona un club</p> : <div className="space-y-1">{getClubFolders(selectedClubFiles).map(folder => (<div key={folder} onClick={() => setSelectedFolder(folder)} className={`p-2 rounded cursor-pointer text-sm flex items-center gap-2 ${selectedFolder === folder ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'}`}><Folder className={`w-4 h-4 ${selectedFolder === folder ? 'fill-current' : ''}`}/>{folder}</div>))}</div>}</div><div className="col-span-2"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Archivos</h4>{!selectedFolder ? <div className="flex flex-col items-center justify-center h-48 text-gray-400 border-2 border-dashed rounded-lg"><CornerDownRight className="w-8 h-8 mb-2 opacity-50"/><p className="text-sm">Selecciona carpeta</p></div> : <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">{getFolderPhotos(selectedClubFiles, selectedFolder).map(photo => (<div key={photo.id} className="group relative border rounded-lg p-2 hover:shadow-md transition-shadow"><div className="aspect-square bg-gray-100 rounded mb-2 overflow-hidden"><img src={photo.url} className="w-full h-full object-cover" /></div><p className="text-xs font-medium truncate" title={photo.filename}>{photo.filename}</p></div>))}</div>}</div></div></div>)}
       {tab === 'finances' && (
           <div className="space-y-8 animate-fade-in-up pb-10">
-              {/* CABECERA CON FILTROS GLOBALES */}
+              {/* CABECERA Y FILTROS */}
               <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
                   <div>
                       <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-800">
                           <BarChart3 className="w-8 h-8 text-emerald-600"/> 
-                          Análisis de Rendimiento
+                          Cuadro de Mando Integral
                       </h2>
-                      <p className="text-gray-500 text-sm">Visualización de ventas, productos top y rentabilidad por club.</p>
+                      <p className="text-gray-500 text-sm">Visión 360º del rendimiento económico y comercial.</p>
                   </div>
-                  
                   <div className="flex flex-wrap gap-3">
-                      {/* Filtro Temporada */}
                       <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-lg border border-gray-200">
                           <Calendar className="w-4 h-4 text-gray-500"/>
-                          <select 
-                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
-                              value={financeSeasonId} 
-                              onChange={(e) => setFinanceSeasonId(e.target.value)}
-                          >
+                          <select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" value={financeSeasonId} onChange={(e) => setFinanceSeasonId(e.target.value)}>
                               <option value="all">Histórico Completo</option>
                               {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                           </select>
                       </div>
-
-                      {/* Filtro Club (Afecta a Gráficos) */}
                       <div className="flex items-center gap-2 bg-gray-50 px-4 py-2 rounded-lg border border-gray-200">
                           <Store className="w-4 h-4 text-gray-500"/>
-                          <select 
-                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
-                              value={statsClubFilter} 
-                              onChange={(e) => setStatsClubFilter(e.target.value)}
-                          >
+                          <select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" value={statsClubFilter} onChange={(e) => setStatsClubFilter(e.target.value)}>
                               <option value="all">Todos los Clubes</option>
                               {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                           </select>
@@ -2494,7 +2516,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   </div>
               </div>
 
-              {/* TARJETAS DE RESUMEN (KPIs) */}
+              {/* KPIS */}
               <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                   <StatCard title="Ventas Totales" value={`${totalRevenue.toFixed(2)}€`} color="#3b82f6" />
                   <StatCard title="Beneficio Neto" value={`${netProfit.toFixed(2)}€`} color="#10b981" highlight />
@@ -2502,39 +2524,118 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   <StatCard title="Ticket Medio" value={`${averageTicket.toFixed(2)}€`} color="#6b7280" />
               </div>
 
+              {/* FILA 1: EVOLUCIÓN Y MÉTODOS DE PAGO */}
+              <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                  {/* Gráfico Temporal */}
+                  <div className="lg:col-span-2 bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                      <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+                          <Calendar className="w-5 h-5 text-blue-600"/> Evolución Mensual de Ventas
+                      </h3>
+                      <div className="flex items-end justify-between h-48 gap-2 pt-4 border-b border-gray-100 pb-2">
+                          {statsData.sortedMonths.length > 0 ? statsData.sortedMonths.map((m, idx) => {
+                              const maxVal = Math.max(...statsData.sortedMonths.map(i => i.value));
+                              const heightPct = (m.value / maxVal) * 100;
+                              return (
+                                  <div key={idx} className="flex-1 flex flex-col justify-end items-center group">
+                                      <div className="text-[10px] font-bold text-blue-600 mb-1 opacity-0 group-hover:opacity-100 transition-opacity">{m.value.toFixed(0)}€</div>
+                                      <div className="w-full bg-blue-100 rounded-t-sm relative hover:bg-blue-200 transition-colors" style={{ height: `${heightPct}%` }}>
+                                          <div className="absolute top-0 w-full h-1 bg-blue-400 opacity-50"></div>
+                                      </div>
+                                      <div className="text-[9px] text-gray-400 mt-2 uppercase font-bold rotate-0 truncate w-full text-center">{m.name}</div>
+                                  </div>
+                              );
+                          }) : <p className="w-full text-center text-gray-400 self-center">Sin datos temporales</p>}
+                      </div>
+                  </div>
+
+                  {/* GRÁFICO MÉTODOS DE PAGO (CAJONES) */}
+                  <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
+                      <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+                          <CreditCard className="w-5 h-5 text-purple-600"/> Métodos de Pago
+                      </h3>
+                      <div className="flex-1 flex flex-col gap-4">
+                          {statsData.sortedPaymentMethods.map((method, idx) => (
+                              <div 
+                                  key={idx} 
+                                  className={`flex-1 p-6 rounded-2xl border-l-8 shadow-sm flex flex-col justify-center transition-transform hover:scale-[1.02] ${
+                                      method.name === 'card' ? 'bg-blue-50 border-blue-500' :
+                                      method.name === 'cash' ? 'bg-green-50 border-green-500' :
+                                      'bg-gray-50 border-gray-400'
+                                  }`}
+                              >
+                                  <div className="flex justify-between items-center mb-3">
+                                      <span className={`font-black text-sm uppercase tracking-widest ${
+                                          method.name === 'card' ? 'text-blue-700' :
+                                          method.name === 'cash' ? 'text-green-700' : 'text-gray-600'
+                                      }`}>
+                                          {method.name === 'card' ? 'Pago con Tarjeta' : 
+                                           method.name === 'cash' ? 'Pago en Efectivo' : 
+                                           method.name === 'transfer' ? 'Transferencia' : 
+                                           method.name === 'invoice' ? 'Factura' : method.name}
+                                      </span>
+                                      {method.name === 'card' && <CreditCard className="w-8 h-8 text-blue-300"/>}
+                                      {method.name === 'cash' && <Banknote className="w-8 h-8 text-green-300"/>}
+                                  </div>
+                                  <div className="flex items-baseline gap-3">
+                                      <span className={`text-3xl font-black ${
+                                          method.name === 'card' ? 'text-blue-900' :
+                                          method.name === 'cash' ? 'text-green-900' : 'text-gray-800'
+                                      }`}>
+                                          {method.amount.toFixed(2)}€
+                                      </span>
+                                      <span className={`text-2xl font-light ${
+                                          method.name === 'card' ? 'text-blue-300' :
+                                          method.name === 'cash' ? 'text-green-300' : 'text-gray-300'
+                                      }`}>/</span>
+                                      <span className={`text-xl font-bold ${
+                                          method.name === 'card' ? 'text-blue-600' :
+                                          method.name === 'cash' ? 'text-green-600' : 'text-gray-500'
+                                      }`}>
+                                          {method.count} peds.
+                                      </span>
+                                  </div>
+                              </div>
+                          ))}
+                          {statsData.sortedPaymentMethods.length === 0 && (
+                              <div className="text-center py-8 text-gray-400 bg-gray-50 rounded-xl border border-dashed h-full flex items-center justify-center">
+                                  Sin datos de pago
+                              </div>
+                          )}
+                      </div>
+                  </div>
+              </div>
+
+              {/* FILA 2: CATEGORÍAS Y PRODUCTOS */}
               <div className="grid grid-cols-1 lg:grid-cols-2 gap-8">
-                {/* GRÁFICO: FACTURACIÓN POR CATEGORÍA */}
+                  {/* Facturación por Categoría (VISUAL ACTUALIZADO) */}
                   <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                       <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
                           <Users className="w-5 h-5 text-indigo-600"/> 
                           Facturación por Categoría
-                          <span className="text-xs font-normal text-gray-400 ml-auto">(Agrupado por carpetas)</span>
+                          <span className="text-xs font-normal text-gray-400 ml-auto">(Equipos agrupados)</span>
                       </h3>
                       <div className="space-y-4">
                           {statsData.sortedCategories.length > 0 ? statsData.sortedCategories.map((cat, idx) => (
                               <div key={idx} className="relative">
-                                  <div className="flex justify-between text-xs font-bold mb-1 text-gray-600">
-                                      <span className="capitalize">{cat.name}</span>
-                                      {/* FORMATO EN EUROS */}
-                                      <span>{cat.value.toFixed(2)}€</span> 
+                                  <div className="flex justify-between text-xs font-bold mb-1">
+                                      <span className="capitalize text-gray-600">{cat.name}</span>
+                                      {/* CAMBIO AQUÍ: IMPORTE TOTAL / Nº CATEGORÍAS */}
+                                      <span className="text-indigo-700 font-bold">
+                                          {cat.value.toFixed(2)}€ / {cat.count} categorias
+                                      </span>
                                   </div>
                                   <div className="w-full bg-gray-100 rounded-full h-3 overflow-hidden">
-                                      <div 
-                                          className="bg-indigo-500 h-full rounded-full transition-all duration-1000 ease-out" 
-                                          // Calculamos ancho basado en la facturación máxima
-                                          style={{ width: getWidth(cat.value, statsData.sortedCategories[0].value) }}
-                                      ></div>
+                                      <div className="bg-indigo-500 h-full rounded-full transition-all duration-1000 ease-out" style={{ width: getWidth(cat.value, statsData.sortedCategories[0].value) }}></div>
                                   </div>
                               </div>
                           )) : <p className="text-center text-gray-400 text-sm py-10">No hay datos de ventas.</p>}
                       </div>
                   </div>
 
-                {/* GRÁFICO: TOP PRODUCTOS */}
+                  {/* Top Productos */}
                   <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
                       <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
-                          <Package className="w-5 h-5 text-emerald-600"/> 
-                          Productos Más Vendidos
+                          <Package className="w-5 h-5 text-emerald-600"/> Productos Estrella
                       </h3>
                       <div className="space-y-5">
                           {statsData.sortedProducts.length > 0 ? statsData.sortedProducts.map((prod, idx) => (
@@ -2543,16 +2644,10 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   <div className="flex-1">
                                       <div className="flex justify-between text-sm font-medium mb-1">
                                           <span className="text-gray-800">{prod.name}</span>
-                                          {/* CAMBIO AQUÍ: Unidades e Importe juntos con el mismo estilo */}
-                                          <span className="text-emerald-700 font-bold">
-                                              {prod.total.toFixed(0)}€ / {prod.qty} uds
-                                          </span>
+                                          <span className="text-emerald-700 font-bold">{prod.total.toFixed(0)}€ / {prod.qty} uds</span>
                                       </div>
                                       <div className="w-full bg-gray-100 rounded-full h-2">
-                                          <div 
-                                              className="bg-emerald-500 h-full rounded-full transition-all duration-1000" 
-                                              style={{ width: getWidth(prod.qty, statsData.sortedProducts[0].qty) }}
-                                          ></div>
+                                          <div className="bg-emerald-500 h-full rounded-full transition-all duration-1000" style={{ width: getWidth(prod.qty, statsData.sortedProducts[0].qty) }}></div>
                                       </div>
                                   </div>
                               </div>
@@ -2561,12 +2656,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   </div>
               </div>
 
-              {/* TABLA DE RENDIMIENTO FINANCIERO DETALLADO */}
+              {/* FILA 3: TABLA FINANCIERA (Igual que antes) */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                   <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
                       <h3 className="font-bold text-gray-800 flex items-center gap-2">
-                          <Table className="w-5 h-5 text-blue-600"/> 
-                          Reporte Financiero por Club
+                          <Table className="w-5 h-5 text-blue-600"/> Reporte Financiero Detallado
                       </h3>
                   </div>
                   <div className="overflow-x-auto">
@@ -2578,7 +2672,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   <th className="px-6 py-4 text-right text-blue-800">Facturación</th>
                                   <th className="px-6 py-4 text-right text-red-800">Coste Prov.</th>
                                   <th className="px-6 py-4 text-right text-purple-800">Com. Club</th>
-                                  <th className="px-6 py-4 text-right text-orange-800">Neto Merch (Bruto)</th>
+                                  <th className="px-6 py-4 text-right text-orange-800">Neto Comercial</th>
                                   <th className="px-6 py-4 text-right bg-emerald-50 text-emerald-800">Beneficio Neto</th>
                               </tr>
                           </thead>
@@ -2586,20 +2680,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                               {statsData.clubFinancials.map(cf => (
                                   <tr key={cf.id} className="hover:bg-gray-50 transition-colors">
                                       <td className="px-6 py-4 font-bold text-gray-800">{cf.name}</td>
-                                      <td className="px-6 py-4 text-center">
-                                          <span className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-bold">{cf.ordersCount}</span>
-                                      </td>
+                                      <td className="px-6 py-4 text-center"><span className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-bold">{cf.ordersCount}</span></td>
                                       <td className="px-6 py-4 text-right font-medium">{cf.grossSales.toFixed(2)}€</td>
                                       <td className="px-6 py-4 text-right text-red-600 font-medium">-{cf.supplierCost.toFixed(2)}€</td>
                                       <td className="px-6 py-4 text-right text-purple-600">-{cf.commClub.toFixed(2)}€</td>
-                                      {/* Neto Merch (Antes de costes internos si los hubiera) - Aquí asumo es el comercial */}
                                       <td className="px-6 py-4 text-right text-orange-600">+{cf.commCommercial.toFixed(2)}€</td>
-                                      <td className="px-6 py-4 text-right font-black text-emerald-600 bg-emerald-50/50">
-                                          {cf.netIncome.toFixed(2)}€
-                                      </td>
+                                      <td className="px-6 py-4 text-right font-black text-emerald-600 bg-emerald-50/50">{cf.netIncome.toFixed(2)}€</td>
                                   </tr>
                               ))}
-                              {/* TOTALES */}
                               <tr className="bg-gray-100 font-bold border-t-2 border-gray-300">
                                   <td className="px-6 py-4">TOTALES</td>
                                   <td className="px-6 py-4 text-center">{financialOrders.length}</td>

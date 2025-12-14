@@ -1216,7 +1216,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-    {/* --- PESTAÑA DE PEDIDOS (VERSIÓN CORREGIDA V6) --- */}
+{/* --- PESTAÑA DE PEDIDOS (V7 - OCULTAR ESTADO EN LOTES GLOBALES) --- */}
       {tab === 'accounting' && (
           <div className="bg-white p-6 rounded-xl shadow h-full animate-fade-in-up">
               <div className="flex justify-between items-center mb-6">
@@ -1254,12 +1254,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                               <div className="divide-y divide-gray-200">
                                   {batches.map(batch => {
                                       const isSpecialBatch = batch.id === 'SPECIAL';
+                                      const isIndividualBatch = batch.id === 'INDIVIDUAL';
+                                      const isStandardBatch = typeof batch.id === 'number'; // Identifica si es un Lote Global numérico
+                                      
                                       const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
-                                      // Calcular estado mayoritario del lote si no es especial
-                                      const batchStatus = isSpecialBatch ? 'special' : (batch.orders[0]?.status || 'recopilando');
+                                      const batchStatus = (isSpecialBatch || isIndividualBatch) ? 'special' : (batch.orders[0]?.status || 'recopilando');
                                       
                                       return (
-                                          <div key={batch.id} className={`p-4 ${isSpecialBatch ? 'bg-indigo-50/30' : 'bg-white hover:bg-gray-50'}`}>
+                                          <div key={batch.id} className={`p-4 ${!isStandardBatch ? 'bg-indigo-50/30' : 'bg-white hover:bg-gray-50'}`}>
                                               {/* CABECERA DEL LOTE */}
                                               <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                                                   <div className="flex items-center gap-4">
@@ -1267,11 +1269,17 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                           <span className="font-black text-lg text-indigo-700 flex items-center gap-2">
                                                               <Briefcase className="w-5 h-5"/> PEDIDOS ESPECIALES
                                                           </span>
+                                                      ) : isIndividualBatch ? (
+                                                          <span className="font-black text-lg text-orange-700 flex items-center gap-2">
+                                                              <Package className="w-5 h-5"/> ENTREGAS INDIVIDUALES
+                                                          </span>
                                                       ) : (
                                                           <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
                                                       )}
                                                       
-                                                      {!isSpecialBatch && <Badge status={batchStatus} />}
+                                                      {/* Mostrar Badge del Lote solo si es Lote Global */}
+                                                      {isStandardBatch && <Badge status={batchStatus} />}
+                                                      
                                                       <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
                                                           Total: {batchTotal.toFixed(2)}€
                                                       </span>
@@ -1279,13 +1287,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
                                                   <div className="flex items-center gap-2">
                                                       <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)}>
-                                                          <FileDown className="w-3 h-3 mr-1"/> {isSpecialBatch ? 'Excel Completo' : 'Excel Lote'}
+                                                          <FileDown className="w-3 h-3 mr-1"/> {!isStandardBatch ? 'Excel Completo' : 'Excel Lote'}
                                                       </Button>
                                                       <Button size="xs" variant="outline" onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)}>
-                                                          <Printer className="w-3 h-3 mr-1"/> {isSpecialBatch ? 'Albarán Completo' : 'Albarán Lote'}
+                                                          <Printer className="w-3 h-3 mr-1"/> {!isStandardBatch ? 'Albarán Completo' : 'Albarán Lote'}
                                                       </Button>
 
-                                                      {!isSpecialBatch && (
+                                                      {/* Selector de Estado Masivo (Solo para Lotes Globales) */}
+                                                      {isStandardBatch && (
                                                           <div className="flex items-center gap-2 ml-4 border-l pl-4 border-gray-300">
                                                               <label className="text-[10px] font-bold text-gray-500 uppercase">Estado Lote:</label>
                                                               <select 
@@ -1302,11 +1311,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                   </div>
                                               </div>
 
-                                              {/* LISTA DE PEDIDOS DEL LOTE */}
+                                              {/* LISTA DE PEDIDOS */}
                                               <div className="pl-4 border-l-4 border-gray-200 space-y-2">
                                                   {batch.orders.map(order => (
                                                       <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all">
-                                                          {/* RESUMEN PEDIDO (Click para expandir) */}
+                                                          {/* RESUMEN PEDIDO */}
                                                           <div 
                                                               onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
                                                               className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
@@ -1314,11 +1323,16 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                               <div className="flex gap-4 items-center">
                                                                   {order.type === 'special' ? (
                                                                       <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
+                                                                  ) : order.globalBatch === 'INDIVIDUAL' ? (
+                                                                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
                                                                   ) : (
                                                                       <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded">#{order.id.slice(0,6)}</span>
                                                                   )}
+                                                                  
                                                                   <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
-                                                                  <Badge status={order.status} />
+                                                                  
+                                                                  {/* CAMBIO AQUÍ: Solo mostrar el badge individual si NO es un lote estándar */}
+                                                                  {!isStandardBatch && <Badge status={order.status} />}
                                                               </div>
                                                               <div className="flex gap-4 items-center text-sm">
                                                                   <span className="font-bold">{order.total.toFixed(2)}€</span>
@@ -1330,15 +1344,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                           {expandedOrderId === order.id && (
                                                               <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
                                                                   
-                                                                  {/* --- PANEL DE CONTROL INDIVIDUAL (SOLO PEDIDOS ESPECIALES) --- */}
-                                                                  {order.type === 'special' && (
+                                                                  {/* PANEL DE GESTIÓN INDIVIDUAL (Para Especiales o Individuales) */}
+                                                                  {!isStandardBatch && (
                                                                       <div className="mb-6 bg-white p-4 rounded-lg border-2 border-indigo-100 shadow-sm flex flex-wrap items-center gap-4">
                                                                           <div className="flex items-center gap-2 text-indigo-700">
                                                                               <Briefcase className="w-5 h-5"/>
                                                                               <span className="font-bold text-xs uppercase tracking-wide">Gestión Individual</span>
                                                                           </div>
                                                                           
-                                                                          {/* Selector de Estado */}
                                                                           <div className="flex flex-col">
                                                                               <label className="text-[10px] text-gray-400 font-bold uppercase mb-1">Estado</label>
                                                                               <select 
@@ -1354,20 +1367,18 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
                                                                           <div className="h-8 w-px bg-gray-200 mx-2"></div>
 
-                                                                          {/* Botones de Acción Individual */}
                                                                           <div className="flex gap-2">
                                                                               <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" 
-                                                                                  onClick={() => generateBatchExcel(`ESP-${order.id.slice(0,6)}`, [order], club.name)}>
-                                                                                  <FileDown className="w-4 h-4 mr-1"/> Descargar Excel
+                                                                                  onClick={() => generateBatchExcel(`IND-${order.id.slice(0,6)}`, [order], club.name)}>
+                                                                                  <FileDown className="w-4 h-4 mr-1"/> Excel Individual
                                                                               </Button>
                                                                               <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" 
-                                                                                  onClick={() => printBatchAlbaran(`ESP-${order.id.slice(0,6)}`, [order], club.name, 0)}>
-                                                                                  <Printer className="w-4 h-4 mr-1"/> Imprimir Albarán
+                                                                                  onClick={() => printBatchAlbaran(`IND-${order.id.slice(0,6)}`, [order], club.name, 0)}>
+                                                                                  <Printer className="w-4 h-4 mr-1"/> Albarán Individual
                                                                               </Button>
                                                                           </div>
                                                                       </div>
                                                                   )}
-                                                                  {/* -------------------------------------------------------- */}
 
                                                                   <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2">
                                                                       <Package className="w-3 h-3"/> Productos del Pedido
@@ -1392,7 +1403,6 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                                                     </div>
                                                                                 </div>
                                                                                 
-                                                                                {/* DATOS ECONÓMICOS INDIVIDUALES */}
                                                                                 <div className="flex items-center gap-6 mr-4">
                                                                                     <div className="text-right">
                                                                                         <p className="text-[10px] text-gray-400 uppercase font-bold">Cantidad</p>
@@ -1409,13 +1419,9 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                                                 </div>
 
                                                                                 <div className="flex items-center gap-3 border-l pl-4">
-                                                                                    {/* Si ya está reportado, mostramos la etiqueta */}
                                                                                     {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
-                                                                                    
-                                                                                    {/* BOTÓN DE REPORTAR FALLO - AHORA EN ROJO VISIBLE */}
                                                                                     <button 
                                                                                         onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
-                                                                                        // CAMBIO AQUÍ: Se han aplicado colores rojos intensos (text-red-600) y un fondo rojo suave (bg-red-50)
                                                                                         className="text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-800 p-1.5 rounded-md transition-colors flex items-center gap-1 font-medium text-xs border border-red-100 shadow-sm" 
                                                                                         title="Reportar Incidencia"
                                                                                     >

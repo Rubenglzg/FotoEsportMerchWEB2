@@ -595,9 +595,22 @@ function ClubDashboard({ club, orders, updateOrderStatus, config, seasons }) {
 function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
   const [tab, setTab] = useState('management');
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
+  // Modificamos el estado de mover temporada para que acepte lotes completos
+  const [moveSeasonModal, setMoveSeasonModal] = useState({ active: false, target: null, type: 'batch' }); // type: 'batch' | 'order'
+  const [isEditingActiveBatch, setIsEditingActiveBatch] = useState(false);
+  const [tempBatchValue, setTempBatchValue] = useState(1);
+  const [filterClubId, setFilterClubId] = useState('all');
   const [selectedClubId, setSelectedClubId] = useState(clubs[0]?.id || '');
   const [selectedClubFiles, setSelectedClubFiles] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState(null);
+  // --- ESTADOS PARA EDICIÓN Y MOVIMIENTOS ---
+  const [editOrderModal, setEditOrderModal] = useState({ 
+      active: false, 
+      original: null, 
+      modified: null 
+  });
+
+  const [confirmation, setConfirmation] = useState(null); // Nuevo estado local para confirmaciones
   
   const [newSpecialOrder, setNewSpecialOrder] = useState({ 
       clubId: '', 
@@ -639,27 +652,184 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
   const selectedClub = clubs.find(c => c.id === selectedClubId) || clubs[0];
 
+// --- FILTRADO POR TEMPORADA ---
   const financialOrders = useMemo(() => {
       if (financeSeasonId === 'all') return orders;
       const season = seasons.find(s => s.id === financeSeasonId);
       if (!season) return orders;
+      
       const start = new Date(season.startDate).getTime();
       const end = new Date(season.endDate).getTime();
+      
       return orders.filter(o => {
+          // 1. Si tiene temporada manual, esta manda sobre la fecha
+          if (o.manualSeasonId) return o.manualSeasonId === financeSeasonId;
+          
+          // 2. Si tiene temporada manual asignada a OTRA temporada, no debe salir aquí
+          if (o.manualSeasonId && o.manualSeasonId !== financeSeasonId) return false;
+          
+          // 3. Si no hay manual, usamos la fecha
           const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
           return d >= start && d <= end;
       });
   }, [orders, financeSeasonId, seasons]);
+
+// --- FUNCIÓN: ELIMINAR PEDIDO (Corregida) ---
+  const handleDeleteOrder = (orderId) => {
+      setConfirmation({
+          msg: "⚠️ ¿Estás seguro de ELIMINAR este pedido definitivamente?",
+          onConfirm: async () => {
+              try {
+                  await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId));
+                  showNotification('Pedido eliminado correctamente');
+              } catch (e) {
+                  showNotification('Error al eliminar pedido', 'error');
+              }
+          }
+      });
+  };
+
+  // --- FUNCIÓN: ELIMINAR LOTE GLOBAL (Corregida) ---
+  const handleDeleteGlobalBatch = (clubId, batchId) => {
+      const ordersInBatch = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId);
+      setConfirmation({
+          msg: `⚠️ PELIGRO: Vas a eliminar el LOTE GLOBAL #${batchId} con ${ordersInBatch.length} pedidos.\n\nEsta acción borrará TODOS los pedidos de este lote definitivamente.`,
+          onConfirm: async () => {
+              try {
+                  const batch = writeBatch(db);
+                  ordersInBatch.forEach(o => {
+                      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
+                      batch.delete(ref);
+                  });
+                  await batch.commit();
+                  showNotification(`Lote #${batchId} eliminado correctamente`);
+              } catch (e) {
+                  showNotification('Error al eliminar el lote', 'error');
+              }
+          }
+      });
+  };
+
+    // --- FUNCIÓN: PREPARAR Y GUARDAR EDICIÓN (Con Resumen) ---
+  const handlePreSaveOrder = () => {
+      const { original, modified } = editOrderModal;
+      if (!original || !modified) return;
+
+      const changes = [];
+
+      // 1. Detectar cambios en cliente
+      if(original.customer.name !== modified.customer.name) 
+          changes.push(`👤 Cliente: "${original.customer.name}" ➝ "${modified.customer.name}"`);
+      if(original.customer.email !== modified.customer.email) 
+          changes.push(`📧 Email: "${original.customer.email}" ➝ "${modified.customer.email}"`);
+
+      // 2. Detectar cambios en productos
+      modified.items.forEach((mItem, idx) => {
+          const oItem = original.items[idx];
+          const prodName = mItem.name || 'Producto';
+          
+          if (!oItem) {
+               changes.push(`➕ Nuevo producto: ${prodName}`);
+          } else {
+               if(oItem.name !== mItem.name) changes.push(`📦 Nombre (${idx+1}): "${oItem.name}" ➝ "${mItem.name}"`);
+               if(oItem.quantity !== mItem.quantity) changes.push(`🔢 Cantidad (${prodName}): ${oItem.quantity} ➝ ${mItem.quantity}`);
+               if(oItem.playerNumber !== mItem.playerNumber) changes.push(`Shirt # (${prodName}): ${oItem.playerNumber || '-'} ➝ ${mItem.playerNumber || '-'}`);
+               if(oItem.playerName !== mItem.playerName) changes.push(`Shirt Name (${prodName}): ${oItem.playerName || '-'} ➝ ${mItem.playerName || '-'}`);
+               if(oItem.price !== mItem.price) changes.push(`💶 Precio (${prodName}): ${oItem.price}€ ➝ ${mItem.price}€`);
+          }
+      });
+
+      if (changes.length === 0) {
+          showNotification('No se han detectado cambios', 'warning');
+          return;
+      }
+
+      // 3. Pedir Confirmación con Resumen
+      setConfirmation({
+          title: "Confirmar Modificaciones",
+          msg: "Estás a punto de aplicar los siguientes cambios:",
+          details: changes, // Pasamos la lista de cambios
+          onConfirm: async () => {
+              try {
+                  // Recalcular total
+                  const newTotal = modified.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+                  
+                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', modified.id), {
+                      customer: modified.customer,
+                      items: modified.items,
+                      total: newTotal
+                  });
+                  showNotification('Cambios aplicados correctamente');
+                  setEditOrderModal({ active: false, original: null, modified: null });
+              } catch (e) {
+                  showNotification('Error al guardar cambios', 'error');
+              }
+          }
+      });
+  };
+
+// --- FUNCIÓN: MOVER LOTE DE TEMPORADA ---
+  const handleMoveBatchSeasonSubmit = async (newSeasonId) => {
+      if (!moveSeasonModal.target) return;
+      const { clubId, batchId } = moveSeasonModal.target;
+      
+      const ordersInBatch = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId);
+      
+      try {
+          const batch = writeBatch(db);
+          ordersInBatch.forEach(o => {
+              const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
+              batch.update(ref, { manualSeasonId: newSeasonId });
+          });
+          await batch.commit();
+          showNotification(`Lote #${batchId} movido a la nueva temporada`);
+          setMoveSeasonModal({ active: false, target: null });
+      } catch (e) {
+          showNotification('Error al mover el lote', 'error');
+      }
+  };
+
+  // --- FUNCIÓN: GUARDAR EDICIÓN DE PEDIDO ---
+  const handleSaveOrderEdit = async () => {
+      if (!editOrderModal.order) return;
+      try {
+          const o = editOrderModal.order;
+          // Recalcular total por si se cambiaron precios
+          const newTotal = o.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
+          
+          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id), {
+              customer: o.customer,
+              items: o.items,
+              total: newTotal
+          });
+          showNotification('Pedido modificado correctamente');
+          setEditOrderModal({ active: false, order: null });
+      } catch (e) {
+          showNotification('Error al guardar cambios', 'error');
+      }
+  };
+
+  // --- FUNCIÓN PARA EDITAR LOTE ACTIVO MANUALMENTE ---
+  const saveActiveBatchManually = () => {
+      if (!selectedClubId) return;
+      const club = clubs.find(c => c.id === selectedClubId);
+      updateClub({ ...club, activeGlobalOrderId: parseInt(tempBatchValue) });
+      setIsEditingActiveBatch(false);
+      showNotification('Número de Lote Global actualizado manualmente');
+  };
   
-// Lógica de agrupación de pedidos (V2 - Con soporte para SPECIAL e INDIVIDUAL)
+// Lógica de agrupación de pedidos (V4 - Con Lote Activo siempre visible)
   const accountingData = useMemo(() => {
-      return clubs.map(club => {
+      const visibleClubs = filterClubId === 'all' 
+          ? clubs 
+          : clubs.filter(c => c.id === filterClubId);
+
+      return visibleClubs.map(club => {
           const clubOrders = financialOrders.filter(o => o.clubId === club.id);
           const batches = {};
           
           clubOrders.forEach(order => {
               let batchId = order.globalBatch || 1;
-              // Normalizar IDs especiales
               if (order.type === 'special') batchId = 'SPECIAL';
               if (batchId === 'INDIVIDUAL') batchId = 'INDIVIDUAL';
               
@@ -667,10 +837,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
               batches[batchId].push(order);
           });
 
+          // --- NUEVO: Asegurar que el Lote Activo aparece aunque esté vacío ---
+          if (club.activeGlobalOrderId && !batches[club.activeGlobalOrderId]) {
+              batches[club.activeGlobalOrderId] = [];
+          }
+
           const sortedBatches = Object.entries(batches)
               .map(([id, orders]) => ({ id: (id === 'SPECIAL' || id === 'INDIVIDUAL') ? id : parseInt(id), orders }))
               .sort((a, b) => {
-                  // Orden: Especiales -> Individuales -> Lotes Numéricos (Descendente)
                   if (a.id === 'SPECIAL') return -1;
                   if (b.id === 'SPECIAL') return 1;
                   if (a.id === 'INDIVIDUAL') return -1;
@@ -680,7 +854,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
           return { club, batches: sortedBatches };
       });
-  }, [clubs, financialOrders]);
+  }, [clubs, financialOrders, filterClubId]);
 
   const totalRevenue = financialOrders.reduce((sum, o) => sum + o.total, 0);
   const totalIncidentCosts = financialOrders.reduce((sum, o) => {
@@ -939,17 +1113,45 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                           </select>
                       </div>
 
-                      <div className="bg-white p-3 rounded border border-blue-100 space-y-3">
+                        <div className="bg-white p-3 rounded border border-blue-100 space-y-3">
                           <div className="flex justify-between items-center">
                               <div>
-                                  <p className="text-xs text-gray-500">Pedido Global Activo</p>
-                                  <p className="text-2xl font-bold text-blue-900">#{selectedClub?.activeGlobalOrderId}</p>
+                                  <p className="text-xs text-gray-500 mb-1">Pedido Global Activo</p>
+                                  
+                                  {/* --- SUSTITUIR EL NÚMERO ESTÁTICO POR ESTO: --- */}
+                                  {isEditingActiveBatch ? (
+                                      <div className="flex items-center gap-2">
+                                          <span className="text-2xl font-bold text-blue-900">#</span>
+                                          <input 
+                                              type="number" 
+                                              className="w-20 border rounded p-1 text-xl font-bold text-blue-900" 
+                                              value={tempBatchValue} 
+                                              onChange={(e) => setTempBatchValue(e.target.value)}
+                                              autoFocus
+                                          />
+                                          <button onClick={saveActiveBatchManually} className="p-1 bg-green-100 text-green-700 rounded hover:bg-green-200"><Check className="w-4 h-4"/></button>
+                                          <button onClick={() => setIsEditingActiveBatch(false)} className="p-1 bg-red-100 text-red-700 rounded hover:bg-red-200"><X className="w-4 h-4"/></button>
+                                      </div>
+                                  ) : (
+                                      <div className="flex items-center gap-2 group">
+                                          <p className="text-2xl font-bold text-blue-900">#{selectedClub?.activeGlobalOrderId}</p>
+                                          <button 
+                                              onClick={() => { setTempBatchValue(selectedClub?.activeGlobalOrderId); setIsEditingActiveBatch(true); }}
+                                              className="opacity-0 group-hover:opacity-100 text-gray-400 hover:text-blue-600 transition-opacity"
+                                              title="Editar manualmente"
+                                          >
+                                              <Edit3 className="w-4 h-4"/>
+                                          </button>
+                                      </div>
+                                  )}
                               </div>
+                              
                               <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 hover:bg-blue-700 text-white text-xs">
                                   <Archive className="w-4 h-4 mr-1"/> Cerrar y Abrir Nuevo
                               </Button>
                           </div>
                           
+                          {/* ... resto del botón de deshacer (handleRevertGlobalBatch) ... */}
                           {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
                               <div className="border-t border-dashed border-blue-200 pt-2 flex justify-end">
                                   <button 
@@ -1215,25 +1417,138 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
               </div>
           </div>
       )}
+{/* --- MODAL MOVER TEMPORADA (POR LOTE) --- */}
+      {moveSeasonModal.active && (
+          <div className="fixed inset-0 bg-black/50 z-[100] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl p-6 w-full max-w-sm">
+                  <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-gray-800">
+                      <Calendar className="w-5 h-5 text-blue-600"/> Mover Lote de Temporada
+                  </h3>
+                  <p className="text-sm text-gray-600 mb-4">
+                      Estás moviendo el <strong>Lote Global #{moveSeasonModal.target.batchId}</strong> completo. Todos los pedidos incluidos pasarán a la temporada seleccionada.
+                  </p>
+                  <div className="space-y-2 mb-6">
+                      {seasons.map(s => (
+                          <button key={s.id} onClick={() => handleMoveBatchSeasonSubmit(s.id)} className="w-full text-left p-3 rounded border text-sm font-medium hover:bg-blue-50 hover:border-blue-300 transition-colors">
+                              {s.name}
+                          </button>
+                      ))}
+                      <button onClick={() => handleMoveBatchSeasonSubmit(null)} className="w-full text-left p-3 rounded border border-dashed border-gray-300 text-sm text-gray-500 hover:bg-gray-50 text-center">
+                          Restaurar a Fecha Original
+                      </button>
+                  </div>
+                  <div className="flex justify-end"><Button variant="secondary" onClick={() => setMoveSeasonModal({ active: false, target: null })}>Cancelar</Button></div>
+              </div>
+          </div>
+      )}
 
-{/* --- PESTAÑA DE PEDIDOS (V7 - OCULTAR ESTADO EN LOTES GLOBALES) --- */}
+{/* --- MODAL EDITAR PEDIDO (CORREGIDO) --- */}
+      {editOrderModal.active && editOrderModal.modified && (
+          <div className="fixed inset-0 bg-black/60 z-[110] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+              <div className="bg-white rounded-xl shadow-2xl w-full max-w-3xl overflow-hidden max-h-[90vh] flex flex-col">
+                  <div className="bg-emerald-50 px-6 py-4 border-b border-emerald-100 flex justify-between items-center">
+                      <h3 className="font-bold text-lg text-emerald-800 flex items-center gap-2"><Edit3 className="w-5 h-5"/> Editar Pedido</h3>
+                      <button onClick={() => setEditOrderModal({ active: false, original: null, modified: null })}><X className="w-5 h-5 text-gray-400"/></button>
+                  </div>
+                  
+                  <div className="p-6 overflow-y-auto flex-1 space-y-6">
+                      {/* Datos Cliente */}
+                      <div className="grid grid-cols-2 gap-4">
+                          <Input label="Nombre Cliente" value={editOrderModal.modified.customer.name} onChange={e => setEditOrderModal({ ...editOrderModal, modified: { ...editOrderModal.modified, customer: { ...editOrderModal.modified.customer, name: e.target.value } } })} />
+                          <Input label="Email" value={editOrderModal.modified.customer.email} onChange={e => setEditOrderModal({ ...editOrderModal, modified: { ...editOrderModal.modified, customer: { ...editOrderModal.modified.customer, email: e.target.value } } })} />
+                      </div>
+
+                      {/* Lista Productos */}
+                      <div>
+                          <h4 className="font-bold text-sm text-gray-700 mb-2 uppercase">Productos</h4>
+                          <div className="space-y-3">
+                              {editOrderModal.modified.items.map((item, idx) => (
+                                  <div key={idx} className="border p-3 rounded bg-gray-50 grid grid-cols-12 gap-2 items-end">
+                                      <div className="col-span-4"><label className="text-[10px] block font-bold text-gray-400">Producto</label><input className="w-full text-sm border rounded p-1" value={item.name} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].name = e.target.value; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
+                                      <div className="col-span-2"><label className="text-[10px] block font-bold text-gray-400">Dorsal</label><input className="w-full text-sm border rounded p-1" value={item.playerNumber || ''} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].playerNumber = e.target.value; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
+                                      <div className="col-span-3"><label className="text-[10px] block font-bold text-gray-400">Nombre</label><input className="w-full text-sm border rounded p-1" value={item.playerName || ''} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].playerName = e.target.value; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
+                                      
+                                      {/* AQUÍ ESTÁ EL CAMBIO DE COLOR: Se quitó 'text-blue-600' y se puso 'text-gray-900' */}
+                                      <div className="col-span-1"><label className="text-[10px] block font-bold text-gray-400">Cant.</label><input type="number" className="w-full text-sm border rounded p-1 font-bold text-gray-900" value={item.quantity} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].quantity = parseInt(e.target.value) || 1; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
+                                      
+                                      <div className="col-span-2"><label className="text-[10px] block font-bold text-gray-400">Precio</label><input type="number" className="w-full text-sm border rounded p-1" value={item.price} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].price = parseFloat(e.target.value) || 0; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
+                                  </div>
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+
+                  <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3 border-t">
+                      <Button variant="secondary" onClick={() => setEditOrderModal({ active: false, original: null, modified: null })}>Cancelar</Button>
+                      <Button onClick={handlePreSaveOrder}>Guardar Cambios</Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+      {/* --- MODAL CONFIRMACIÓN (LOCAL DEL DASHBOARD) --- */}
+      {confirmation && (
+          <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-[150] backdrop-blur-sm animate-fade-in">
+              <div className="bg-white p-6 rounded-xl shadow-2xl max-w-md w-full mx-4 border-2 border-gray-100">
+                  <div className="flex items-center gap-2 mb-4 text-gray-800">
+                      <AlertCircle className="w-6 h-6 text-emerald-600"/>
+                      <h3 className="font-bold text-lg">{confirmation.title || 'Confirmar Acción'}</h3>
+                  </div>
+                  
+                  <p className="text-gray-600 mb-4 whitespace-pre-line">{confirmation.msg}</p>
+                  
+                  {/* Lista de detalles (Resumen de cambios) */}
+                  {confirmation.details && (
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-lg p-3 mb-6 max-h-40 overflow-y-auto text-sm text-emerald-900 space-y-1">
+                          {confirmation.details.map((line, i) => (
+                              <div key={i} className="font-mono">{line}</div>
+                          ))}
+                      </div>
+                  )}
+
+                  <div className="flex justify-end gap-3">
+                      <Button variant="secondary" onClick={() => setConfirmation(null)}>Cancelar</Button>
+                      <Button variant="danger" onClick={() => { confirmation.onConfirm(); setConfirmation(null); }}>
+                          Confirmar
+                      </Button>
+                  </div>
+              </div>
+          </div>
+      )}
+
+{/* --- PESTAÑA DE PEDIDOS (V10 - SIN PARPADEO EN LOTE ACTIVO) --- */}
       {tab === 'accounting' && (
           <div className="bg-white p-6 rounded-xl shadow h-full animate-fade-in-up">
-              <div className="flex justify-between items-center mb-6">
+              <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
                   <h3 className="font-bold text-lg flex items-center gap-2">
                       <FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 
                       Gestión de Pedidos
                   </h3>
-                  <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
-                      <Calendar className="w-4 h-4 text-gray-500"/>
-                      <select 
-                          className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" 
-                          value={financeSeasonId} 
-                          onChange={(e) => setFinanceSeasonId(e.target.value)}
-                      >
-                          <option value="all">Todas las Temporadas</option>
-                          {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
+                  
+                  <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
+                          <Store className="w-4 h-4 text-gray-500"/>
+                          <select 
+                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm w-32 md:w-auto" 
+                              value={filterClubId} 
+                              onChange={(e) => setFilterClubId(e.target.value)}
+                          >
+                              <option value="all">Todos los Clubes</option>
+                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                      </div>
+
+                      <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
+                          <Calendar className="w-4 h-4 text-gray-500"/>
+                          <select 
+                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" 
+                              value={financeSeasonId} 
+                              onChange={(e) => setFinanceSeasonId(e.target.value)}
+                          >
+                              <option value="all">Todas las Temporadas</option>
+                              {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                      </div>
                   </div>
               </div>
               
@@ -1255,13 +1570,15 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   {batches.map(batch => {
                                       const isSpecialBatch = batch.id === 'SPECIAL';
                                       const isIndividualBatch = batch.id === 'INDIVIDUAL';
-                                      const isStandardBatch = typeof batch.id === 'number'; // Identifica si es un Lote Global numérico
+                                      const isStandardBatch = typeof batch.id === 'number'; 
+                                      
+                                      const isActiveBatch = isStandardBatch && batch.id === club.activeGlobalOrderId;
                                       
                                       const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
                                       const batchStatus = (isSpecialBatch || isIndividualBatch) ? 'special' : (batch.orders[0]?.status || 'recopilando');
                                       
                                       return (
-                                          <div key={batch.id} className={`p-4 ${!isStandardBatch ? 'bg-indigo-50/30' : 'bg-white hover:bg-gray-50'}`}>
+                                          <div key={batch.id} className={`p-4 ${!isStandardBatch ? 'bg-indigo-50/30' : isActiveBatch ? 'bg-emerald-50/30' : 'bg-white hover:bg-gray-50'}`}>
                                               {/* CABECERA DEL LOTE */}
                                               <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
                                                   <div className="flex items-center gap-4">
@@ -1274,10 +1591,17 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                               <Package className="w-5 h-5"/> ENTREGAS INDIVIDUALES
                                                           </span>
                                                       ) : (
-                                                          <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
+                                                          <div className="flex items-center gap-2">
+                                                              <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
+                                                              {/* ETIQUETA DE LOTE ACTIVO (SIN PARPADEO) */}
+                                                              {isActiveBatch && (
+                                                                  <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded border border-emerald-700 font-bold uppercase tracking-wide shadow-sm">
+                                                                      Lote Activo
+                                                                  </span>
+                                                              )}
+                                                          </div>
                                                       )}
                                                       
-                                                      {/* Mostrar Badge del Lote solo si es Lote Global */}
                                                       {isStandardBatch && <Badge status={batchStatus} />}
                                                       
                                                       <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
@@ -1286,17 +1610,40 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                   </div>
 
                                                   <div className="flex items-center gap-2">
-                                                      <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)}>
-                                                          <FileDown className="w-3 h-3 mr-1"/> {!isStandardBatch ? 'Excel Completo' : 'Excel Lote'}
+                                                      {/* Botones de Documentos */}
+                                                      <Button size="xs" variant="outline" disabled={batch.orders.length === 0} onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)}>
+                                                          <FileDown className="w-3 h-3 mr-1"/> Excel
                                                       </Button>
-                                                      <Button size="xs" variant="outline" onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)}>
-                                                          <Printer className="w-3 h-3 mr-1"/> {!isStandardBatch ? 'Albarán Completo' : 'Albarán Lote'}
+                                                      <Button size="xs" variant="outline" disabled={batch.orders.length === 0} onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)}>
+                                                          <Printer className="w-3 h-3 mr-1"/> Albarán
                                                       </Button>
 
-                                                      {/* Selector de Estado Masivo (Solo para Lotes Globales) */}
+                                                      {/* --- NUEVOS BOTONES GLOBALES DE LOTE --- */}
                                                       {isStandardBatch && (
-                                                          <div className="flex items-center gap-2 ml-4 border-l pl-4 border-gray-300">
-                                                              <label className="text-[10px] font-bold text-gray-500 uppercase">Estado Lote:</label>
+                                                          <>
+                                                              <div className="h-6 w-px bg-gray-300 mx-1"></div>
+                                                              
+                                                              <button 
+                                                                  onClick={() => setMoveSeasonModal({ active: true, target: { clubId: club.id, batchId: batch.id }, type: 'batch' })}
+                                                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded border border-blue-200"
+                                                                  title="Mover todo el lote de temporada"
+                                                              >
+                                                                  <Calendar className="w-4 h-4"/>
+                                                              </button>
+
+                                                              <button 
+                                                                  onClick={() => handleDeleteGlobalBatch(club.id, batch.id)}
+                                                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-red-200"
+                                                                  title="Eliminar Lote Completo"
+                                                              >
+                                                                  <Trash2 className="w-4 h-4"/>
+                                                              </button>
+                                                          </>
+                                                      )}
+
+                                                      {/* Selector de Estado */}
+                                                      {isStandardBatch && (
+                                                          <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
                                                               <select 
                                                                   value={batchStatus}
                                                                   onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
@@ -1312,131 +1659,115 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                               </div>
 
                                               {/* LISTA DE PEDIDOS */}
-                                              <div className="pl-4 border-l-4 border-gray-200 space-y-2">
-                                                  {batch.orders.map(order => (
-                                                      <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all">
-                                                          {/* RESUMEN PEDIDO */}
-                                                          <div 
-                                                              onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
-                                                              className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
-                                                          >
-                                                              <div className="flex gap-4 items-center">
-                                                                  {order.type === 'special' ? (
-                                                                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
-                                                                  ) : order.globalBatch === 'INDIVIDUAL' ? (
-                                                                      <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
-                                                                  ) : (
-                                                                      <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded">#{order.id.slice(0,6)}</span>
-                                                                  )}
-                                                                  
-                                                                  <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
-                                                                  
-                                                                  {/* CAMBIO AQUÍ: Solo mostrar el badge individual si NO es un lote estándar */}
-                                                                  {!isStandardBatch && <Badge status={order.status} />}
-                                                              </div>
-                                                              <div className="flex gap-4 items-center text-sm">
-                                                                  <span className="font-bold">{order.total.toFixed(2)}€</span>
-                                                                  <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
-                                                              </div>
-                                                          </div>
-                                                          
-                                                          {/* DETALLE EXPANDIDO */}
-                                                          {expandedOrderId === order.id && (
-                                                              <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
-                                                                  
-                                                                  {/* PANEL DE GESTIÓN INDIVIDUAL (Para Especiales o Individuales) */}
-                                                                  {!isStandardBatch && (
-                                                                      <div className="mb-6 bg-white p-4 rounded-lg border-2 border-indigo-100 shadow-sm flex flex-wrap items-center gap-4">
-                                                                          <div className="flex items-center gap-2 text-indigo-700">
-                                                                              <Briefcase className="w-5 h-5"/>
-                                                                              <span className="font-bold text-xs uppercase tracking-wide">Gestión Individual</span>
-                                                                          </div>
-                                                                          
-                                                                          <div className="flex flex-col">
-                                                                              <label className="text-[10px] text-gray-400 font-bold uppercase mb-1">Estado</label>
-                                                                              <select 
-                                                                                  value={order.status} 
-                                                                                  onChange={(e) => updateOrderStatus(order.id, e.target.value, e.target.options[e.target.selectedIndex].text)}
-                                                                                  className="text-xs border-indigo-200 rounded py-1.5 px-2 bg-indigo-50 font-medium focus:ring-2 focus:ring-indigo-500 cursor-pointer"
-                                                                              >
-                                                                                  <option value="recopilando">Recopilando</option>
-                                                                                  <option value="en_produccion">En Producción</option>
-                                                                                  <option value="entregado_club">Entregado</option>
-                                                                              </select>
-                                                                          </div>
-
-                                                                          <div className="h-8 w-px bg-gray-200 mx-2"></div>
-
-                                                                          <div className="flex gap-2">
-                                                                              <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" 
-                                                                                  onClick={() => generateBatchExcel(`IND-${order.id.slice(0,6)}`, [order], club.name)}>
-                                                                                  <FileDown className="w-4 h-4 mr-1"/> Excel Individual
-                                                                              </Button>
-                                                                              <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" 
-                                                                                  onClick={() => printBatchAlbaran(`IND-${order.id.slice(0,6)}`, [order], club.name, 0)}>
-                                                                                  <Printer className="w-4 h-4 mr-1"/> Albarán Individual
-                                                                              </Button>
-                                                                          </div>
-                                                                      </div>
-                                                                  )}
-
-                                                                  <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2">
-                                                                      <Package className="w-3 h-3"/> Productos del Pedido
-                                                                  </h5>
-                                                                  
-                                                                  <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100">
-                                                                      {order.items.map(item => {
-                                                                          const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
-                                                                          const itemTotal = (item.quantity || 1) * item.price;
-                                                                          
-                                                                          return (
-                                                                            <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
-                                                                                <div className="flex gap-3 items-center flex-1">
-                                                                                    {item.image ? (
-                                                                                        <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" />
-                                                                                    ) : (
-                                                                                        <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>
-                                                                                    )}
-                                                                                    <div>
-                                                                                        <p className="font-bold text-gray-800 text-sm">{item.name}</p>
-                                                                                        <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
-                                                                                    </div>
-                                                                                </div>
-                                                                                
-                                                                                <div className="flex items-center gap-6 mr-4">
-                                                                                    <div className="text-right">
-                                                                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Cantidad</p>
-                                                                                        <p className="font-medium text-sm">{item.quantity || 1} ud.</p>
-                                                                                    </div>
-                                                                                    <div className="text-right">
-                                                                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Precio Unit.</p>
-                                                                                        <p className="font-medium text-sm">{item.price.toFixed(2)}€</p>
-                                                                                    </div>
-                                                                                    <div className="text-right w-20">
-                                                                                        <p className="text-[10px] text-gray-400 uppercase font-bold">Subtotal</p>
-                                                                                        <p className="font-bold text-emerald-600 text-sm">{itemTotal.toFixed(2)}€</p>
-                                                                                    </div>
-                                                                                </div>
-
-                                                                                <div className="flex items-center gap-3 border-l pl-4">
-                                                                                    {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
-                                                                                    <button 
-                                                                                        onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
-                                                                                        className="text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-800 p-1.5 rounded-md transition-colors flex items-center gap-1 font-medium text-xs border border-red-100 shadow-sm" 
-                                                                                        title="Reportar Incidencia"
-                                                                                    >
-                                                                                        <AlertTriangle className="w-4 h-4"/> Reportar Fallo
-                                                                                    </button>
-                                                                                </div>
-                                                                            </div>
-                                                                        );
-                                                                      })}
+                                              {batch.orders.length === 0 ? (
+                                                  <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
+                                                      Aún no hay pedidos en este lote activo.
+                                                  </div>
+                                              ) : (
+                                                  <div className="pl-4 border-l-4 border-gray-200 space-y-2">
+                                                      {batch.orders.map(order => (
+                                                          <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all">
+                                                              <div 
+                                                                  onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
+                                                                  className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
+                                                              >
+                                                                  <div className="flex gap-4 items-center">
+                                                                      {order.type === 'special' ? (
+                                                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
+                                                                      ) : order.globalBatch === 'INDIVIDUAL' ? (
+                                                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
+                                                                      ) : (
+                                                                          <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded">#{order.id.slice(0,6)}</span>
+                                                                      )}
+                                                                      
+                                                                      <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
+                                                                      
+                                                                      {!isStandardBatch && <Badge status={order.status} />}
+                                                                  </div>
+                                                                  <div className="flex gap-4 items-center text-sm">
+                                                                      <span className="font-bold">{order.total.toFixed(2)}€</span>
+                                                                      <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
                                                                   </div>
                                                               </div>
-                                                          )}
-                                                      </div>
-                                                  ))}
-                                              </div>
+                                                              
+                                                              {expandedOrderId === order.id && (
+                                                                  <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
+                                                                      {!isStandardBatch && (
+                                                                          <div className="mb-6 bg-white p-4 rounded-lg border-2 border-indigo-100 shadow-sm flex flex-wrap items-center gap-4">
+                                                                              <div className="flex items-center gap-2 text-indigo-700">
+                                                                                  <Briefcase className="w-5 h-5"/>
+                                                                                  <span className="font-bold text-xs uppercase tracking-wide">Gestión Individual</span>
+                                                                              </div>
+                                                                              <div className="flex flex-col">
+                                                                                  <label className="text-[10px] text-gray-400 font-bold uppercase mb-1">Estado</label>
+                                                                                  <select value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value, e.target.options[e.target.selectedIndex].text)} className="text-xs border-indigo-200 rounded py-1.5 px-2 bg-indigo-50 font-medium focus:ring-2 focus:ring-indigo-500 cursor-pointer">
+                                                                                      <option value="recopilando">Recopilando</option>
+                                                                                      <option value="en_produccion">En Producción</option>
+                                                                                      <option value="entregado_club">Entregado</option>
+                                                                                  </select>
+                                                                              </div>
+                                                                              <div className="h-8 w-px bg-gray-200 mx-2"></div>
+                                                                              <div className="flex gap-2">
+                                                                                  <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" onClick={() => generateBatchExcel(`IND-${order.id.slice(0,6)}`, [order], club.name)}><FileDown className="w-4 h-4 mr-1"/> Excel</Button>
+                                                                                  <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" onClick={() => printBatchAlbaran(`IND-${order.id.slice(0,6)}`, [order], club.name, 0)}><Printer className="w-4 h-4 mr-1"/> Albarán</Button>
+                                                                              </div>
+                                                                          </div>
+                                                                      )}
+                                                                      <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2"><Package className="w-3 h-3"/> Productos del Pedido</h5>
+                                                                      <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100">
+                                                                          {order.items.map(item => {
+                                                                              const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
+                                                                              const itemTotal = (item.quantity || 1) * item.price;
+                                                                              return (
+                                                                                <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                                                                                    <div className="flex gap-3 items-center flex-1">
+                                                                                        {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
+                                                                                        <div><p className="font-bold text-gray-800 text-sm">{item.name}</p><p className="text-xs text-gray-500">{renderProductDetails(item)}</p></div>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-6 mr-4">
+                                                                                        <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Cantidad</p><p className="font-medium text-sm">{item.quantity || 1} ud.</p></div>
+                                                                                        <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Precio Unit.</p><p className="font-medium text-sm">{item.price.toFixed(2)}€</p></div>
+                                                                                        <div className="text-right w-20"><p className="text-[10px] text-gray-400 uppercase font-bold">Subtotal</p><p className="font-bold text-emerald-600 text-sm">{itemTotal.toFixed(2)}€</p></div>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-3 border-l pl-4">
+                                                                                        {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
+                                                                                        <button onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} className="text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-800 p-1.5 rounded-md transition-colors flex items-center gap-1 font-medium text-xs border border-red-100 shadow-sm" title="Reportar Incidencia"><AlertTriangle className="w-4 h-4"/> Reportar Fallo</button>
+                                                                                    </div>
+                                                                                </div>
+                                                                              );
+                                                                          })}
+                                                                      </div>
+                                                                        {/* --- ACCIONES INDIVIDUALES (EDITAR / ELIMINAR) --- */}
+                                                                        <div className="mt-6 pt-4 border-t border-gray-200 flex flex-wrap gap-3 justify-end bg-gray-50/50 p-2 rounded">
+                                                                            <span className="text-xs font-bold text-gray-400 uppercase self-center mr-auto">Gestión Pedido:</span>
+                                                                            
+                                                                            {/* Botón MODIFICAR DATOS (Nuevo) */}
+                                                                            <button 
+                                                                                onClick={(e) => { 
+                                                                                    e.stopPropagation(); 
+                                                                                    const orderClone = JSON.parse(JSON.stringify(order));
+                                                                                    // Guardamos dos copias: una para comparar (original) y otra para editar (modified)
+                                                                                    setEditOrderModal({ active: true, original: orderClone, modified: orderClone }); 
+                                                                                }}
+                                                                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors"
+                                                                            >
+                                                                                <Edit3 className="w-3 h-3"/> Modificar Datos
+                                                                            </button>
+
+                                                                            {/* Botón ELIMINAR (Corregido) */}
+                                                                            <button 
+                                                                                onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }}
+                                                                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
+                                                                            >
+                                                                                <Trash2 className="w-3 h-3"/> Eliminar
+                                                                            </button>
+                                                                        </div>
+                                                                  </div>
+                                                              )}
+                                                          </div>
+                                                      ))}
+                                                  </div>
+                                              )}
                                           </div>
                                       )
                                   })}
@@ -1709,7 +2040,55 @@ export default function App() {
   const updateOrderStatus = async (orderId, newStatus, newVisibleStatus) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { status: newStatus, visibleStatus: newVisibleStatus || 'Actualizado' }); showNotification('Estado actualizado'); } catch (e) { showNotification('Error actualizando pedido', 'error'); } };
   const addIncident = async (orderId, incidentData) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents: arrayUnion(incidentData) }); showNotification('Incidencia/Reimpresión registrada'); } catch (e) { showNotification('Error registrando incidencia', 'error'); } };
   const updateIncidentStatus = async (orderId, incidents) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents }); showNotification('Estado de incidencia actualizado'); } catch(e) { showNotification('Error actualizando incidencia', 'error'); } };
-  const updateGlobalBatchStatus = async (clubId, batchId, newStatus) => { const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; let count = 0; for (const order of batchOrders) { if (order.status !== newStatus) { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id); await updateDoc(orderRef, { status: newStatus, visibleStatus: batchLabel }); count++; } } if (newStatus === 'en_produccion') { const club = clubs.find(c => c.id === clubId); if (club && club.activeGlobalOrderId === batchId) { setClubs(prevClubs => prevClubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: c.activeGlobalOrderId + 1 } : c)); showNotification(`Lote Global enviado a Producción. Se ha abierto automáticamente el Lote #${batchId + 1} para nuevos pedidos.`, 'success'); } } showNotification(`Se actualizaron ${count} pedidos del Lote #${batchId} a "${batchLabel}".`); };
+  // --- ACTUALIZAR ESTADO DE LOTE GLOBAL (CON CONFIRMACIÓN DE CIERRE) ---
+  const updateGlobalBatchStatus = async (clubId, batchId, newStatus) => { 
+      // Definimos la lógica de actualización para ejecutarla después de confirmar
+      const performUpdate = async () => {
+          const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); 
+          const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; 
+          
+          let count = 0; 
+          for (const order of batchOrders) { 
+              if (order.status !== newStatus) { 
+                  const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id); 
+                  await updateDoc(orderRef, { status: newStatus, visibleStatus: batchLabel }); 
+                  count++; 
+              } 
+          } 
+
+          // Si pasamos a producción, cerramos el lote actual y abrimos el siguiente
+          if (newStatus === 'en_produccion') { 
+              const club = clubs.find(c => c.id === clubId); 
+              if (club && club.activeGlobalOrderId === batchId) { 
+                  // Incrementamos el contador global del club
+                  setClubs(prevClubs => prevClubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: c.activeGlobalOrderId + 1 } : c)); 
+                  showNotification(`Lote Global enviado a Producción. Se ha abierto automáticamente el Lote #${batchId + 1} para nuevos pedidos.`, 'success'); 
+              } 
+          } 
+          showNotification(`Se actualizaron ${count} pedidos del Lote #${batchId} a "${batchLabel}".`); 
+      };
+
+      // Si el estado es 'en_produccion', pedimos confirmación de seguridad
+      if (newStatus === 'en_produccion') {
+          const club = clubs.find(c => c.id === clubId);
+          // Verificamos si es el lote activo para personalizar el mensaje
+          if (club && club.activeGlobalOrderId === batchId) {
+              setConfirmation({
+                  msg: `¿Estás seguro de pasar el Lote Global #${batchId} a PRODUCCIÓN? \n\n⚠️ Esta acción cerrará el lote actual y abrirá automáticamente el Lote Global #${batchId + 1}. Los nuevos pedidos que entren se anotarán en este nuevo lote.`,
+                  onConfirm: performUpdate
+              });
+          } else {
+              // Si es un lote antiguo, solo confirmamos el cambio de estado sin aviso de cierre
+              setConfirmation({
+                  msg: `¿Estás seguro de cambiar el estado del Lote Global #${batchId} a PRODUCCIÓN?`,
+                  onConfirm: performUpdate
+              });
+          }
+      } else {
+          // Para otros estados (recopilando/entregado), ejecutamos directamente
+          await performUpdate();
+      }
+  };
   const incrementClubGlobalOrder = (clubId) => { const club = clubs.find(c => c.id === clubId); setConfirmation({ msg: `¿Cerrar el Pedido Global #${club.activeGlobalOrderId} para ${club.name}? Se abrirá el #${club.activeGlobalOrderId + 1}.`, onConfirm: () => { setClubs(clubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: c.activeGlobalOrderId + 1 } : c)); showNotification(`Nuevo Pedido Global iniciado para ${club.name}`); } }); };
   const decrementClubGlobalOrder = (clubId, newActiveId) => { setClubs(clubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: newActiveId } : c)); showNotification(`Se ha reabierto el Pedido Global #${newActiveId}`); };
   const updateProduct = (updatedProduct) => { setProducts(products.map(p => p.id === updatedProduct.id ? updatedProduct : p)); showNotification('Producto actualizado'); };

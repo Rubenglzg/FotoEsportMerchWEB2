@@ -33,6 +33,8 @@ import {
   getDocs,
   where
 } from 'firebase/firestore';
+import ExcelJS from 'exceljs';
+
 
 
 // --- 1. CONFIGURACIÓN FIREBASE CON TUS DATOS ---
@@ -1560,6 +1562,411 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       });
   };
 
+// ---------------------------------------------------------
+  // NUEVO: LÓGICA DE GESTIÓN DE DATOS Y EXCEL
+  // ---------------------------------------------------------
+  
+  // Estado local para el selector de temporada en esta sección
+  const [dataManageSeasonId, setDataManageSeasonId] = useState(seasons[seasons.length - 1]?.id || '');
+
+// --- FUNCIONES AUXILIARES PARA EXCEL ---
+
+  const escapeXml = (unsafe) => {
+      return unsafe ? unsafe.toString().replace(/[<>&'"]/g, c => {
+          switch (c) { case '<': return '&lt;'; case '>': return '&gt;'; case '&': return '&amp;'; case '\'': return '&apos;'; case '"': return '&quot;'; }
+      }) : '';
+  };
+
+  const handleExportSeasonExcel = async (seasonId) => {
+      const season = seasons.find(s => s.id === seasonId);
+      if (!season) return;
+
+      const start = new Date(season.startDate).getTime();
+      const end = new Date(season.endDate).getTime();
+      
+      const seasonOrders = orders.filter(o => {
+          if (o.manualSeasonId) return o.manualSeasonId === season.id;
+          const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+          return d >= start && d <= end;
+      });
+
+      if (seasonOrders.length === 0) {
+          showNotification('No hay pedidos en esta temporada', 'error');
+          return;
+      }
+
+      // --- CÁLCULO DE ESTADÍSTICAS ---
+      const calculateStats = (ordersToProcess) => {
+          let grossSales = 0;
+          let supplierCost = 0;
+          const monthly = {};
+          const payment = {};
+          const categories = {};
+          const productsStats = {};
+
+          ordersToProcess.forEach(order => {
+              grossSales += order.total;
+              
+              const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
+              const incidentCost = order.incidents?.reduce((sum, inc) => sum + (inc.cost || 0), 0) || 0;
+              supplierCost += (orderCost + incidentCost);
+
+              // Mensual
+              const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
+              const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
+              const sortKey = date.getFullYear() * 100 + date.getMonth();
+              if (!monthly[monthKey]) monthly[monthKey] = { total: 0, count: 0, sort: sortKey };
+              monthly[monthKey].total += order.total;
+              monthly[monthKey].count += 1;
+
+              // Pago
+              const method = order.paymentMethod || 'card';
+              if (!payment[method]) payment[method] = { total: 0, count: 0 };
+              payment[method].total += order.total;
+              payment[method].count += 1;
+
+              // Items
+              order.items.forEach(item => {
+                  const qty = item.quantity || 1;
+                  const subtotal = qty * item.price;
+                  let catName = item.category || 'General';
+                  const normCat = catName.trim().replace(/\s+[A-Z0-9]$/i, '');
+                  if (!categories[normCat]) categories[normCat] = { total: 0, subCats: new Set() };
+                  categories[normCat].total += subtotal;
+                  categories[normCat].subCats.add(`${order.clubId}-${catName}`);
+                  if (!productsStats[item.name]) productsStats[item.name] = { qty: 0, total: 0 };
+                  productsStats[item.name].qty += qty;
+                  productsStats[item.name].total += subtotal;
+              });
+          });
+
+          const commClub = grossSales * financialConfig.clubCommissionPct;
+          const commCommercial = grossSales * financialConfig.commercialCommissionPct;
+          const netIncome = grossSales - supplierCost - commClub - commCommercial;
+          const avgTicket = ordersToProcess.length > 0 ? grossSales / ordersToProcess.length : 0;
+
+          return { 
+              count: ordersToProcess.length, 
+              grossSales, supplierCost, commClub, commCommercial, netIncome, avgTicket,
+              sortedMonths: Object.entries(monthly).map(([k,v]) => ({name: k, ...v})).sort((a,b) => a.sort - b.sort),
+              sortedPayment: Object.entries(payment).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.total - a.total),
+              sortedCats: Object.entries(categories).map(([k,v]) => ({name: k, total: v.total, count: v.subCats.size})).sort((a,b) => b.total - a.total),
+              sortedProds: Object.entries(productsStats).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.qty - a.qty).slice(0, 10)
+          };
+      };
+
+      // --- HELPER: AUTOFIT INTELIGENTE ---
+      const adjustColumnWidths = (worksheet) => {
+          worksheet.columns.forEach(column => {
+              let maxLength = 0;
+              column.eachCell({ includeEmpty: true }, (cell) => {
+                  if (cell.isMerged) return; 
+                  const v = cell.value ? cell.value.toString() : '';
+                  if (v.length > maxLength) maxLength = v.length;
+              });
+              column.width = Math.max(maxLength + 2, 15); 
+          });
+      };
+
+      // --- GENERACIÓN DEL EXCEL ---
+      const workbook = new ExcelJS.Workbook();
+      workbook.creator = 'FotoEsport Admin';
+      workbook.created = new Date();
+
+      // Definición de Estilos
+      const styles = {
+          header: {
+              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } }, 
+              font: { color: { argb: 'FFFFFFFF' }, bold: true, size: 11, name: 'Calibri' },
+              alignment: { horizontal: 'center', vertical: 'middle' }
+          },
+          subHeader: {
+              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }, 
+              font: { color: { argb: 'FF000000' }, bold: true, size: 11, name: 'Calibri' }
+          },
+          title: {
+              font: { color: { argb: 'FF000000' }, bold: true, size: 16, name: 'Calibri' } 
+          },
+          sectionTitle: {
+              font: { color: { argb: 'FF10B981' }, bold: true, size: 12, name: 'Calibri' } 
+          },
+          currency: { numFmt: '#,##0.00 "€"' },
+          currencyRed: { numFmt: '#,##0.00 "€"', font: { color: { argb: 'FFDC2626' } } },
+          currencyBold: { numFmt: '#,##0.00 "€"', font: { bold: true } },
+          subHeaderCurrency: {
+              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
+              font: { bold: true }, numFmt: '#,##0.00 "€"'
+          },
+          subHeaderCurrencyRed: {
+              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
+              font: { bold: true, color: { argb: 'FFDC2626' } }, numFmt: '#,##0.00 "€"'
+          }
+      };
+
+      // ==========================================
+      // HOJA 1: VISTA GLOBAL
+      // ==========================================
+      const globalStats = calculateStats(seasonOrders);
+      const wsGlobal = workbook.addWorksheet('Vista Global');
+      
+      wsGlobal.columns = [
+          { key: 'A' }, { key: 'B' }, { key: 'C' }, 
+          { key: 'D' }, { key: 'E' }, { key: 'F' }, { key: 'G' }
+      ];
+
+      // Título
+      wsGlobal.addRow([`Reporte Global - ${season.name}`]);
+      wsGlobal.getCell('A1').font = styles.title.font;
+      wsGlobal.mergeCells('A1:G1');
+      wsGlobal.addRow([]);
+
+      // KPIs
+      wsGlobal.addRow(['Resumen General']);
+      wsGlobal.getCell('A3').font = styles.sectionTitle.font;
+      const r4 = wsGlobal.addRow(['Facturación Total', globalStats.grossSales]);
+      r4.getCell(2).numFmt = styles.currencyBold.numFmt; r4.getCell(2).font = styles.currencyBold.font;
+      const r5 = wsGlobal.addRow(['Beneficio Neto', globalStats.netIncome]);
+      r5.getCell(2).numFmt = styles.currencyBold.numFmt; r5.getCell(2).font = styles.currencyBold.font;
+      wsGlobal.addRow(['Total Pedidos', globalStats.count]);
+      wsGlobal.addRow([]);
+
+      // Tabla Financiera
+      wsGlobal.addRow(['Reporte Financiero Detallado por Club']);
+      wsGlobal.getCell('A8').font = styles.sectionTitle.font;
+      wsGlobal.mergeCells('A8:G8');
+
+      const headerRow = wsGlobal.addRow(['Club', 'Pedidos', 'Facturación', 'Coste Prov.', 'Com. Club', 'Neto Comercial', 'Beneficio Neto']);
+      for(let i=1; i<=7; i++) Object.assign(headerRow.getCell(i), styles.header);
+
+      clubs.forEach(c => {
+          const cStats = calculateStats(seasonOrders.filter(o => o.clubId === c.id));
+          const row = wsGlobal.addRow([
+              c.name, cStats.count, cStats.grossSales, -cStats.supplierCost, -cStats.commClub, cStats.commCommercial, cStats.netIncome
+          ]);
+          row.getCell(3).numFmt = styles.currency.numFmt;
+          Object.assign(row.getCell(4), styles.currencyRed);
+          Object.assign(row.getCell(5), styles.currencyRed);
+          row.getCell(6).numFmt = styles.currency.numFmt;
+          Object.assign(row.getCell(7), styles.currencyBold);
+      });
+
+      // Totales
+      const totalRow = wsGlobal.addRow([
+          'TOTALES', globalStats.count, globalStats.grossSales, -globalStats.supplierCost, -globalStats.commClub, globalStats.commCommercial, globalStats.netIncome
+      ]);
+      Object.assign(totalRow.getCell(1), styles.subHeader);
+      Object.assign(totalRow.getCell(2), styles.subHeader);
+      Object.assign(totalRow.getCell(3), styles.subHeaderCurrency);
+      Object.assign(totalRow.getCell(4), styles.subHeaderCurrencyRed);
+      Object.assign(totalRow.getCell(5), styles.subHeaderCurrencyRed);
+      Object.assign(totalRow.getCell(6), styles.subHeaderCurrency);
+      Object.assign(totalRow.getCell(7), styles.subHeaderCurrency);
+      wsGlobal.addRow([]);
+
+      // Tablas Lado a Lado 1
+      const rTitle1 = wsGlobal.addRow(['Evolución Mensual', '', '', 'Métodos de Pago']);
+      rTitle1.getCell(1).font = styles.sectionTitle.font;
+      rTitle1.getCell(4).font = styles.sectionTitle.font;
+      wsGlobal.mergeCells(`A${rTitle1.number}:B${rTitle1.number}`);
+      wsGlobal.mergeCells(`D${rTitle1.number}:E${rTitle1.number}`);
+
+      const rHead1 = wsGlobal.addRow(['Mes', 'Ventas', '', 'Método', 'Total']);
+      [1,2,4,5].forEach(i => Object.assign(rHead1.getCell(i), styles.subHeader));
+
+      const max1 = Math.max(globalStats.sortedMonths.length, globalStats.sortedPayment.length);
+      for(let i=0; i<max1; i++){
+          const m = globalStats.sortedMonths[i];
+          const p = globalStats.sortedPayment[i];
+          const row = wsGlobal.addRow([
+              m ? m.name : '', m ? m.total : '',
+              '', 
+              p ? p.name : '', p ? p.total : ''
+          ]);
+          if(m) row.getCell(2).numFmt = styles.currency.numFmt;
+          if(p) row.getCell(5).numFmt = styles.currency.numFmt;
+      }
+      wsGlobal.addRow([]);
+
+      // Tablas Lado a Lado 2
+      const rTitle2 = wsGlobal.addRow(['Top Categorías', '', '', 'Top Productos']);
+      rTitle2.getCell(1).font = styles.sectionTitle.font;
+      rTitle2.getCell(4).font = styles.sectionTitle.font;
+      wsGlobal.mergeCells(`A${rTitle2.number}:B${rTitle2.number}`);
+      wsGlobal.mergeCells(`D${rTitle2.number}:E${rTitle2.number}`);
+
+      const rHead2 = wsGlobal.addRow(['Nombre', 'Total', '', 'Producto', 'Uds']);
+      [1,2,4,5].forEach(i => Object.assign(rHead2.getCell(i), styles.subHeader));
+
+      const max2 = Math.max(globalStats.sortedCats.length, globalStats.sortedProds.length);
+      for(let i=0; i<max2; i++){
+          const c = globalStats.sortedCats[i];
+          const p = globalStats.sortedProds[i];
+          const row = wsGlobal.addRow([
+              c ? c.name : '', c ? c.total : '',
+              '', 
+              p ? p.name : '', p ? p.qty : ''
+          ]);
+          if(c) row.getCell(2).numFmt = styles.currency.numFmt;
+      }
+
+      adjustColumnWidths(wsGlobal);
+
+      // ==========================
+      // HOJAS POR CLUB
+      // ==========================
+      clubs.forEach(club => {
+          const clubOrders = seasonOrders.filter(o => o.clubId === club.id);
+          const cStats = calculateStats(clubOrders);
+          const sheetName = club.name.replace(/[*?:\/\[\]]/g, '').substring(0, 30);
+          const ws = workbook.addWorksheet(sheetName);
+          
+          ws.columns = [
+             { key: 'A' }, { key: 'B' }, { key: 'C' }, 
+             { key: 'D' }, { key: 'E' }, { key: 'F' }, { key: 'G' }, { key: 'H' }, { key: 'I' }, { key: 'J' }
+          ];
+
+          ws.addRow([`${club.name} - Resumen`]);
+          ws.getCell('A1').font = styles.title.font; 
+          ws.mergeCells('A1:J1');
+          ws.addRow([]);
+
+          // KPIs
+          const kpiHead = ws.addRow(['Métrica', 'Valor']);
+          Object.assign(kpiHead.getCell(1), styles.subHeader);
+          Object.assign(kpiHead.getCell(2), styles.subHeader);
+          ws.addRow(['Total Pedidos', cStats.count]);
+          const rTk = ws.addRow(['Ticket Medio', cStats.avgTicket]);
+          rTk.getCell(2).numFmt = styles.currency.numFmt;
+          ws.addRow([]);
+
+          // Reporte Financiero
+          ws.addRow(['Reporte Financiero']);
+          ws.getCell(`A${ws.lastRow.number}`).font = styles.sectionTitle.font;
+          
+          const finHead = ws.addRow(['Concepto', 'Importe']);
+          Object.assign(finHead.getCell(1), styles.subHeader);
+          Object.assign(finHead.getCell(2), styles.subHeader);
+
+          const addFin = (label, val, style) => {
+              const r = ws.addRow([label, val]);
+              if(style) Object.assign(r.getCell(2), style);
+              else r.getCell(2).numFmt = styles.currency.numFmt;
+          };
+          addFin('Facturación Total', cStats.grossSales);
+          addFin('Coste Proveedores', -cStats.supplierCost, styles.currencyRed);
+          addFin('Comisión Club', -cStats.commClub, styles.currencyRed);
+          addFin('Neto Comercial', cStats.commCommercial);
+          addFin('Beneficio Neto', cStats.netIncome, styles.currencyBold);
+          ws.addRow([]);
+
+          // Tablas Top
+          const rTopT = ws.addRow(['Categorías Top', '', '', 'Productos Top']);
+          rTopT.getCell(1).font = styles.sectionTitle.font;
+          rTopT.getCell(4).font = styles.sectionTitle.font;
+          ws.mergeCells(`A${rTopT.number}:B${rTopT.number}`);
+          ws.mergeCells(`D${rTopT.number}:E${rTopT.number}`);
+
+          const topHead = ws.addRow(['Nombre', 'Total', '', 'Producto', 'Uds']);
+          [1,2,4,5].forEach(i => Object.assign(topHead.getCell(i), styles.subHeader));
+
+          const maxC = Math.max(cStats.sortedCats.length, cStats.sortedProds.length, 5);
+          for(let i=0; i<maxC; i++){
+              const c = cStats.sortedCats[i];
+              const p = cStats.sortedProds[i];
+              const r = ws.addRow([
+                  c ? c.name : '', c ? c.total : '',
+                  '',
+                  p ? p.name : '', p ? p.qty : ''
+              ]);
+              if(c) r.getCell(2).numFmt = styles.currency.numFmt;
+          }
+          ws.addRow([]);
+
+          // Listado
+          ws.addRow(['Listado Detallado de Pedidos']);
+          ws.getCell(`A${ws.lastRow.number}`).font = styles.title.font;
+          ws.mergeCells(`A${ws.lastRow.number}:J${ws.lastRow.number}`);
+          
+          // --- CAMBIO AQUÍ: Se eliminó la columna 'Estado' ---
+          const headers = ['ID', 'Fecha', 'Cliente', 'Email', 'Teléfono', 'Cant.', 'Productos', 'Total', 'Pago', 'Lote'];
+          const hRow = ws.addRow(headers);
+          hRow.eachCell(c => Object.assign(c, styles.header));
+
+          clubOrders.forEach(o => {
+              const date = o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000).toLocaleDateString() : '-';
+              
+              const totalItems = o.items.reduce((acc, i) => acc + (i.quantity || 1), 0);
+              
+              const productsStr = o.items.map(i => {
+                  const sizeStr = i.size ? `(${i.size})` : ''; 
+                  return `${i.name} ${sizeStr}`.trim();
+              }).join('; ');
+
+              const r = ws.addRow([
+                  o.id.slice(0,8), date, o.customer.name, o.customer.email, o.customer.phone,
+                  totalItems, 
+                  productsStr, 
+                  o.total, 
+                  // o.visibleStatus || o.status, // ELIMINADO
+                  o.paymentMethod || 'card', o.globalBatch || 1
+              ]);
+              // La columna Total ahora es la número 8
+              r.getCell(8).numFmt = styles.currency.numFmt;
+          });
+
+          adjustColumnWidths(ws);
+      });
+
+      // Descargar
+      const buffer = await workbook.xlsx.writeBuffer();
+      const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `Reporte_${season.name.replace(/\s+/g, '_')}.xlsx`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+  };
+
+  const handleDeleteSeasonData = (seasonId) => {
+      const season = seasons.find(s => s.id === seasonId);
+      if (!season) return;
+
+      const start = new Date(season.startDate).getTime();
+      const end = new Date(season.endDate).getTime();
+      
+      const ordersToDelete = orders.filter(o => {
+          if (o.manualSeasonId) return o.manualSeasonId === season.id;
+          const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+          return d >= start && d <= end;
+      });
+
+      if (ordersToDelete.length === 0) {
+          showNotification('No hay datos para borrar en esta temporada', 'warning');
+          return;
+      }
+
+      setConfirmation({
+          title: "⚠️ PELIGRO: BORRADO DE DATOS",
+          msg: `Estás a punto de eliminar DEFINITIVAMENTE todos los datos de la temporada "${season.name}".\n\nEsto borrará ${ordersToDelete.length} pedidos de la base de datos y de la web.\n\nEsta acción NO SE PUEDE DESHACER. ¿Estás seguro?`,
+          onConfirm: async () => {
+              try {
+                  const batch = writeBatch(db);
+                  ordersToDelete.forEach(o => {
+                      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
+                      batch.delete(ref);
+                  });
+                  await batch.commit();
+                  showNotification(`Se han eliminado ${ordersToDelete.length} pedidos de la temporada ${season.name}.`);
+              } catch (e) {
+                  console.error(e);
+                  showNotification('Error al eliminar los datos', 'error');
+              }
+          }
+      });
+  };
+
   return (
     <div>
       <div className="flex gap-2 mb-8 overflow-x-auto pb-2 border-b bg-white p-2 rounded-lg shadow-sm">
@@ -1597,8 +2004,65 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   </div>
               </div>
 
-              <div className="bg-white p-6 rounded-xl shadow space-y-8 h-fit">
-                  <div><h3 className="font-bold mb-4 text-lg">Clubes</h3><div className="flex gap-2 mb-4"><input id="newClubName" placeholder="Nombre" className="border rounded px-3 py-2 flex-1" /><Button onClick={() => { const input = document.getElementById('newClubName'); if(input.value) createClub({name: input.value, code: input.value.slice(0,3).toUpperCase()}); }} size="sm"><Plus className="w-4 h-4"/></Button></div><div className="space-y-2">{clubs.map(c => (<ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />))}</div></div>
+              <div className="space-y-8">
+                  {/* BLOQUE 1: GESTIÓN DE CLUBES (Ya existente, mantenido) */}
+                  <div className="bg-white p-6 rounded-xl shadow h-fit">
+                      <div>
+                          <h3 className="font-bold mb-4 text-lg">Clubes</h3>
+                          <div className="flex gap-2 mb-4">
+                              <input id="newClubName" placeholder="Nombre" className="border rounded px-3 py-2 flex-1" />
+                              <Button onClick={() => { const input = document.getElementById('newClubName'); if(input.value) createClub({name: input.value, code: input.value.slice(0,3).toUpperCase()}); }} size="sm"><Plus className="w-4 h-4"/></Button>
+                          </div>
+                          <div className="space-y-2">
+                              {clubs.map(c => (
+                                  <ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />
+                              ))}
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* BLOQUE 2: NUEVO - GESTIÓN DE DATOS Y TEMPORADAS */}
+                  <div className="bg-white p-6 rounded-xl shadow border-l-4 border-indigo-500">
+                      <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-indigo-700">
+                          <Layers className="w-5 h-5"/> Gestión de Datos y Temporadas
+                      </h3>
+                      <p className="text-xs text-gray-500 mb-4">Exportación masiva y limpieza de base de datos.</p>
+                      
+                      <div className="space-y-4">
+                          <div>
+                              <label className="block text-xs font-bold text-gray-600 mb-1">Seleccionar Temporada</label>
+                              <select 
+                                  className="w-full border rounded p-2 text-sm bg-gray-50"
+                                  value={dataManageSeasonId}
+                                  onChange={(e) => setDataManageSeasonId(e.target.value)}
+                              >
+                                  {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                              </select>
+                          </div>
+
+                          <div className="grid grid-cols-1 gap-3">
+                              {/* BOTÓN 1: EXPORTAR EXCEL */}
+                              <button 
+                                  onClick={() => setConfirmation({
+                                      title: "Exportar Datos",
+                                      msg: "Se generará un archivo Excel con múltiples hojas (Global y por Club) con todos los detalles de los pedidos de la temporada seleccionada.\n\n¿Deseas continuar?",
+                                      onConfirm: () => handleExportSeasonExcel(dataManageSeasonId)
+                                  })}
+                                  className="flex items-center justify-center gap-2 w-full p-3 rounded-lg border border-green-200 bg-green-50 text-green-700 font-bold hover:bg-green-100 transition-colors"
+                              >
+                                  <FileSpreadsheet className="w-5 h-5"/> Descargar Excel Completo
+                              </button>
+
+                              {/* BOTÓN 2: BORRAR DATOS */}
+                              <button 
+                                  onClick={() => handleDeleteSeasonData(dataManageSeasonId)}
+                                  className="flex items-center justify-center gap-2 w-full p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 font-bold hover:bg-red-100 transition-colors"
+                              >
+                                  <Trash2 className="w-5 h-5"/> Limpiar Datos de Temporada
+                              </button>
+                          </div>
+                      </div>
+                  </div>
               </div>
           </div>
       )}

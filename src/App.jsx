@@ -33,6 +33,16 @@ import {
   getDocs,
   where
 } from 'firebase/firestore';
+
+import { 
+  getStorage, 
+  ref, 
+  uploadBytes, 
+  getDownloadURL,
+  listAll,
+  deleteObject
+} from 'firebase/storage';
+
 import ExcelJS from 'exceljs';
 
 
@@ -49,11 +59,12 @@ const firebaseConfig = {
 };
 
 // Inicialización segura
-let app, auth, db;
+let app, auth, db, storage;
 try {
     app = initializeApp(firebaseConfig);
     auth = getAuth(app);
     db = getFirestore(app);
+    storage = getStorage(app);
 } catch (error) {
     console.error("Error inicializando Firebase:", error);
 }
@@ -1037,6 +1048,305 @@ function ClubDashboard({ club, orders, updateOrderStatus, config, seasons }) {
       <div><h3 className="font-bold text-lg mb-4 text-gray-800 flex items-center gap-2"><Layers className="w-5 h-5"/> Historial por Pedidos Globales</h3><div className="space-y-6">{batches.map(batch => { const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0); const batchStatus = batch.orders[0]?.status || 'recopilando'; return (<div key={batch.id} className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden"><div className="bg-gray-50 px-6 py-4 border-b border-gray-200 flex justify-between items-center"><div><h4 className="font-bold text-lg text-gray-800">Pedido Global #{batch.id}</h4><div className="flex gap-2 mt-1"><Badge status={batchStatus} /><span className="text-xs bg-white border px-2 py-0.5 rounded text-gray-500">{batch.orders.length} pedidos</span></div></div><div className="text-right"><p className="text-xs text-gray-500">Total Pedido</p><p className="font-bold text-xl">{batchTotal.toFixed(2)}€</p></div></div><div className="divide-y">{batch.orders.map(order => (<div key={order.id} className="p-4 flex justify-between items-center hover:bg-gray-50 text-sm"><div><span className="font-bold">#{order.id.slice(0,6)}</span><span className="mx-2 text-gray-400">|</span><span>{order.customer.name}</span></div><span>{order.total}€</span></div>))}</div></div>) })} {batches.length === 0 && <p className="text-center text-gray-400 py-8">No hay historial disponible.</p>}</div></div></div>
   );
 }
+
+// --- GESTOR DE ARCHIVOS (CON SUBIDA INTELIGENTE DE SUBCARPETAS) ---
+const FilesManager = ({ clubs }) => {
+    const [level, setLevel] = useState('clubs'); 
+    const [selectedClub, setSelectedClub] = useState(null);
+    const [selectedCategory, setSelectedCategory] = useState(null);
+    const [items, setItems] = useState([]); 
+    const [loading, setLoading] = useState(false);
+    
+    // Estados para subida
+    const [isUploading, setIsUploading] = useState(false);
+    const [uploadFiles, setUploadFiles] = useState([]); 
+    const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
+    // "smart" detecta subcarpetas automáticamente. "single" es para añadir fotos a la carpeta actual.
+    const [uploadMode, setUploadMode] = useState('smart'); 
+
+    // 1. CARGAR CATEGORÍAS
+    const loadCategories = async (clubId) => {
+        setLoading(true);
+        try {
+            const clubRef = ref(storage, clubId);
+            const res = await listAll(clubRef);
+            setItems(res.prefixes);
+            setLevel('categories');
+        } catch (error) {
+            console.error("Error:", error);
+            setItems([]);
+            setLevel('categories');
+        }
+        setLoading(false);
+    };
+
+    // 2. CARGAR FOTOS
+    const loadPhotos = async (categoryRef) => {
+        setLoading(true);
+        try {
+            const res = await listAll(categoryRef);
+            const photosWithUrls = await Promise.all(res.items.map(async (itemRef) => {
+                const url = await getDownloadURL(itemRef);
+                return { name: itemRef.name, fullPath: itemRef.fullPath, url, ref: itemRef };
+            }));
+            setItems(photosWithUrls);
+            setLevel('files');
+        } catch (error) {
+            console.error("Error:", error);
+        }
+        setLoading(false);
+    };
+
+    // 3. PROCESO DE SUBIDA INTELIGENTE
+    const handleBulkUpload = async () => {
+        if (uploadFiles.length === 0 || !selectedClub) return;
+
+        setLoading(true);
+        setUploadProgress({ current: 0, total: uploadFiles.length });
+        let successCount = 0;
+
+        const filesArray = Array.from(uploadFiles);
+
+        try {
+            for (let i = 0; i < filesArray.length; i++) {
+                const file = filesArray[i];
+                
+                // --- LÓGICA DE RUTAS INTELIGENTE ---
+                let targetFolderName = '';
+
+                if (uploadMode === 'smart') {
+                    // El archivo viene con ruta relativa: "CarpetaMaestra/Benjamines/foto.jpg"
+                    const pathParts = file.webkitRelativePath.split('/');
+                    
+                    // Si la ruta tiene subcarpetas (ej: Raiz/Categoria/foto.jpg)
+                    // Usamos la carpeta INMEDIATAMENTE SUPERIOR a la foto como Categoría.
+                    if (pathParts.length >= 2) {
+                        // El penúltimo elemento es la carpeta que contiene la foto
+                        targetFolderName = pathParts[pathParts.length - 2]; 
+                    } else {
+                        // Si está en la raíz, usamos una carpeta por defecto o la del input
+                        targetFolderName = 'General';
+                    }
+                } else {
+                    // Modo simple: Usamos la categoría donde estamos
+                    targetFolderName = selectedCategory || 'General';
+                }
+
+                // Limpiamos el nombre (quitamos espacios raros para evitar errores)
+                const cleanFolderName = targetFolderName.trim().replace(/\s+/g, '_');
+                
+                // Ruta final: CLUB / CATEGORIA_DETECTADA / ARCHIVO
+                const finalPath = `${selectedClub.id}/${cleanFolderName}/${file.name}`;
+                
+                // Ignoramos archivos ocultos tipo .DS_Store de Mac
+                if (!file.name.startsWith('.')) {
+                    const fileRef = ref(storage, finalPath);
+                    await uploadBytes(fileRef, file);
+                    successCount++;
+                }
+
+                setUploadProgress(prev => ({ ...prev, current: i + 1 }));
+            }
+
+            alert(`¡Proceso terminado! Se han procesado ${successCount} fotos.`);
+            
+            // Reset
+            setIsUploading(false);
+            setUploadFiles([]);
+            setUploadProgress({ current: 0, total: 0 });
+
+            // Recargar vista
+            if (level === 'categories') loadCategories(selectedClub.id);
+            else if (level === 'files') loadPhotos(ref(storage, `${selectedClub.id}/${selectedCategory}`));
+            else loadCategories(selectedClub.id); // Default a categorías
+
+        } catch (error) {
+            console.error("Error subida:", error);
+            alert("Ocurrió un error. Revisa la consola.");
+        }
+        setLoading(false);
+    };
+
+    const handleDelete = async (fileItem) => {
+        if (!window.confirm(`¿Eliminar ${fileItem.name}?`)) return;
+        try {
+            await deleteObject(fileItem.ref);
+            setItems(prev => prev.filter(i => i.fullPath !== fileItem.fullPath));
+        } catch (error) {
+            console.error("Error borrando:", error);
+        }
+    };
+
+    return (
+        <div className="bg-white p-6 rounded-xl shadow h-full min-h-[500px] flex flex-col">
+            {/* CABECERA */}
+            <div className="flex justify-between items-center mb-6 pb-4 border-b">
+                <div className="flex items-center gap-2 text-sm">
+                    <button onClick={() => { setLevel('clubs'); setSelectedClub(null); setSelectedCategory(null); }} className={`font-bold hover:text-emerald-600 ${level === 'clubs' ? 'text-gray-800' : 'text-gray-400'}`}>Clubes</button>
+                    {level !== 'clubs' && (
+                        <>
+                            <ChevronRight className="w-4 h-4 text-gray-300"/>
+                            <button onClick={() => loadCategories(selectedClub.id)} className={`font-bold hover:text-emerald-600 ${level === 'categories' ? 'text-gray-800' : 'text-gray-400'}`}>{selectedClub.name}</button>
+                        </>
+                    )}
+                    {level === 'files' && (
+                        <>
+                            <ChevronRight className="w-4 h-4 text-gray-300"/>
+                            <span className="font-bold text-emerald-600">{selectedCategory}</span>
+                        </>
+                    )}
+                </div>
+                
+                {selectedClub && !isUploading && (
+                    <button onClick={() => setIsUploading(true)} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-700 shadow-sm">
+                        <Upload className="w-4 h-4"/> Subir Fotos / Carpetas
+                    </button>
+                )}
+            </div>
+
+            {/* PANEL DE SUBIDA */}
+            {isUploading && (
+                <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100 mb-6 animate-fade-in shadow-inner relative">
+                    <button onClick={() => setIsUploading(false)} className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
+                    
+                    <h4 className="font-bold text-emerald-800 mb-4 flex items-center gap-2">
+                        <Upload className="w-5 h-5"/> Zona de Subida
+                    </h4>
+
+                    {loading ? (
+                        <div className="text-center py-4">
+                            <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
+                                <div className="bg-emerald-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}></div>
+                            </div>
+                            <p className="text-sm font-bold text-emerald-700">Procesando {uploadProgress.current} de {uploadProgress.total} archivos...</p>
+                            <p className="text-xs text-gray-500">Esto puede tardar unos minutos. No cierres la web.</p>
+                        </div>
+                    ) : (
+                        <div className="flex flex-col gap-4">
+                            
+                            {/* Selector de Estrategia */}
+                            <div className="flex gap-4 border-b border-emerald-200 pb-4">
+                                <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-emerald-100 transition-colors flex-1 border border-transparent hover:border-emerald-200">
+                                    <input type="radio" name="mode" checked={uploadMode === 'smart'} onChange={() => setUploadMode('smart')} className="mt-1 text-emerald-600"/>
+                                    <div>
+                                        <span className="text-sm font-bold text-gray-800 block">Modo Estructura de Carpetas (Recomendado)</span>
+                                        <span className="text-xs text-gray-600">
+                                            Selecciona una carpeta general que contenga dentro subcarpetas (ej: "Benjamines", "Alevines"). 
+                                            Se crearán todas las categorías automáticamente.
+                                        </span>
+                                    </div>
+                                </label>
+                                
+                                {selectedCategory && (
+                                    <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-emerald-100 transition-colors flex-1 border border-transparent hover:border-emerald-200">
+                                        <input type="radio" name="mode" checked={uploadMode === 'single'} onChange={() => setUploadMode('single')} className="mt-1 text-emerald-600"/>
+                                        <div>
+                                            <span className="text-sm font-bold text-gray-800 block">Modo Fotos Sueltas</span>
+                                            <span className="text-xs text-gray-600">
+                                                Añadir fotos sueltas a la categoría actual: <span className="font-bold text-emerald-700">{selectedCategory}</span>
+                                            </span>
+                                        </div>
+                                    </label>
+                                )}
+                            </div>
+
+                            <div className="flex items-center gap-4 bg-white p-4 rounded-lg border border-gray-200">
+                                <div className="flex-1">
+                                    <label className="block text-xs font-bold text-emerald-700 mb-1 uppercase tracking-wider">
+                                        {uploadMode === 'smart' ? 'Selecciona la CARPETA MAESTRA' : 'Selecciona FOTOS'}
+                                    </label>
+                                    <input 
+                                        type="file" 
+                                        multiple 
+                                        // IMPORTANTE: webkitdirectory permite subir carpetas y subcarpetas
+                                        {...(uploadMode === 'smart' ? { webkitdirectory: "", directory: "" } : {})}
+                                        onChange={e => setUploadFiles(e.target.files)} 
+                                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200 cursor-pointer"
+                                    />
+                                </div>
+                                <button 
+                                    onClick={handleBulkUpload} 
+                                    disabled={uploadFiles.length === 0} 
+                                    className="bg-emerald-600 text-white px-8 py-3 rounded-lg text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all active:scale-95"
+                                >
+                                    {uploadFiles.length > 0 ? `Subir ${uploadFiles.length} Archivos` : 'Iniciar Subida'}
+                                </button>
+                            </div>
+                        </div>
+                    )}
+                </div>
+            )}
+
+            {/* VISTAS DE CONTENIDO */}
+            <div className="flex-1 bg-gray-50 rounded-xl border border-gray-200 p-4 overflow-y-auto custom-scrollbar">
+                
+                {/* 1. LISTA DE CLUBES */}
+                {level === 'clubs' && !loading && (
+                    <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+                        {clubs.map(c => (
+                            <div key={c.id} onClick={() => { setSelectedClub(c); loadCategories(c.id); }} className="bg-white p-4 rounded-lg shadow-sm border hover:border-emerald-500 cursor-pointer flex items-center gap-3 hover:shadow-md transition-all">
+                                <div className="bg-emerald-100 p-2 rounded text-emerald-600"><Folder className="w-6 h-6"/></div>
+                                <div>
+                                    <p className="font-bold text-sm text-gray-700">{c.name}</p>
+                                    <p className="text-[10px] text-gray-400">Ver categorías</p>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                )}
+
+                {/* 2. LISTA DE CATEGORÍAS */}
+                {level === 'categories' && !loading && (
+                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                        {items.length === 0 ? (
+                            <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+                                <Folder className="w-16 h-16 mb-4 opacity-20"/>
+                                <p className="font-medium">No hay categorías todavía.</p>
+                                <p className="text-xs mt-1 max-w-md text-center">
+                                    Para crear categorías masivamente, pulsa "Subir Fotos", elige "Modo Estructura" y sube una carpeta que contenga dentro subcarpetas con los nombres (ej: Benjamines, Alevines...).
+                                </p>
+                            </div>
+                        ) : (
+                            items.map(ref => (
+                                <div key={ref.name} onClick={() => { setSelectedCategory(ref.name); loadPhotos(ref); }} className="bg-white p-4 rounded-lg shadow-sm border hover:border-blue-500 cursor-pointer text-center group transition-all hover:shadow-md">
+                                    <Folder className="w-12 h-12 mx-auto text-blue-200 group-hover:text-blue-500 mb-2 transition-colors"/>
+                                    <p className="font-bold text-sm text-gray-700 truncate">{ref.name}</p>
+                                    <p className="text-[10px] text-gray-400">Click para ver fotos</p>
+                                </div>
+                            ))
+                        )}
+                    </div>
+                )}
+
+                {/* 3. LISTA DE FOTOS */}
+                {level === 'files' && !loading && (
+                    <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
+                        {items.length === 0 && <p className="col-span-full text-center text-gray-400">Carpeta vacía.</p>}
+                        {items.map(photo => (
+                            <div key={photo.fullPath} className="group relative bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-lg transition-all">
+                                <div className="aspect-square bg-gray-100 relative">
+                                    <img src={photo.url} className="w-full h-full object-cover" loading="lazy" />
+                                    <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[1px]">
+                                        <a href={photo.url} target="_blank" className="p-2 bg-white rounded-full text-gray-700 hover:text-blue-600 transition-transform hover:scale-110"><Eye className="w-4 h-4"/></a>
+                                        <button onClick={() => handleDelete(photo)} className="p-2 bg-white rounded-full text-gray-700 hover:text-red-600 transition-transform hover:scale-110"><Trash2 className="w-4 h-4"/></button>
+                                    </div>
+                                </div>
+                                <p className="p-2 text-[10px] font-medium text-gray-600 truncate">{photo.name}</p>
+                            </div>
+                        ))}
+                    </div>
+                )}
+                
+                {loading && !isUploading && (
+                    <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+                        <RefreshCw className="w-8 h-8 animate-spin mb-3 text-emerald-500"/>
+                        <span className="text-sm font-medium">Cargando contenido de la nube...</span>
+                    </div>
+                )}
+            </div>
+        </div>
+    );
+};
 
 function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
   const [tab, setTab] = useState('management');
@@ -3184,7 +3494,19 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
               </div>
           </div>
       )}
-      {tab === 'files' && (<div className="bg-white p-6 rounded-xl shadow h-full min-h-[500px]"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Folder className="w-5 h-5 text-emerald-600"/> Explorador de Archivos</h3><div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-full"><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Clubes</h4><div className="space-y-1">{clubs.map(c => (<div key={c.id} onClick={() => { setSelectedClubFiles(c.id); setSelectedFolder(null); }} className={`p-2 rounded cursor-pointer text-sm flex items-center justify-between ${selectedClubFiles === c.id ? 'bg-emerald-50 text-emerald-700 font-medium' : 'hover:bg-gray-50'}`}>{c.name}<ChevronRight className="w-4 h-4 opacity-50"/></div>))}</div></div><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Carpetas</h4>{!selectedClubFiles ? <p className="text-sm text-gray-400 italic">Selecciona un club</p> : <div className="space-y-1">{getClubFolders(selectedClubFiles).map(folder => (<div key={folder} onClick={() => setSelectedFolder(folder)} className={`p-2 rounded cursor-pointer text-sm flex items-center gap-2 ${selectedFolder === folder ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'}`}><Folder className={`w-4 h-4 ${selectedFolder === folder ? 'fill-current' : ''}`}/>{folder}</div>))}</div>}</div><div className="col-span-2"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Archivos</h4>{!selectedFolder ? <div className="flex flex-col items-center justify-center h-48 text-gray-400 border-2 border-dashed rounded-lg"><CornerDownRight className="w-8 h-8 mb-2 opacity-50"/><p className="text-sm">Selecciona carpeta</p></div> : <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">{getFolderPhotos(selectedClubFiles, selectedFolder).map(photo => (<div key={photo.id} className="group relative border rounded-lg p-2 hover:shadow-md transition-shadow"><div className="aspect-square bg-gray-100 rounded mb-2 overflow-hidden"><img src={photo.url} className="w-full h-full object-cover" /></div><p className="text-xs font-medium truncate" title={photo.filename}>{photo.filename}</p></div>))}</div>}</div></div></div>)}
+      {tab === 'files' && (
+          <div className="animate-fade-in-up h-full">
+              <div className="flex items-center gap-2 mb-4">
+                  <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                      <Folder className="w-6 h-6 text-emerald-600"/> 
+                      Gestión de Archivos en la Nube
+                  </h3>
+              </div>
+              
+              {/* AQUÍ LLAMAMOS AL NUEVO COMPONENTE */}
+              <FilesManager clubs={clubs} />
+          </div>
+      )}
       {tab === 'finances' && (
           <div className="space-y-8 animate-fade-in-up pb-10">
               {/* CABECERA Y FILTROS */}

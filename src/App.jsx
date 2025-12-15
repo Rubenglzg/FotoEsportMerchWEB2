@@ -912,7 +912,7 @@ function ClubDashboard({ club, orders, updateOrderStatus, config, seasons }) {
   );
 }
 
-function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
+function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
   const [tab, setTab] = useState('management');
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
   // Modificamos el estado de mover temporada para que acepte lotes completos
@@ -1985,9 +1985,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
         ))}
       </div>
 
-      {tab === 'management' && (
+{tab === 'management' && (
           <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
+              {/* COLUMNA IZQUIERDA: TIENDA Y PRODUCTOS */}
               <div className="bg-white p-6 rounded-xl shadow h-fit space-y-6">
+                  {/* Configuración Tienda */}
                   <div className={`p-4 rounded-lg border ${storeConfig.isOpen ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
                       <div className="flex justify-between items-center mb-2">
                           <h4 className={`font-bold ${storeConfig.isOpen ? 'text-emerald-800' : 'text-red-800'}`}>Tienda Global</h4>
@@ -1998,14 +2000,15 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                       {!storeConfig.isOpen && <input className="w-full text-xs border p-1 rounded" value={storeConfig.closedMessage} onChange={e => setStoreConfig({...storeConfig, closedMessage: e.target.value})} placeholder="Mensaje..."/>}
                   </div>
 
+                  {/* Productos */}
                   <div>
                       <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Productos</h3><Button size="sm" onClick={addProduct}><Plus className="w-4 h-4"/></Button></div>
                       <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">{products.map(p => <ProductEditorRow key={p.id} product={p} updateProduct={updateProduct} deleteProduct={deleteProduct} />)}</div>
                   </div>
               </div>
 
+              {/* COLUMNA DERECHA: SOLO CLUBES (Temporadas eliminado) */}
               <div className="space-y-8">
-                  {/* BLOQUE 1: GESTIÓN DE CLUBES (Ya existente, mantenido) */}
                   <div className="bg-white p-6 rounded-xl shadow h-fit">
                       <div>
                           <h3 className="font-bold mb-4 text-lg">Clubes</h3>
@@ -2017,49 +2020,6 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                               {clubs.map(c => (
                                   <ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />
                               ))}
-                          </div>
-                      </div>
-                  </div>
-
-                  {/* BLOQUE 2: NUEVO - GESTIÓN DE DATOS Y TEMPORADAS */}
-                  <div className="bg-white p-6 rounded-xl shadow border-l-4 border-indigo-500">
-                      <h3 className="font-bold text-lg mb-4 flex items-center gap-2 text-indigo-700">
-                          <Layers className="w-5 h-5"/> Gestión de Datos y Temporadas
-                      </h3>
-                      <p className="text-xs text-gray-500 mb-4">Exportación masiva y limpieza de base de datos.</p>
-                      
-                      <div className="space-y-4">
-                          <div>
-                              <label className="block text-xs font-bold text-gray-600 mb-1">Seleccionar Temporada</label>
-                              <select 
-                                  className="w-full border rounded p-2 text-sm bg-gray-50"
-                                  value={dataManageSeasonId}
-                                  onChange={(e) => setDataManageSeasonId(e.target.value)}
-                              >
-                                  {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                              </select>
-                          </div>
-
-                          <div className="grid grid-cols-1 gap-3">
-                              {/* BOTÓN 1: EXPORTAR EXCEL */}
-                              <button 
-                                  onClick={() => setConfirmation({
-                                      title: "Exportar Datos",
-                                      msg: "Se generará un archivo Excel con múltiples hojas (Global y por Club) con todos los detalles de los pedidos de la temporada seleccionada.\n\n¿Deseas continuar?",
-                                      onConfirm: () => handleExportSeasonExcel(dataManageSeasonId)
-                                  })}
-                                  className="flex items-center justify-center gap-2 w-full p-3 rounded-lg border border-green-200 bg-green-50 text-green-700 font-bold hover:bg-green-100 transition-colors"
-                              >
-                                  <FileSpreadsheet className="w-5 h-5"/> Descargar Excel Completo
-                              </button>
-
-                              {/* BOTÓN 2: BORRAR DATOS */}
-                              <button 
-                                  onClick={() => handleDeleteSeasonData(dataManageSeasonId)}
-                                  className="flex items-center justify-center gap-2 w-full p-3 rounded-lg border border-red-200 bg-red-50 text-red-700 font-bold hover:bg-red-100 transition-colors"
-                              >
-                                  <Trash2 className="w-5 h-5"/> Limpiar Datos de Temporada
-                              </button>
                           </div>
                       </div>
                   </div>
@@ -2949,7 +2909,137 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-      {tab === 'seasons' && (<div className="bg-white p-6 rounded-xl shadow max-w-4xl mx-auto"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Calendar className="w-5 h-5 text-emerald-600"/> Gestión de Temporadas</h3><div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8 bg-gray-50 p-6 rounded-xl border border-gray-100"><div><label className="block text-sm font-medium mb-1">Nombre</label><input id="sName" className="w-full border p-2 rounded" placeholder="Ej. 24/25" /></div><div><label className="block text-sm font-medium mb-1">Inicio</label><input id="sStart" type="date" className="w-full border p-2 rounded" /></div><div><label className="block text-sm font-medium mb-1">Fin</label><div className="flex gap-2"><input id="sEnd" type="date" className="w-full border p-2 rounded" /><Button onClick={() => { const name = document.getElementById('sName').value; const start = document.getElementById('sStart').value; const end = document.getElementById('sEnd').value; if(name && start && end) addSeason({name, startDate: start, endDate: end}); }}><Plus className="w-4 h-4"/></Button></div></div></div><div className="border rounded-lg overflow-hidden"><table className="w-full text-left"><thead className="bg-gray-100 text-gray-600 text-xs uppercase"><tr><th className="p-4">Nombre</th><th className="p-4">Inicio</th><th className="p-4">Fin</th><th className="p-4 text-right">Acciones</th></tr></thead><tbody className="divide-y">{seasons.map(s => (<tr key={s.id}><td className="p-4 font-medium">{s.name}</td><td className="p-4 text-gray-500">{new Date(s.startDate).toLocaleDateString()}</td><td className="p-4 text-gray-500">{new Date(s.endDate).toLocaleDateString()}</td><td className="p-4 text-right"><button onClick={() => deleteSeason(s.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4"/></button></td></tr>))}</tbody></table></div></div>)}
+      {tab === 'seasons' && (
+          <div className="max-w-4xl mx-auto animate-fade-in-up space-y-6">
+              <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100">
+                  <div className="flex flex-col md:flex-row justify-between items-center mb-6 gap-4">
+                      <div>
+                          <h2 className="text-xl font-bold flex items-center gap-2 text-gray-800">
+                              <Layers className="w-6 h-6 text-indigo-600"/> 
+                              Gestión de Temporadas
+                          </h2>
+                          <p className="text-gray-500 text-sm">Control de visibilidad, reportes y datos históricos.</p>
+                      </div>
+                      
+                      {/* Formulario rápido creación */}
+                      <div className="flex gap-2 items-end bg-gray-50 p-2 rounded-lg border border-gray-200">
+                          <div>
+                              <label className="text-[10px] uppercase font-bold text-gray-400 block ml-1">Nombre</label>
+                              <input id="newSName" placeholder="Ej. 24/25" className="border rounded px-2 py-1 text-sm w-24" />
+                          </div>
+                          <div>
+                              <label className="text-[10px] uppercase font-bold text-gray-400 block ml-1">Inicio</label>
+                              <input id="newSStart" type="date" className="border rounded px-2 py-1 text-sm w-32" />
+                          </div>
+                          <div>
+                              <label className="text-[10px] uppercase font-bold text-gray-400 block ml-1">Fin</label>
+                              <input id="newSEnd" type="date" className="border rounded px-2 py-1 text-sm w-32" />
+                          </div>
+                          <button 
+                              onClick={() => {
+                                  const name = document.getElementById('newSName').value;
+                                  const start = document.getElementById('newSStart').value;
+                                  const end = document.getElementById('newSEnd').value;
+                                  if(name && start && end) {
+                                      addSeason({name, startDate: start, endDate: end});
+                                      document.getElementById('newSName').value = '';
+                                  } else {
+                                      alert('Rellena todos los campos');
+                                  }
+                              }} 
+                              className="bg-indigo-600 text-white p-1.5 rounded hover:bg-indigo-700 h-[30px] w-[30px] flex items-center justify-center"
+                          >
+                              <Plus className="w-4 h-4"/>
+                          </button>
+                      </div>
+                  </div>
+
+                  <div className="space-y-3">
+                      {seasons.map(season => (
+                          <div key={season.id} className={`flex items-center justify-between p-4 rounded-xl border transition-all duration-200 ${season.hiddenForClubs ? 'bg-gray-50 border-gray-200' : 'bg-white border-indigo-100 shadow-sm hover:border-indigo-200'}`}>
+                              
+                              {/* Info Temporada */}
+                              <div className="flex-1">
+                                  <div className="flex items-center gap-3">
+                                      <span className={`font-bold text-lg ${season.hiddenForClubs ? 'text-gray-500' : 'text-gray-800'}`}>
+                                          {season.name}
+                                      </span>
+                                      {season.hiddenForClubs ? (
+                                          <span className="flex items-center gap-1 text-[10px] bg-gray-200 text-gray-500 px-2 py-1 rounded-full font-bold uppercase tracking-wider">
+                                              <EyeOff className="w-3 h-3"/> Oculta
+                                          </span>
+                                      ) : (
+                                          <span className="flex items-center gap-1 text-[10px] bg-green-100 text-green-700 px-2 py-1 rounded-full font-bold uppercase tracking-wider">
+                                              <Eye className="w-3 h-3"/> Visible
+                                          </span>
+                                      )}
+                                  </div>
+                                  <div className="flex items-center gap-2 text-xs text-gray-400 mt-1">
+                                      <Calendar className="w-3 h-3"/>
+                                      {new Date(season.startDate).toLocaleDateString()} - {new Date(season.endDate).toLocaleDateString()}
+                                  </div>
+                              </div>
+
+                              {/* ACCIONES (Barra de herramientas completa) */}
+                              <div className="flex items-center gap-2">
+                                  
+                                  {/* 1. VISIBILIDAD */}
+                                  <button 
+                                      onClick={() => toggleSeasonVisibility(season.id)}
+                                      className={`p-2 rounded-lg transition-colors ${season.hiddenForClubs ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
+                                      title={season.hiddenForClubs ? "Mostrar a Clubes" : "Ocultar a Clubes"}
+                                  >
+                                      {season.hiddenForClubs ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+                                  </button>
+
+                                  <div className="w-px h-6 bg-gray-200 mx-1"></div>
+
+                                  {/* 2. EXPORTAR EXCEL */}
+                                  <button 
+                                      onClick={() => setConfirmation({
+                                          title: "Descargar Reporte",
+                                          msg: `¿Generar Excel completo de la temporada ${season.name}?`,
+                                          onConfirm: () => handleExportSeasonExcel(season.id)
+                                      })}
+                                      className="p-2 rounded-lg bg-green-50 text-green-600 hover:bg-green-100 transition-colors"
+                                      title="Descargar Excel de Pedidos"
+                                  >
+                                      <FileSpreadsheet className="w-4 h-4" />
+                                  </button>
+
+                                  {/* 3. LIMPIAR DATOS (PEDIDOS) */}
+                                  <button 
+                                      onClick={() => handleDeleteSeasonData(season.id)}
+                                      className="p-2 rounded-lg bg-orange-50 text-orange-600 hover:bg-orange-100 transition-colors"
+                                      title="Borrar TODOS los pedidos de esta temporada"
+                                  >
+                                      <Archive className="w-4 h-4" />
+                                  </button>
+
+                                  {/* 4. ELIMINAR TEMPORADA (CONFIGURACIÓN) */}
+                                  <button 
+                                      onClick={() => {
+                                          if(window.confirm('¿Seguro que quieres eliminar esta temporada de la configuración?')) deleteSeason(season.id);
+                                      }}
+                                      className="p-2 rounded-lg bg-red-50 text-red-500 hover:bg-red-100 transition-colors"
+                                      title="Eliminar Temporada (Configuración)"
+                                  >
+                                      <Trash2 className="w-4 h-4" />
+                                  </button>
+                              </div>
+                          </div>
+                      ))}
+                      
+                      {seasons.length === 0 && (
+                          <div className="text-center py-10 bg-gray-50 rounded-xl border border-dashed border-gray-300">
+                              <Layers className="w-10 h-10 text-gray-300 mx-auto mb-2"/>
+                              <p className="text-gray-500 font-medium">No hay temporadas registradas</p>
+                          </div>
+                      )}
+                  </div>
+              </div>
+          </div>
+      )}
       {tab === 'files' && (<div className="bg-white p-6 rounded-xl shadow h-full min-h-[500px]"><h3 className="font-bold text-lg mb-6 flex items-center gap-2"><Folder className="w-5 h-5 text-emerald-600"/> Explorador de Archivos</h3><div className="grid grid-cols-1 md:grid-cols-4 gap-6 h-full"><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Clubes</h4><div className="space-y-1">{clubs.map(c => (<div key={c.id} onClick={() => { setSelectedClubFiles(c.id); setSelectedFolder(null); }} className={`p-2 rounded cursor-pointer text-sm flex items-center justify-between ${selectedClubFiles === c.id ? 'bg-emerald-50 text-emerald-700 font-medium' : 'hover:bg-gray-50'}`}>{c.name}<ChevronRight className="w-4 h-4 opacity-50"/></div>))}</div></div><div className="border-r pr-4"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Carpetas</h4>{!selectedClubFiles ? <p className="text-sm text-gray-400 italic">Selecciona un club</p> : <div className="space-y-1">{getClubFolders(selectedClubFiles).map(folder => (<div key={folder} onClick={() => setSelectedFolder(folder)} className={`p-2 rounded cursor-pointer text-sm flex items-center gap-2 ${selectedFolder === folder ? 'bg-blue-50 text-blue-700 font-medium' : 'hover:bg-gray-50'}`}><Folder className={`w-4 h-4 ${selectedFolder === folder ? 'fill-current' : ''}`}/>{folder}</div>))}</div>}</div><div className="col-span-2"><h4 className="text-xs font-bold text-gray-400 uppercase mb-3">Archivos</h4>{!selectedFolder ? <div className="flex flex-col items-center justify-center h-48 text-gray-400 border-2 border-dashed rounded-lg"><CornerDownRight className="w-8 h-8 mb-2 opacity-50"/><p className="text-sm">Selecciona carpeta</p></div> : <div className="grid grid-cols-2 sm:grid-cols-3 gap-4">{getFolderPhotos(selectedClubFiles, selectedFolder).map(photo => (<div key={photo.id} className="group relative border rounded-lg p-2 hover:shadow-md transition-shadow"><div className="aspect-square bg-gray-100 rounded mb-2 overflow-hidden"><img src={photo.url} className="w-full h-full object-cover" /></div><p className="text-xs font-medium truncate" title={photo.filename}>{photo.filename}</p></div>))}</div>}</div></div></div>)}
       {tab === 'finances' && (
           <div className="space-y-8 animate-fade-in-up pb-10">
@@ -3203,6 +3293,28 @@ export default function App() {
   useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } }; initAuth(); const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); return () => unsubscribe(); }, []);
   useEffect(() => { if (!user) return; const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); setOrders(ordersData); }, (err) => console.error("Error fetching orders:", err)); return () => unsubOrders(); }, [user]);
 
+  // --- NUEVO: Cargar temporadas en tiempo real desde Firebase ---
+  useEffect(() => {
+      // Nos conectamos a la colección 'seasons'
+      const q = query(collection(db, 'seasons'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          const seasonsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          
+          // Si hay datos en la BD, los usamos. Si no, usamos los iniciales por defecto.
+          if (seasonsData.length > 0) {
+              // Ordenamos por fecha de inicio (las más nuevas primero o al revés, según prefieras)
+              seasonsData.sort((a, b) => new Date(a.startDate) - new Date(b.startDate));
+              setSeasons(seasonsData);
+          } else {
+              setSeasons(SEASONS_INITIAL);
+          }
+      }, (error) => {
+          console.error("Error cargando temporadas:", error);
+      });
+
+      return () => unsubscribe();
+  }, []);
+
   const addToCart = (product, customization, finalPrice) => { if (!storeConfig.isOpen) { showNotification('La tienda está cerrada temporalmente.', 'error'); return; } setCart([...cart, { ...product, ...customization, price: finalPrice, cartId: Date.now() }]); showNotification('Producto añadido al carrito'); };
   const removeFromCart = (cartId) => { setCart(cart.filter(item => item.cartId !== cartId)); };
   const createOrder = async (orderData) => { if (!user) return; const targetClub = clubs.find(c => c.id === orderData.clubId); const activeGlobalBatch = targetClub ? targetClub.activeGlobalOrderId : 1; try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { ...orderData, createdAt: serverTimestamp(), globalBatch: activeGlobalBatch, status: orderData.paymentMethod === 'cash' ? 'pendiente_validacion' : 'recopilando', visibleStatus: orderData.paymentMethod === 'cash' ? 'Pendiente pago en Club' : 'Recopilando Pedidos', type: 'standard', incidents: [] }); setCart([]); setView('order-success'); } catch (e) { showNotification('Error al crear el pedido', 'error'); } };
@@ -3283,8 +3395,69 @@ export default function App() {
   const updateClub = (updatedClub) => { setClubs(clubs.map(c => c.id === updatedClub.id ? updatedClub : c)); showNotification('Datos del club actualizados'); };
   const deleteClub = (clubId) => { setConfirmation({ msg: '¿Seguro que quieres eliminar este club?', onConfirm: () => { setClubs(prevClubs => prevClubs.filter(c => c.id !== clubId)); showNotification('Club eliminado'); } }); }
   const toggleClubBlock = (clubId) => { const club = clubs.find(c => c.id === clubId); const newStatus = !club.blocked; setClubs(clubs.map(c => c.id === clubId ? { ...c, blocked: newStatus } : c)); showNotification(newStatus ? `Club ${club.name} bloqueado` : `Club ${club.name} desbloqueado`, newStatus ? 'error' : 'success'); };
-  const addSeason = (newSeason) => { setSeasons([...seasons, { ...newSeason, id: `s-${Date.now()}` }]); showNotification('Temporada creada correctamente'); };
-  const deleteSeason = (seasonId) => { if(seasons.length <= 1) { showNotification('Debe haber al menos una temporada activa.', 'error'); return; } setConfirmation({ msg: '¿Eliminar esta temporada? Los datos históricos asociados seguirán existiendo pero no se podrán filtrar por ella.', onConfirm: () => { setSeasons(seasons.filter(s => s.id !== seasonId)); showNotification('Temporada eliminada'); } }); };
+  const addSeason = async (newSeason) => {
+      try {
+          // Guardamos en la colección 'seasons' de Firebase
+          await addDoc(collection(db, 'seasons'), {
+              ...newSeason,
+              hiddenForClubs: false, // Por defecto visible
+              createdAt: serverTimestamp() // Guardamos cuándo se creó
+          });
+          showNotification('Temporada guardada correctamente en la base de datos');
+      } catch (error) {
+          console.error("Error al crear temporada:", error);
+          showNotification('Error al guardar la temporada', 'error');
+      }
+  };
+  const deleteSeason = async (seasonId) => {
+      if(seasons.length <= 1) { 
+          showNotification('Debe haber al menos una temporada activa.', 'error'); 
+          return; 
+      }
+      
+      setConfirmation({ 
+          msg: '¿Eliminar esta temporada definitivamente de la base de datos?', 
+          onConfirm: async () => { 
+              try {
+                  await deleteDoc(doc(db, 'seasons', seasonId));
+                  showNotification('Temporada eliminada'); 
+              } catch (error) {
+                  console.error("Error al borrar:", error);
+                  showNotification('Error al eliminar temporada', 'error');
+              }
+          } 
+      }); 
+  };
+// --- FUNCIÓN NUEVA: OCULTAR/MOSTRAR TEMPORADAS ---
+  const toggleSeasonVisibility = async (seasonId) => {
+      const seasonToUpdate = seasons.find(s => s.id === seasonId);
+      if (!seasonToUpdate) return;
+
+      const newHiddenStatus = !seasonToUpdate.hiddenForClubs;
+
+      // 1. Actualización Visual Inmediata (Optimista)
+      setSeasons(seasons.map(s => 
+          s.id === seasonId ? { ...s, hiddenForClubs: newHiddenStatus } : s
+      ));
+
+      // 2. Actualización en Base de Datos (DESCOMENTADO Y ACTIVO)
+      try {
+          // Referencia al documento de la temporada en Firebase
+          const seasonRef = doc(db, 'seasons', seasonId); 
+          
+          // Actualizamos solo el campo de visibilidad
+          await updateDoc(seasonRef, { hiddenForClubs: newHiddenStatus });
+          
+      } catch (error) {
+          console.error("Error al actualizar visibilidad:", error);
+          showNotification("Error al guardar cambios", "error");
+          
+          // Revertir el cambio visual si falla la base de datos
+          setSeasons(seasons.map(s => 
+              s.id === seasonId ? { ...s, hiddenForClubs: seasonToUpdate.hiddenForClubs } : s
+          ));
+      }
+  };
   const showNotification = (msg, type = 'success') => { setNotification({ msg, type }); setTimeout(() => setNotification(null), 4000); };
   const handleLogin = (username, password) => { if (username === 'admin' && password === 'admin123') { setRole('admin'); setView('admin-dashboard'); showNotification('Bienvenido Administrador'); } else { const club = clubs.find(c => c.id === username && password === c.pass); if (club) { setRole('club'); setCurrentClub(club); setView('club-dashboard'); showNotification(`Bienvenido ${club.name}`); } else { showNotification('Credenciales incorrectas', 'error'); } } };
 
@@ -3333,8 +3506,8 @@ export default function App() {
         {view === 'login' && <LoginView handleLogin={handleLogin} clubs={clubs} />}
         {view === 'order-success' && <OrderSuccessView setView={setView} />}
         {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
-        {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons} />}
-        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} modificationFee={modificationFee} setModificationFee={setModificationFee} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} />}
+        {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} modificationFee={modificationFee} setModificationFee={setModificationFee} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} />}
       </main>
       <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-8" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
     </div>

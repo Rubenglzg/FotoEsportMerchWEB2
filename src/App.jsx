@@ -85,8 +85,22 @@ const PRODUCTS_INITIAL = [
 ];
 
 const CLUBS_MOCK = [
-  { id: 'club-demo', name: 'C.D. Demo Sport', code: 'CDDS', pass: 'club123', blocked: false, activeGlobalOrderId: 1 },
-  { id: 'club-futbol', name: 'Atlético Fútbol', code: 'ATLF', pass: 'club123', blocked: false, activeGlobalOrderId: 1 },
+  { id: 'club-demo', name: 'C.D. Demo Sport', code: 'CDDS', pass: 'club123', blocked: false, activeGlobalOrderId: 1, color: 'blue' }, // <--- AÑADIDO
+  { id: 'club-futbol', name: 'Atlético Fútbol', code: 'ATLF', pass: 'club123', blocked: false, activeGlobalOrderId: 1, color: 'red' }, // <--- AÑADIDO
+];
+
+// --- CONSTANTE DE COLORES VISUALES (NUEVO) ---
+const AVAILABLE_COLORS = [
+  { id: 'white', label: 'Blanco', hex: '#FFFFFF', border: 'border-gray-300' },
+  { id: 'black', label: 'Negro', hex: '#000000', border: 'border-black' },
+  { id: 'red', label: 'Rojo', hex: '#DC2626', border: 'border-red-600' },
+  { id: 'blue', label: 'Azul', hex: '#2563EB', border: 'border-blue-600' },
+  { id: 'green', label: 'Verde', hex: '#16A34A', border: 'border-green-600' },
+  { id: 'yellow', label: 'Amarillo', hex: '#FACC15', border: 'border-yellow-400' },
+  { id: 'orange', label: 'Naranja', hex: '#EA580C', border: 'border-orange-500' },
+  { id: 'purple', label: 'Morado', hex: '#9333EA', border: 'border-purple-600' },
+  { id: 'navy', label: 'Marino', hex: '#1E3A8A', border: 'border-blue-900' },
+  { id: 'gray', label: 'Gris', hex: '#4B5563', border: 'border-gray-500' },
 ];
 
 const FINANCIAL_CONFIG_INITIAL = {
@@ -398,16 +412,71 @@ const StatCard = ({ title, value, color, highlight }) => (
     </div>
 );
 
+const ColorPicker = ({ selectedColor, onChange }) => {
+    const [isOpen, setIsOpen] = useState(false);
+    // Buscamos el color actual o ponemos blanco por defecto
+    const current = AVAILABLE_COLORS.find(c => c.id === selectedColor) || AVAILABLE_COLORS[0];
+
+    return (
+        <div className="relative">
+            {/* Botón Principal */}
+            <button 
+                onClick={() => setIsOpen(!isOpen)}
+                className="flex items-center gap-2 border rounded px-3 py-2 bg-white hover:bg-gray-50 transition-colors w-32 justify-between"
+                title="Seleccionar color oficial"
+            >
+                <div className="flex items-center gap-2">
+                    <div className={`w-4 h-4 rounded-full border ${current.border} shadow-sm`} style={{ backgroundColor: current.hex }}></div>
+                    <span className="text-sm text-gray-700 font-medium truncate">{current.label}</span>
+                </div>
+                <ChevronRight className={`w-3 h-3 text-gray-400 transition-transform ${isOpen ? 'rotate-90' : ''}`} />
+            </button>
+            
+            {/* Dropdown Visual */}
+            {isOpen && (
+                <>
+                    <div className="fixed inset-0 z-10" onClick={() => setIsOpen(false)}></div>
+                    <div className="absolute top-full left-0 mt-1 bg-white border border-gray-200 rounded-lg shadow-xl z-20 p-3 w-48 grid grid-cols-5 gap-2 animate-fade-in-down">
+                        {AVAILABLE_COLORS.map(c => (
+                            <button
+                                key={c.id}
+                                onClick={() => { onChange(c.id); setIsOpen(false); }}
+                                className={`w-6 h-6 rounded-full border ${c.border} hover:scale-110 transition-transform relative group shadow-sm`}
+                                style={{ backgroundColor: c.hex }}
+                                title={c.label}
+                            >
+                                {selectedColor === c.id && (
+                                    <div className="absolute inset-0 flex items-center justify-center">
+                                        <div className={`w-1.5 h-1.5 rounded-full ${['white', 'yellow'].includes(c.id) ? 'bg-black' : 'bg-white'}`}></div>
+                                    </div>
+                                )}
+                            </button>
+                        ))}
+                    </div>
+                </>
+            )}
+        </div>
+    );
+};
+
 const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     const [isEditing, setIsEditing] = useState(false);
-    const [editData, setEditData] = useState({ name: club.name, pass: club.pass });
+    const [editData, setEditData] = useState({ name: club.name, pass: club.pass, color: club.color || 'white' });
     const [showPass, setShowPass] = useState(false);
+
     const handleSave = () => { updateClub({ ...club, ...editData }); setIsEditing(false); };
+
+    // Encontrar datos del color para visualización en modo lectura
+    const colorInfo = AVAILABLE_COLORS.find(c => c.id === (club.color || 'white')) || AVAILABLE_COLORS[0];
 
     if (isEditing) {
         return (
             <div className="bg-gray-50 p-3 rounded flex flex-col gap-2 border border-emerald-200">
-                <div className="flex gap-2"><input className="flex-1 border rounded px-2 py-1 text-sm" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} placeholder="Nombre Club" /></div>
+                <div className="flex gap-2 items-center">
+                    <input className="flex-1 border rounded px-2 py-2 text-sm" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} placeholder="Nombre Club" />
+                    {/* USAMOS EL NUEVO COMPONENTE */}
+                    <ColorPicker selectedColor={editData.color} onChange={(val) => setEditData({...editData, color: val})} />
+                </div>
                 <div className="flex gap-2">
                     <div className="flex-1 relative"><input type={showPass ? "text" : "password"} className="w-full border rounded px-2 py-1 text-sm pr-8" value={editData.pass} onChange={e => setEditData({...editData, pass: e.target.value})} placeholder="Contraseña" /><button onClick={() => setShowPass(!showPass)} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600">{showPass ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}</button></div>
                     <Button size="sm" onClick={handleSave} className="bg-emerald-600 text-white"><Check className="w-3 h-3"/></Button>
@@ -418,7 +487,14 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     }
     return (
         <div className={`flex justify-between items-center p-2 rounded ${club.blocked ? 'bg-red-50 border border-red-100' : 'bg-gray-50'}`}>
-            <div><p className={`font-bold text-sm flex items-center gap-2 ${club.blocked ? 'text-red-700' : ''}`}>{club.name} {club.blocked && <Ban className="w-3 h-3 text-red-500"/>}</p><div className="flex gap-2 text-xs text-gray-400"><span>User: {club.id}</span><span>Pass: ••••••••</span></div></div>
+            <div>
+                <p className={`font-bold text-sm flex items-center gap-2 ${club.blocked ? 'text-red-700' : ''}`}>
+                    {/* Visualización del color en la lista */}
+                    <span className={`w-3 h-3 rounded-full border ${colorInfo.border} shadow-sm`} style={{ backgroundColor: colorInfo.hex }} title={`Color: ${colorInfo.label}`}></span>
+                    {club.name} {club.blocked && <Ban className="w-3 h-3 text-red-500"/>}
+                </p>
+                <div className="flex gap-2 text-xs text-gray-400"><span>User: {club.id}</span><span>Pass: ••••••••</span></div>
+            </div>
             <div className="flex gap-1"><button onClick={() => toggleClubBlock(club.id)} className={`p-1 hover:bg-gray-200 rounded ${club.blocked ? 'text-red-500' : 'text-gray-400'}`}>{club.blocked ? <Lock className="w-4 h-4"/> : <Unlock className="w-4 h-4"/>}</button><button onClick={() => setIsEditing(true)} className="text-gray-400 hover:text-emerald-600 p-1"><Edit3 className="w-4 h-4"/></button><button onClick={() => deleteClub(club.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button></div>
         </div>
     );
@@ -550,11 +626,16 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       return availableCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase()));
   }, [categoryInput, availableCategories]);
 
-  // Selección de Club
+    // Selección de Club
   const handleSelectClub = (club) => {
-      setCustomization({ ...customization, clubId: club.id, category: '' });
+      setCustomization({ 
+          ...customization, 
+          clubId: club.id, 
+          category: '',
+          color: club.color || 'white' // <--- AHORA SE ASIGNA EL COLOR DEL CLUB AUTOMÁTICAMENTE
+      });
       setClubInput(club.name);
-      setCategoryInput(''); // Reset categoría
+      setCategoryInput(''); 
       setShowClubSuggestions(false);
   };
 
@@ -674,7 +755,52 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
             )}
           </div>
           
-          {features.color && (<div><label className="block text-sm font-medium text-gray-700 mb-2">Color Principal</label><div className="flex gap-3">{['white', 'red', 'blue', 'green', 'black', 'yellow'].map(color => (<button key={color} type="button" onClick={() => setCustomization({...customization, color})} className={`w-8 h-8 rounded-full border-2 transition-transform ${customization.color === color ? 'border-gray-900 scale-125 ring-2 ring-offset-2 ring-emerald-500' : 'border-gray-200 hover:scale-110'}`} style={{ backgroundColor: color }} />))}</div></div>)}
+          {/* SECCIÓN DE COLOR AUTOMÁTICO (CORREGIDO: Sin parpadeo y en gris) */}
+          {features.color && (
+              <div className="animate-fade-in">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Color Oficial del Club</label>
+                  <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      
+                      {customization.clubId ? (
+                          // CASO A: HAY CLUB SELECCIONADO -> MUESTRA EL COLOR
+                          (() => {
+                              const colorInfo = AVAILABLE_COLORS.find(c => c.id === customization.color) || { label: customization.color, hex: customization.color, border: 'border-gray-300' };
+                              return (
+                                  <>
+                                      <div 
+                                          className={`w-10 h-10 rounded-full border-2 ${colorInfo.border} shadow-sm`} 
+                                          style={{ backgroundColor: colorInfo.hex }} 
+                                      />
+                                      <div>
+                                          <p className="text-sm font-bold text-gray-800 capitalize">
+                                              {colorInfo.label}
+                                          </p>
+                                          <p className="text-xs text-gray-500">Asignado automáticamente</p>
+                                      </div>
+                                  </>
+                              );
+                          })()
+                      ) : (
+                          // CASO B: NO HAY CLUB -> MUESTRA AVISO (GRIS Y ESTÁTICO)
+                          <>
+                              <div className="w-10 h-10 rounded-full border-2 border-gray-300 bg-gray-100 flex items-center justify-center shadow-inner">
+                                  <span className="text-gray-400 font-bold text-lg">?</span>
+                              </div>
+                              <div>
+                                  <p className="text-sm font-bold text-gray-600">
+                                      Pendiente de Club
+                                  </p>
+                                  <p className="text-xs text-gray-500 font-medium">
+                                      Selecciona tu club para visualizar
+                                  </p>
+                              </div>
+                          </>
+                      )}
+                      
+                      <Lock className="w-4 h-4 text-gray-400 ml-auto" />
+                  </div>
+              </div>
+          )}
           
           {/* AVISO LEGAL VISUAL (Nuevo) */}
           {(features.name || features.number) && (
@@ -924,6 +1050,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   const [selectedClubFiles, setSelectedClubFiles] = useState(null);
   const [selectedFolder, setSelectedFolder] = useState(null);
   const [statsClubFilter, setStatsClubFilter] = useState('all');
+  const [newClubColor, setNewClubColor] = useState('white');
   // --- ESTADOS PARA EDICIÓN Y MOVIMIENTOS ---
   const [editOrderModal, setEditOrderModal] = useState({ 
       active: false, 
@@ -2007,15 +2134,32 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   </div>
               </div>
 
-              {/* COLUMNA DERECHA: SOLO CLUBES (Temporadas eliminado) */}
+              {/* COLUMNA DERECHA: SOLO CLUBES */}
               <div className="space-y-8">
                   <div className="bg-white p-6 rounded-xl shadow h-fit">
                       <div>
                           <h3 className="font-bold mb-4 text-lg">Clubes</h3>
-                          <div className="flex gap-2 mb-4">
-                              <input id="newClubName" placeholder="Nombre" className="border rounded px-3 py-2 flex-1" />
-                              <Button onClick={() => { const input = document.getElementById('newClubName'); if(input.value) createClub({name: input.value, code: input.value.slice(0,3).toUpperCase()}); }} size="sm"><Plus className="w-4 h-4"/></Button>
+                          
+                          {/* CREACIÓN DE CLUB CON COLOR PICKER VISUAL */}
+                          <div className="flex gap-2 mb-4 items-center">
+                              <input id="newClubName" placeholder="Nombre" className="border rounded px-3 py-2 flex-1 text-sm h-[38px]" />
+                              
+                              <ColorPicker selectedColor={newClubColor} onChange={setNewClubColor} />
+                              
+                              <Button onClick={() => { 
+                                  const input = document.getElementById('newClubName'); 
+                                  if(input.value) {
+                                      createClub({
+                                          name: input.value, 
+                                          code: input.value.slice(0,3).toUpperCase(),
+                                          color: newClubColor
+                                      });
+                                      input.value = ''; // Limpiar input
+                                      setNewClubColor('white'); // Reset color
+                                  }
+                              }} size="sm" className="h-[38px]"><Plus className="w-4 h-4"/></Button>
                           </div>
+
                           <div className="space-y-2">
                               {clubs.map(c => (
                                   <ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />

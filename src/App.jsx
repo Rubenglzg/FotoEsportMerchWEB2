@@ -49,13 +49,12 @@ import ExcelJS from 'exceljs';
 
 // --- 1. CONFIGURACIÓN FIREBASE CON TUS DATOS ---
 const firebaseConfig = {
-  apiKey: "AIzaSyCc0R2TidFpqcqsKQIFmP0lnniAzlsuLbA",
-  authDomain: "fotoesport-merch.firebaseapp.com",
-  projectId: "fotoesport-merch",
-  storageBucket: "fotoesport-merch.firebasestorage.app",
-  messagingSenderId: "850889568612",
-  appId: "1:850889568612:web:64bba766b7b2b16b3f8a71",
-  measurementId: "G-TPB1419H31"
+    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
+    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
+    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
+    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
+    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
+    appId: import.meta.env.VITE_FIREBASE_APP_ID
 };
 
 // Inicialización segura
@@ -1049,7 +1048,7 @@ function ClubDashboard({ club, orders, updateOrderStatus, config, seasons }) {
   );
 }
 
-// --- GESTOR DE ARCHIVOS (CON SUBIDA INTELIGENTE DE SUBCARPETAS) ---
+// --- GESTOR DE ARCHIVOS (CORREGIDO: BOTÓN DE SELECCIÓN EXACTO) ---
 const FilesManager = ({ clubs }) => {
     const [level, setLevel] = useState('clubs'); 
     const [selectedClub, setSelectedClub] = useState(null);
@@ -1061,10 +1060,90 @@ const FilesManager = ({ clubs }) => {
     const [isUploading, setIsUploading] = useState(false);
     const [uploadFiles, setUploadFiles] = useState([]); 
     const [uploadProgress, setUploadProgress] = useState({ current: 0, total: 0 });
-    // "smart" detecta subcarpetas automáticamente. "single" es para añadir fotos a la carpeta actual.
     const [uploadMode, setUploadMode] = useState('smart'); 
+    
+    // Estado para Drag & Drop
+    const [isDragging, setIsDragging] = useState(false);
 
-    // 1. CARGAR CATEGORÍAS
+    // --- UTILS PARA DRAG & DROP RECURSIVO ---
+    const traverseFileTree = async (item, path = '') => {
+        if (item.isFile) {
+            const file = await new Promise((resolve) => item.file(resolve));
+            Object.defineProperty(file, 'webkitRelativePath', {
+                value: path + file.name,
+                writable: true,
+                configurable: true
+            });
+            return [file];
+        } else if (item.isDirectory) {
+            const dirReader = item.createReader();
+            let entries = [];
+            const readEntries = async () => {
+                const results = await new Promise((resolve) => dirReader.readEntries(resolve));
+                if (results.length > 0) {
+                    entries = entries.concat(results);
+                    await readEntries(); 
+                }
+            };
+            await readEntries();
+            
+            let files = [];
+            for (const entry of entries) {
+                files = [...files, ...(await traverseFileTree(entry, path + item.name + '/'))];
+            }
+            return files;
+        }
+        return [];
+    };
+
+    // --- HANDLERS DRAG & DROP ---
+    const handleDragOver = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (selectedClub && !isDragging) setIsDragging(true);
+    };
+
+    const handleDragLeave = (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        if (e.currentTarget.contains(e.relatedTarget)) return; 
+        setIsDragging(false);
+    };
+
+    const handleDrop = async (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        setIsDragging(false);
+
+        if (!selectedClub) {
+            alert("Primero selecciona un club para subir archivos.");
+            return;
+        }
+
+        const items = e.dataTransfer.items;
+        if (!items) return;
+
+        setLoading(true);
+        let allFiles = [];
+        
+        for (let i = 0; i < items.length; i++) {
+            const item = items[i].webkitGetAsEntry();
+            if (item) {
+                const files = await traverseFileTree(item);
+                allFiles = [...allFiles, ...files];
+            }
+        }
+
+        if (allFiles.length > 0) {
+            setUploadFiles(allFiles);
+            setIsUploading(true);
+            const hasFolders = allFiles.some(f => f.webkitRelativePath.includes('/'));
+            setUploadMode(hasFolders ? 'smart' : 'single');
+        }
+        setLoading(false);
+    };
+
+    // CARGAS
     const loadCategories = async (clubId) => {
         setLoading(true);
         try {
@@ -1080,7 +1159,6 @@ const FilesManager = ({ clubs }) => {
         setLoading(false);
     };
 
-    // 2. CARGAR FOTOS
     const loadPhotos = async (categoryRef) => {
         setLoading(true);
         try {
@@ -1097,7 +1175,7 @@ const FilesManager = ({ clubs }) => {
         setLoading(false);
     };
 
-    // 3. PROCESO DE SUBIDA INTELIGENTE
+    // SUBIDA
     const handleBulkUpload = async () => {
         if (uploadFiles.length === 0 || !selectedClub) return;
 
@@ -1110,35 +1188,22 @@ const FilesManager = ({ clubs }) => {
         try {
             for (let i = 0; i < filesArray.length; i++) {
                 const file = filesArray[i];
-                
-                // --- LÓGICA DE RUTAS INTELIGENTE ---
                 let targetFolderName = '';
 
                 if (uploadMode === 'smart') {
-                    // El archivo viene con ruta relativa: "CarpetaMaestra/Benjamines/foto.jpg"
                     const pathParts = file.webkitRelativePath.split('/');
-                    
-                    // Si la ruta tiene subcarpetas (ej: Raiz/Categoria/foto.jpg)
-                    // Usamos la carpeta INMEDIATAMENTE SUPERIOR a la foto como Categoría.
                     if (pathParts.length >= 2) {
-                        // El penúltimo elemento es la carpeta que contiene la foto
                         targetFolderName = pathParts[pathParts.length - 2]; 
                     } else {
-                        // Si está en la raíz, usamos una carpeta por defecto o la del input
                         targetFolderName = 'General';
                     }
                 } else {
-                    // Modo simple: Usamos la categoría donde estamos
                     targetFolderName = selectedCategory || 'General';
                 }
 
-                // Limpiamos el nombre (quitamos espacios raros para evitar errores)
                 const cleanFolderName = targetFolderName.trim().replace(/\s+/g, '_');
-                
-                // Ruta final: CLUB / CATEGORIA_DETECTADA / ARCHIVO
                 const finalPath = `${selectedClub.id}/${cleanFolderName}/${file.name}`;
                 
-                // Ignoramos archivos ocultos tipo .DS_Store de Mac
                 if (!file.name.startsWith('.')) {
                     const fileRef = ref(storage, finalPath);
                     await uploadBytes(fileRef, file);
@@ -1148,21 +1213,18 @@ const FilesManager = ({ clubs }) => {
                 setUploadProgress(prev => ({ ...prev, current: i + 1 }));
             }
 
-            alert(`¡Proceso terminado! Se han procesado ${successCount} fotos.`);
-            
-            // Reset
+            alert(`¡Proceso terminado! ${successCount} archivos subidos.`);
             setIsUploading(false);
             setUploadFiles([]);
             setUploadProgress({ current: 0, total: 0 });
 
-            // Recargar vista
             if (level === 'categories') loadCategories(selectedClub.id);
             else if (level === 'files') loadPhotos(ref(storage, `${selectedClub.id}/${selectedCategory}`));
-            else loadCategories(selectedClub.id); // Default a categorías
+            else loadCategories(selectedClub.id);
 
         } catch (error) {
             console.error("Error subida:", error);
-            alert("Ocurrió un error. Revisa la consola.");
+            alert("Error en la subida. Revisa permisos.");
         }
         setLoading(false);
     };
@@ -1178,7 +1240,22 @@ const FilesManager = ({ clubs }) => {
     };
 
     return (
-        <div className="bg-white p-6 rounded-xl shadow h-full min-h-[500px] flex flex-col">
+        <div 
+            className={`bg-white p-6 rounded-xl shadow h-full min-h-[500px] flex flex-col relative transition-colors ${isDragging ? 'bg-blue-50 border-2 border-blue-400 border-dashed' : ''}`}
+            onDragOver={handleDragOver}
+            onDragLeave={handleDragLeave}
+            onDrop={handleDrop}
+        >
+            {/* OVERLAY DRAG & DROP */}
+            {isDragging && (
+                <div className="absolute inset-0 z-50 flex items-center justify-center bg-blue-100/90 rounded-xl backdrop-blur-sm pointer-events-none">
+                    <div className="text-center animate-bounce">
+                        <Upload className="w-16 h-16 text-blue-600 mx-auto mb-2"/>
+                        <h3 className="text-2xl font-bold text-blue-700">¡Suelta los archivos aquí!</h3>
+                    </div>
+                </div>
+            )}
+
             {/* CABECERA */}
             <div className="flex justify-between items-center mb-6 pb-4 border-b">
                 <div className="flex items-center gap-2 text-sm">
@@ -1198,78 +1275,83 @@ const FilesManager = ({ clubs }) => {
                 </div>
                 
                 {selectedClub && !isUploading && (
-                    <button onClick={() => setIsUploading(true)} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-700 shadow-sm">
-                        <Upload className="w-4 h-4"/> Subir Fotos / Carpetas
+                    <button onClick={() => setIsUploading(true)} className="bg-emerald-600 text-white px-3 py-2 rounded-lg text-xs font-bold flex items-center gap-2 hover:bg-emerald-700 shadow-sm transition-transform active:scale-95">
+                        <Upload className="w-4 h-4"/> Subir / Arrastrar
                     </button>
                 )}
             </div>
 
             {/* PANEL DE SUBIDA */}
             {isUploading && (
-                <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100 mb-6 animate-fade-in shadow-inner relative">
-                    <button onClick={() => setIsUploading(false)} className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
+                <div className="bg-emerald-50 p-6 rounded-xl border border-emerald-100 mb-6 animate-fade-in shadow-inner relative z-10">
+                    <button onClick={() => { setIsUploading(false); setUploadFiles([]); }} className="absolute top-2 right-2 text-gray-400 hover:text-gray-600"><X className="w-4 h-4"/></button>
                     
                     <h4 className="font-bold text-emerald-800 mb-4 flex items-center gap-2">
-                        <Upload className="w-5 h-5"/> Zona de Subida
+                        <Upload className="w-5 h-5"/> Preparado para Subir
                     </h4>
 
-                    {loading ? (
+                    {loading && uploadProgress.total > 0 ? (
                         <div className="text-center py-4">
                             <div className="w-full bg-gray-200 rounded-full h-2.5 mb-2">
                                 <div className="bg-emerald-600 h-2.5 rounded-full transition-all duration-300" style={{ width: `${(uploadProgress.current / uploadProgress.total) * 100}%` }}></div>
                             </div>
-                            <p className="text-sm font-bold text-emerald-700">Procesando {uploadProgress.current} de {uploadProgress.total} archivos...</p>
-                            <p className="text-xs text-gray-500">Esto puede tardar unos minutos. No cierres la web.</p>
+                            <p className="text-sm font-bold text-emerald-700">Subiendo {uploadProgress.current} de {uploadProgress.total}...</p>
                         </div>
                     ) : (
                         <div className="flex flex-col gap-4">
-                            
-                            {/* Selector de Estrategia */}
+                            {uploadFiles.length > 0 && (
+                                <div className="bg-white p-3 rounded border border-emerald-200 text-sm mb-2">
+                                    <p className="font-bold text-gray-700">✅ {uploadFiles.length} archivos detectados</p>
+                                    <p className="text-xs text-gray-500 truncate mt-1">
+                                        Ej: {uploadFiles[0].name} {uploadFiles.length > 1 && `... y ${uploadFiles.length - 1} más`}
+                                    </p>
+                                </div>
+                            )}
+
+                            {/* Selector de Modo */}
                             <div className="flex gap-4 border-b border-emerald-200 pb-4">
                                 <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-emerald-100 transition-colors flex-1 border border-transparent hover:border-emerald-200">
                                     <input type="radio" name="mode" checked={uploadMode === 'smart'} onChange={() => setUploadMode('smart')} className="mt-1 text-emerald-600"/>
                                     <div>
-                                        <span className="text-sm font-bold text-gray-800 block">Modo Estructura de Carpetas (Recomendado)</span>
-                                        <span className="text-xs text-gray-600">
-                                            Selecciona una carpeta general que contenga dentro subcarpetas (ej: "Benjamines", "Alevines"). 
-                                            Se crearán todas las categorías automáticamente.
-                                        </span>
+                                        <span className="text-sm font-bold text-gray-800 block">Modo Estructura / Carpeta</span>
+                                        <span className="text-xs text-gray-600">Crear categorías automáticamente (Recomendado).</span>
                                     </div>
                                 </label>
                                 
-                                {selectedCategory && (
-                                    <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-emerald-100 transition-colors flex-1 border border-transparent hover:border-emerald-200">
-                                        <input type="radio" name="mode" checked={uploadMode === 'single'} onChange={() => setUploadMode('single')} className="mt-1 text-emerald-600"/>
-                                        <div>
-                                            <span className="text-sm font-bold text-gray-800 block">Modo Fotos Sueltas</span>
-                                            <span className="text-xs text-gray-600">
-                                                Añadir fotos sueltas a la categoría actual: <span className="font-bold text-emerald-700">{selectedCategory}</span>
-                                            </span>
-                                        </div>
-                                    </label>
-                                )}
+                                <label className="flex items-start gap-2 cursor-pointer p-2 rounded hover:bg-emerald-100 transition-colors flex-1 border border-transparent hover:border-emerald-200">
+                                    <input type="radio" name="mode" checked={uploadMode === 'single'} onChange={() => setUploadMode('single')} className="mt-1 text-emerald-600"/>
+                                    <div>
+                                        <span className="text-sm font-bold text-gray-800 block">Modo Simple</span>
+                                        <span className="text-xs text-gray-600">Todo a: <b>{selectedCategory || 'General'}</b></span>
+                                    </div>
+                                </label>
                             </div>
 
-                            <div className="flex items-center gap-4 bg-white p-4 rounded-lg border border-gray-200">
-                                <div className="flex-1">
-                                    <label className="block text-xs font-bold text-emerald-700 mb-1 uppercase tracking-wider">
-                                        {uploadMode === 'smart' ? 'Selecciona la CARPETA MAESTRA' : 'Selecciona FOTOS'}
+                            <div className="flex items-center gap-4">
+                                {/* BOTÓN PERSONALIZADO (AQUÍ ESTÁ EL ARREGLO) */}
+                                <div className="flex-1 flex items-center gap-3">
+                                    <label className="cursor-pointer flex items-center gap-2 bg-emerald-100 text-emerald-700 px-4 py-2 rounded-full font-bold text-xs hover:bg-emerald-200 transition-colors shadow-sm border border-emerald-200 active:scale-95">
+                                        <Upload className="w-4 h-4" />
+                                        {uploadMode === 'smart' ? 'Seleccionar Carpeta' : 'Seleccionar Fotos'}
+                                        <input 
+                                            type="file" 
+                                            multiple 
+                                            className="hidden" // INPUT OCULTO
+                                            {...(uploadMode === 'smart' ? { webkitdirectory: "", directory: "" } : {})}
+                                            onChange={e => setUploadFiles(e.target.files)} 
+                                        />
                                     </label>
-                                    <input 
-                                        type="file" 
-                                        multiple 
-                                        // IMPORTANTE: webkitdirectory permite subir carpetas y subcarpetas
-                                        {...(uploadMode === 'smart' ? { webkitdirectory: "", directory: "" } : {})}
-                                        onChange={e => setUploadFiles(e.target.files)} 
-                                        className="block w-full text-sm text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-semibold file:bg-emerald-100 file:text-emerald-700 hover:file:bg-emerald-200 cursor-pointer"
-                                    />
+                                    <span className="text-sm text-gray-400 italic">
+                                        {uploadFiles.length === 0 ? 'O arrastra aquí...' : ''}
+                                    </span>
                                 </div>
+
                                 <button 
                                     onClick={handleBulkUpload} 
                                     disabled={uploadFiles.length === 0} 
                                     className="bg-emerald-600 text-white px-8 py-3 rounded-lg text-sm font-bold hover:bg-emerald-700 disabled:opacity-50 shadow-md transition-all active:scale-95"
                                 >
-                                    {uploadFiles.length > 0 ? `Subir ${uploadFiles.length} Archivos` : 'Iniciar Subida'}
+                                    Confirmar Subida
                                 </button>
                             </div>
                         </div>
@@ -1277,58 +1359,44 @@ const FilesManager = ({ clubs }) => {
                 </div>
             )}
 
-            {/* VISTAS DE CONTENIDO */}
-            <div className="flex-1 bg-gray-50 rounded-xl border border-gray-200 p-4 overflow-y-auto custom-scrollbar">
-                
-                {/* 1. LISTA DE CLUBES */}
-                {level === 'clubs' && !loading && (
+            {/* CONTENIDO */}
+            <div className="flex-1 bg-gray-50 rounded-xl border border-gray-200 p-4 overflow-y-auto custom-scrollbar relative z-0">
+                {level === 'clubs' && (
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                         {clubs.map(c => (
                             <div key={c.id} onClick={() => { setSelectedClub(c); loadCategories(c.id); }} className="bg-white p-4 rounded-lg shadow-sm border hover:border-emerald-500 cursor-pointer flex items-center gap-3 hover:shadow-md transition-all">
                                 <div className="bg-emerald-100 p-2 rounded text-emerald-600"><Folder className="w-6 h-6"/></div>
-                                <div>
-                                    <p className="font-bold text-sm text-gray-700">{c.name}</p>
-                                    <p className="text-[10px] text-gray-400">Ver categorías</p>
-                                </div>
+                                <div><p className="font-bold text-sm text-gray-700">{c.name}</p></div>
                             </div>
                         ))}
                     </div>
                 )}
-
-                {/* 2. LISTA DE CATEGORÍAS */}
-                {level === 'categories' && !loading && (
+                {level === 'categories' && (
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         {items.length === 0 ? (
-                            <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl bg-gray-50">
+                            <div className="col-span-full flex flex-col items-center justify-center py-12 text-gray-400 border-2 border-dashed border-gray-200 rounded-xl">
                                 <Folder className="w-16 h-16 mb-4 opacity-20"/>
-                                <p className="font-medium">No hay categorías todavía.</p>
-                                <p className="text-xs mt-1 max-w-md text-center">
-                                    Para crear categorías masivamente, pulsa "Subir Fotos", elige "Modo Estructura" y sube una carpeta que contenga dentro subcarpetas con los nombres (ej: Benjamines, Alevines...).
-                                </p>
+                                <p className="font-medium">Carpeta vacía</p>
                             </div>
                         ) : (
                             items.map(ref => (
-                                <div key={ref.name} onClick={() => { setSelectedCategory(ref.name); loadPhotos(ref); }} className="bg-white p-4 rounded-lg shadow-sm border hover:border-blue-500 cursor-pointer text-center group transition-all hover:shadow-md">
-                                    <Folder className="w-12 h-12 mx-auto text-blue-200 group-hover:text-blue-500 mb-2 transition-colors"/>
+                                <div key={ref.name} onClick={() => { setSelectedCategory(ref.name); loadPhotos(ref); }} className="bg-white p-4 rounded-lg shadow-sm border hover:border-blue-500 cursor-pointer text-center hover:shadow-md">
+                                    <Folder className="w-12 h-12 mx-auto text-blue-200 mb-2"/>
                                     <p className="font-bold text-sm text-gray-700 truncate">{ref.name}</p>
-                                    <p className="text-[10px] text-gray-400">Click para ver fotos</p>
                                 </div>
                             ))
                         )}
                     </div>
                 )}
-
-                {/* 3. LISTA DE FOTOS */}
-                {level === 'files' && !loading && (
+                {level === 'files' && (
                     <div className="grid grid-cols-2 md:grid-cols-6 gap-4">
-                        {items.length === 0 && <p className="col-span-full text-center text-gray-400">Carpeta vacía.</p>}
                         {items.map(photo => (
-                            <div key={photo.fullPath} className="group relative bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-lg transition-all">
+                            <div key={photo.fullPath} className="group relative bg-white rounded-lg shadow-sm border overflow-hidden hover:shadow-lg">
                                 <div className="aspect-square bg-gray-100 relative">
                                     <img src={photo.url} className="w-full h-full object-cover" loading="lazy" />
                                     <div className="absolute inset-0 bg-black/40 opacity-0 group-hover:opacity-100 transition-opacity flex items-center justify-center gap-2 backdrop-blur-[1px]">
-                                        <a href={photo.url} target="_blank" className="p-2 bg-white rounded-full text-gray-700 hover:text-blue-600 transition-transform hover:scale-110"><Eye className="w-4 h-4"/></a>
-                                        <button onClick={() => handleDelete(photo)} className="p-2 bg-white rounded-full text-gray-700 hover:text-red-600 transition-transform hover:scale-110"><Trash2 className="w-4 h-4"/></button>
+                                        <a href={photo.url} target="_blank" className="p-2 bg-white rounded-full hover:text-blue-600"><Eye className="w-4 h-4"/></a>
+                                        <button onClick={() => handleDelete(photo)} className="p-2 bg-white rounded-full hover:text-red-600"><Trash2 className="w-4 h-4"/></button>
                                     </div>
                                 </div>
                                 <p className="p-2 text-[10px] font-medium text-gray-600 truncate">{photo.name}</p>
@@ -1336,11 +1404,10 @@ const FilesManager = ({ clubs }) => {
                         ))}
                     </div>
                 )}
-                
                 {loading && !isUploading && (
-                    <div className="flex flex-col items-center justify-center h-48 text-gray-400">
+                    <div className="flex flex-col items-center justify-center h-48 text-gray-400 absolute inset-0 bg-white/80 z-20">
                         <RefreshCw className="w-8 h-8 animate-spin mb-3 text-emerald-500"/>
-                        <span className="text-sm font-medium">Cargando contenido de la nube...</span>
+                        <span className="text-sm font-medium">Cargando...</span>
                     </div>
                 )}
             </div>

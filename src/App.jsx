@@ -25,6 +25,7 @@ import {
   onSnapshot, 
   doc, 
   updateDoc, 
+  setDoc,
   serverTimestamp,
   orderBy,
   writeBatch,
@@ -72,33 +73,6 @@ try {
 const LOGO_URL = null; 
 const appId = 'fotoesport-merch'; // Usamos tu ID de proyecto como referencia
 
-// --- DATOS MOCKADOS Y CONSTANTES ---
-const MOCK_PHOTOS_DB = [
-    { id: 'p1', filename: 'Lopez_10.jpg', clubId: 'club-demo', folder: 'Temporada_23_24', url: 'https://images.unsplash.com/photo-1526304640152-d4619684e484?auto=format&fit=crop&q=80&w=600' },
-    { id: 'p2', filename: 'Garcia_7.jpg', clubId: 'club-demo', folder: 'Temporada_23_24', url: 'https://images.unsplash.com/photo-1517466787929-bc90951d6428?auto=format&fit=crop&q=80&w=600' },
-    { id: 'p3', filename: 'Ruiz_23.jpg', clubId: 'club-futbol', folder: 'Torneo_Verano', url: 'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&q=80&w=600' },
-    { id: 'p4', filename: 'Juan_Perez_10.jpg', clubId: 'club-demo', folder: 'Benjamines', url: 'https://images.unsplash.com/photo-1511512578047-929550a8a23e?auto=format&fit=crop&q=80&w=600' },
-    { id: 'p5', filename: 'Foto_Equipo_Tecnico.jpg', clubId: 'club-demo', folder: 'Staff', url: 'https://images.unsplash.com/photo-1551590192-807e80d75d61?auto=format&fit=crop&q=80&w=600' }, 
-];
-
-const SEASONS_INITIAL = [
-    { id: 's1', name: 'Temporada 2023-2024', startDate: '2023-09-01', endDate: '2024-06-30' },
-    { id: 's2', name: 'Temporada 2024-2025', startDate: '2024-09-01', endDate: '2025-06-30' },
-];
-
-const PRODUCTS_INITIAL = [
-  { id: 1, name: 'Taza Personalizada', price: 12.00, cost: 4.50, category: 'Hogar', image: 'https://images.unsplash.com/photo-1514228742587-6b1558fcca3d?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 150, features: { name: true, number: true, photo: true, shield: true, color: false }, defaults: { name: true, number: true, photo: true, shield: true }, modifiable: { name: true, number: true, photo: true, shield: true } },
-  { id: 2, name: 'Botella Deportiva', price: 18.00, cost: 6.00, category: 'Deporte', image: 'https://images.unsplash.com/photo-1602143407151-0111419516eb?auto=format&fit=crop&q=80&w=300', stockType: 'external', stock: 0, features: { name: true, number: true, photo: false, shield: true, color: true }, defaults: { name: true, number: true, photo: false, shield: true }, modifiable: { name: true, number: true, photo: false, shield: false } },
-  { id: 3, name: 'Llavero Club', price: 5.00, cost: 1.20, category: 'Accesorios', image: 'https://images.unsplash.com/photo-1582213782179-e0d53f98f2ca?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 500, features: { name: false, number: false, photo: false, shield: true, color: false }, defaults: { name: false, number: false, photo: false, shield: true }, modifiable: { name: false, number: false, photo: false, shield: false } },
-  { id: 4, name: 'Foto 20x30', price: 8.00, cost: 0.50, category: 'Fotografía', image: 'https://images.unsplash.com/photo-1551590192-807e80d75d61?auto=format&fit=crop&q=80&w=300', stockType: 'external', stock: 0, features: { name: false, number: false, photo: true, shield: false, color: false }, defaults: { name: false, number: false, photo: true, shield: false }, modifiable: { name: false, number: false, photo: false, shield: false } },
-  { id: 6, name: 'Gorra Oficial', price: 15.00, cost: 5.00, category: 'Ropa', image: 'https://images.unsplash.com/photo-1588850561407-ed78c282e89b?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 80, features: { name: false, number: false, photo: false, shield: true, color: true }, defaults: { name: false, number: false, photo: false, shield: true }, modifiable: { name: false, number: false, photo: false, shield: true } },
-];
-
-const CLUBS_MOCK = [
-  { id: 'club-demo', name: 'C.D. Demo Sport', code: 'CDDS', pass: 'club123', blocked: false, activeGlobalOrderId: 1, color: 'blue' }, // <--- AÑADIDO
-  { id: 'club-futbol', name: 'Atlético Fútbol', code: 'ATLF', pass: 'club123', blocked: false, activeGlobalOrderId: 1, color: 'red' }, // <--- AÑADIDO
-];
-
 // --- CONSTANTE DE COLORES VISUALES (NUEVO) ---
 const AVAILABLE_COLORS = [
   { id: 'white', label: 'Blanco', hex: '#FFFFFF', border: 'border-gray-300' },
@@ -112,11 +86,6 @@ const AVAILABLE_COLORS = [
   { id: 'navy', label: 'Marino', hex: '#1E3A8A', border: 'border-blue-900' },
   { id: 'gray', label: 'Gris', hex: '#4B5563', border: 'border-gray-500' },
 ];
-
-const FINANCIAL_CONFIG_INITIAL = {
-  clubCommissionPct: 0.12,
-  commercialCommissionPct: 0.05
-};
 
 // --- HELPER FUNCTIONS ---
 const getClubFolders = (clubId) => {
@@ -479,43 +448,104 @@ const ColorPicker = ({ selectedColor, onChange }) => {
     );
 };
 
+    // --- COMPONENTE FILA DE CLUB (COLOR A LA DERECHA DEL NOMBRE) ---
 const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     const [isEditing, setIsEditing] = useState(false);
-    const [editData, setEditData] = useState({ name: club.name, pass: club.pass, color: club.color || 'white' });
+    const [editData, setEditData] = useState({ 
+        name: club.name, 
+        pass: club.pass, 
+        username: club.username || '', 
+        color: club.color || 'white',
+        commission: club.commission || 0.12 
+    });
     const [showPass, setShowPass] = useState(false);
 
-    const handleSave = () => { updateClub({ ...club, ...editData }); setIsEditing(false); };
+    const handleSave = () => { 
+        updateClub({ ...club, ...editData, commission: parseFloat(editData.commission) }); 
+        setIsEditing(false); 
+    };
 
-    // Encontrar datos del color para visualización en modo lectura
     const colorInfo = AVAILABLE_COLORS.find(c => c.id === (club.color || 'white')) || AVAILABLE_COLORS[0];
 
     if (isEditing) {
         return (
-            <div className="bg-gray-50 p-3 rounded flex flex-col gap-2 border border-emerald-200">
-                <div className="flex gap-2 items-center">
-                    <input className="flex-1 border rounded px-2 py-2 text-sm" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} placeholder="Nombre Club" />
-                    {/* USAMOS EL NUEVO COMPONENTE */}
+            <div className="bg-gray-50 p-4 rounded-xl border border-emerald-200 animate-fade-in space-y-3 mb-2">
+                <div className="flex gap-2">
+                    <input className="flex-1 border rounded px-2 py-1 text-sm" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} placeholder="Nombre" />
                     <ColorPicker selectedColor={editData.color} onChange={(val) => setEditData({...editData, color: val})} />
                 </div>
-                <div className="flex gap-2">
-                    <div className="flex-1 relative"><input type={showPass ? "text" : "password"} className="w-full border rounded px-2 py-1 text-sm pr-8" value={editData.pass} onChange={e => setEditData({...editData, pass: e.target.value})} placeholder="Contraseña" /><button onClick={() => setShowPass(!showPass)} className="absolute right-2 top-1.5 text-gray-400 hover:text-gray-600">{showPass ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}</button></div>
-                    <Button size="sm" onClick={handleSave} className="bg-emerald-600 text-white"><Check className="w-3 h-3"/></Button>
-                    <Button size="sm" onClick={() => setIsEditing(false)} className="bg-gray-300 text-gray-700 hover:bg-gray-400"><X className="w-3 h-3"/></Button>
+                <div className="grid grid-cols-2 gap-2">
+                    <input className="border rounded px-2 py-1 text-sm" value={editData.username} onChange={e => setEditData({...editData, username: e.target.value})} placeholder="Usuario" />
+                    <div className="relative">
+                        <input type={showPass ? "text" : "password"} className="w-full border rounded px-2 py-1 text-sm pr-8" value={editData.pass} onChange={e => setEditData({...editData, pass: e.target.value})} placeholder="Contraseña" />
+                        <button onClick={() => setShowPass(!showPass)} className="absolute right-2 top-1 text-gray-400 hover:text-gray-600 transition-colors">{showPass ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}</button>
+                    </div>
+                </div>
+                <div className="flex justify-between items-center">
+                    <div className="flex items-center gap-2 bg-white px-2 py-1 rounded border">
+                        <span className="text-xs text-gray-500">Comisión:</span>
+                        <input type="number" step="1" className="w-10 text-right text-sm font-bold outline-none" value={(editData.commission * 100).toFixed(0)} onChange={e => setEditData({...editData, commission: parseFloat(e.target.value) / 100})} />
+                        <span className="text-xs font-bold">%</span>
+                    </div>
+                    <div className="flex gap-2">
+                        <Button size="xs" onClick={handleSave} className="bg-emerald-600 text-white"><Check className="w-3 h-3"/> Guardar</Button>
+                        <Button size="xs" onClick={() => setIsEditing(false)} variant="secondary">Cancelar</Button>
+                    </div>
                 </div>
             </div>
         )
     }
+
     return (
-        <div className={`flex justify-between items-center p-2 rounded ${club.blocked ? 'bg-red-50 border border-red-100' : 'bg-gray-50'}`}>
-            <div>
-                <p className={`font-bold text-sm flex items-center gap-2 ${club.blocked ? 'text-red-700' : ''}`}>
-                    {/* Visualización del color en la lista */}
-                    <span className={`w-3 h-3 rounded-full border ${colorInfo.border} shadow-sm`} style={{ backgroundColor: colorInfo.hex }} title={`Color: ${colorInfo.label}`}></span>
-                    {club.name} {club.blocked && <Ban className="w-3 h-3 text-red-500"/>}
-                </p>
-                <div className="flex gap-2 text-xs text-gray-400"><span>User: {club.id}</span><span>Pass: ••••••••</span></div>
+        <div className={`flex justify-between items-center p-3 rounded-xl border mb-2 transition-all group ${club.blocked ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
+            <div className="flex items-center gap-4">
+                
+                {/* LOGO DEL CLUB (Limpio, sin puntos encima) */}
+                <div className="w-14 h-14 rounded-lg bg-white border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 p-1 shadow-sm">
+                    {club.logoUrl ? (
+                        <img src={club.logoUrl} alt="Logo" className="w-full h-full object-contain" />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-gray-300 bg-gray-50 rounded-md">
+                            {club.name.charAt(0)}
+                        </div>
+                    )}
+                </div>
+
+                <div>
+                    {/* NOMBRE + CÍRCULO DE COLOR A LA DERECHA */}
+                    <div className="flex items-center gap-2">
+                        <p className={`font-bold text-sm ${club.blocked ? 'text-red-700' : 'text-gray-800'}`}>
+                            {club.name}
+                        </p>
+                        
+                        {/* AQUÍ ESTÁ EL CÍRCULO DE COLOR */}
+                        <div 
+                            className={`w-4 h-4 rounded-full border border-gray-300 shadow-sm ${colorInfo.border}`} 
+                            style={{ backgroundColor: colorInfo.hex }}
+                            title={`Color asignado: ${colorInfo.label}`}
+                        ></div>
+
+                        {club.blocked && <Ban className="w-3 h-3 text-red-500"/>}
+                    </div>
+
+                    <div className="flex gap-3 text-xs text-gray-500 mt-1">
+                        <span title="Usuario de acceso" className="flex items-center gap-1 bg-gray-100 px-1.5 rounded"><User className="w-3 h-3 text-gray-400"/> {club.username || 'Sin usuario'}</span>
+                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 rounded border border-emerald-100">Comisión: {(club.commission * 100).toFixed(0)}%</span>
+                    </div>
+                </div>
             </div>
-            <div className="flex gap-1"><button onClick={() => toggleClubBlock(club.id)} className={`p-1 hover:bg-gray-200 rounded ${club.blocked ? 'text-red-500' : 'text-gray-400'}`}>{club.blocked ? <Lock className="w-4 h-4"/> : <Unlock className="w-4 h-4"/>}</button><button onClick={() => setIsEditing(true)} className="text-gray-400 hover:text-emerald-600 p-1"><Edit3 className="w-4 h-4"/></button><button onClick={() => deleteClub(club.id)} className="text-red-400 hover:text-red-600 p-1"><Trash2 className="w-4 h-4"/></button></div>
+
+            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity md:flex md:opacity-100">
+                <button onClick={() => toggleClubBlock(club.id)} className={`p-2 rounded-lg hover:bg-gray-100 transition-colors ${club.blocked ? 'text-red-500' : 'text-gray-400 hover:text-gray-600'}`} title={club.blocked ? "Desbloquear" : "Bloquear"}>
+                    {club.blocked ? <Lock className="w-4 h-4"/> : <Unlock className="w-4 h-4"/>}
+                </button>
+                <button onClick={() => setIsEditing(true)} className="p-2 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors" title="Editar">
+                    <Edit3 className="w-4 h-4"/>
+                </button>
+                <button onClick={() => deleteClub(club.id)} className="p-2 rounded-lg hover:bg-red-50 text-red-300 hover:text-red-500 transition-colors" title="Eliminar">
+                    <Trash2 className="w-4 h-4"/>
+                </button>
+            </div>
         </div>
     );
 };
@@ -698,9 +728,27 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase()));
   }, [clubInput, clubs]);
 
-  // Obtener carpetas del club seleccionado
-  const availableCategories = useMemo(() => {
-      return getClubFolders(customization.clubId);
+  // --- NUEVO: Estado para guardar las categorías reales ---
+  const [availableCategories, setAvailableCategories] = useState([]);
+
+  // --- NUEVO: Cargar categorías desde Storage cuando cambia el club ---
+  useEffect(() => {
+      const fetchCategories = async () => {
+          if (customization.clubId) {
+              try {
+                  const clubRef = ref(storage, customization.clubId);
+                  const res = await listAll(clubRef);
+                  // Guardamos los nombres de las carpetas
+                  setAvailableCategories(res.prefixes.map(p => p.name));
+              } catch (error) {
+                  console.error("Error cargando categorías:", error);
+                  setAvailableCategories([]);
+              }
+          } else {
+              setAvailableCategories([]);
+          }
+      };
+      fetchCategories();
   }, [customization.clubId]);
 
   // Sugerencias de Categorías
@@ -1655,8 +1703,9 @@ const FilesManager = ({ clubs }) => {
     );
 };
 
-function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
+function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
   const [tab, setTab] = useState('management');
+  const [showNewClubPass, setShowNewClubPass] = useState(false);
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
   // Modificamos el estado de mover temporada para que acepte lotes completos
   const [moveSeasonModal, setMoveSeasonModal] = useState({ active: false, target: null, type: 'batch' }); // type: 'batch' | 'order'
@@ -2017,7 +2066,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           .map(([name, data]) => ({ name, value: data.total, sort: data.sort }))
           .sort((a, b) => a.sort - b.sort);
 
-      // Tabla Financiera
+      // Tabla Financiera (ACTUALIZADA con comisión individual)
       const clubFinancials = clubs.map(club => {
           const clubOrders = financialOrders.filter(o => o.clubId === club.id);
           let grossSales = 0;
@@ -2030,8 +2079,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
               supplierCost += (orderCost + incidentCost);
           });
 
-          const commClub = grossSales * financialConfig.clubCommissionPct;
-          const commCommercial = grossSales * financialConfig.commercialCommissionPct;
+          // USAR LA COMISIÓN INDIVIDUAL DEL CLUB (O 12% SI NO TIENE)
+          const currentClubCommission = club.commission !== undefined ? club.commission : 0.12;
+          
+          const commClub = grossSales * currentClubCommission;
+          const commCommercial = grossSales * financialConfig.commercialCommissionPct; // Esta sigue siendo global
           const netIncome = grossSales - supplierCost - commClub - commCommercial;
 
           return {
@@ -2089,11 +2141,19 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       return sum + (o.incidents?.reduce((iSum, inc) => iSum + (inc.cost || 0), 0) || 0);
   }, 0);
 
-  const netProfit = totalRevenue - 
-                    financialOrders.reduce((sum, o) => sum + (o.items ? o.items.reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0) : (o.cost || 0)), 0) - 
-                    totalIncidentCosts - 
-                    (totalRevenue * financialConfig.clubCommissionPct) - 
-                    (totalRevenue * financialConfig.commercialCommissionPct);
+  // Cálculo de beneficio neto global (ACTUALIZADO)
+  const netProfit = financialOrders.reduce((total, o) => {
+      const club = clubs.find(c => c.id === o.clubId);
+      const clubCommPct = club && club.commission !== undefined ? club.commission : 0.12;
+      
+      const cost = o.items ? o.items.reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0) : (o.cost || 0);
+      const incidentCost = o.incidents?.reduce((iSum, inc) => iSum + (inc.cost || 0), 0) || 0;
+      
+      const commClub = o.total * clubCommPct;
+      const commComm = o.total * financialConfig.commercialCommissionPct;
+      
+      return total + (o.total - cost - incidentCost - commClub - commComm);
+  }, 0);
   
   const averageTicket = totalRevenue / (financialOrders.length || 1);
   
@@ -2744,6 +2804,33 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                       {!storeConfig.isOpen && <input className="w-full text-xs border p-1 rounded" value={storeConfig.closedMessage} onChange={e => setStoreConfig({...storeConfig, closedMessage: e.target.value})} placeholder="Mensaje..."/>}
                   </div>
 
+                  {/* Configuración Financiera Global */}
+                  <div className="p-4 rounded-lg border bg-blue-50 border-blue-100">
+                      <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
+                          <Banknote className="w-4 h-4"/> Configuración Comercial
+                      </h4>
+                      <div className="flex items-center justify-between">
+                          <label className="text-sm text-blue-700">Comisión Comercial Global</label>
+                          <div className="flex items-center relative w-20">
+                              <input 
+                                  type="number" 
+                                  className="w-full border-blue-200 rounded p-1 text-right pr-6 font-bold text-blue-900 bg-white"
+                                  value={(financialConfig.commercialCommissionPct * 100).toFixed(0)}
+                                  onChange={(e) => {
+                                      // Actualizamos en Firebase directamente la configuración global
+                                      setFinancialConfig(prev => ({...prev, commercialCommissionPct: parseFloat(e.target.value)/100}));
+                                      // Nota: Esto actualiza el estado local, más abajo en App.jsx conectaremos la función de guardado
+                                  }}
+                                  onBlur={() => updateFinancialConfig(financialConfig)} // Función que pasaremos desde App
+                              />
+                              <span className="absolute right-2 text-blue-400 text-xs font-bold">%</span>
+                          </div>
+                      </div>
+                      <p className="text-[10px] text-blue-600 mt-2">
+                          * Esta comisión se aplica a todas las ventas de todos los clubes.
+                      </p>
+                  </div>
+
                   {/* Productos */}
                   <div>
                       <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Productos</h3><Button size="sm" onClick={addProduct}><Plus className="w-4 h-4"/></Button></div>
@@ -2757,24 +2844,96 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                       <div>
                           <h3 className="font-bold mb-4 text-lg">Clubes</h3>
                           
-                          {/* CREACIÓN DE CLUB CON COLOR PICKER VISUAL */}
-                          <div className="flex gap-2 mb-4 items-center">
-                              <input id="newClubName" placeholder="Nombre" className="border rounded px-3 py-2 flex-1 text-sm h-[38px]" />
+                          {/* --- NUEVO FORMULARIO DE CREACIÓN DE CLUB (CON SHOW PASS) --- */}
+                          {/* Necesitamos un estado local para esto, asegúrate de definirlo al inicio del AdminDashboard */}
+                          {/* const [showNewClubPass, setShowNewClubPass] = useState(false);  <-- AÑADIR ESTO ARRIBA */}
+                          
+                          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 space-y-3 shadow-sm">
+                              <h4 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-2">
+                                  <Plus className="w-3 h-3"/> Nuevo Club
+                              </h4>
                               
-                              <ColorPicker selectedColor={newClubColor} onChange={setNewClubColor} />
-                              
-                              <Button onClick={() => { 
-                                  const input = document.getElementById('newClubName'); 
-                                  if(input.value) {
-                                      createClub({
-                                          name: input.value, 
-                                          code: input.value.slice(0,3).toUpperCase(),
-                                          color: newClubColor
-                                      });
-                                      input.value = ''; // Limpiar input
-                                      setNewClubColor('white'); // Reset color
-                                  }
-                              }} size="sm" className="h-[38px]"><Plus className="w-4 h-4"/></Button>
+                              <div className="grid grid-cols-2 gap-3">
+                                  {/* Nombre */}
+                                  <div className="col-span-2">
+                                      <input id="newClubName" placeholder="Nombre Oficial del Club" className="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-200 outline-none" />
+                                  </div>
+
+                                  {/* Usuario */}
+                                  <div>
+                                      <input id="newClubUser" placeholder="Usuario Acceso" className="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-200 outline-none" />
+                                  </div>
+
+                                  {/* Contraseña con Ojo */}
+                                  <div className="relative">
+                                      <input 
+                                          id="newClubPass" 
+                                          placeholder="Contraseña" 
+                                          type={showNewClubPass ? "text" : "password"} // <--- AQUÍ ESTÁ EL CAMBIO
+                                          className="w-full border rounded px-3 py-2 text-sm pr-8 focus:ring-2 focus:ring-emerald-200 outline-none" 
+                                      />
+                                      <button 
+                                          type="button"
+                                          onClick={() => setShowNewClubPass(!showNewClubPass)} 
+                                          className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600 transition-colors"
+                                      >
+                                          {showNewClubPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                                      </button>
+                                  </div>
+
+                                  {/* Color y Logo */}
+                                  <div className="flex items-center gap-2 bg-white p-1 rounded border">
+                                      <span className="text-xs text-gray-400 pl-1">Color:</span>
+                                      <ColorPicker selectedColor={newClubColor} onChange={setNewClubColor} />
+                                  </div>
+                                  
+                                  <div className="flex items-center gap-2 overflow-hidden">
+                                      <label className="cursor-pointer bg-white border border-gray-300 text-gray-600 px-3 py-2 rounded text-xs flex items-center gap-2 hover:bg-gray-50 w-full truncate transition-colors hover:border-emerald-300">
+                                          <Upload className="w-3 h-3"/> 
+                                          <span id="fileNameDisplay" className="truncate">Subir Escudo</span>
+                                          <input 
+                                              type="file" 
+                                              id="newClubLogo" 
+                                              className="hidden" 
+                                              accept="image/*"
+                                              onChange={(e) => {
+                                                  const name = e.target.files[0]?.name;
+                                                  if(name) document.getElementById('fileNameDisplay').innerText = name;
+                                              }}
+                                          />
+                                      </label>
+                                  </div>
+                              </div>
+
+                              <Button 
+                                  className="w-full shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2"
+                                  onClick={() => { 
+                                      const nameFn = document.getElementById('newClubName');
+                                      const userFn = document.getElementById('newClubUser');
+                                      const passFn = document.getElementById('newClubPass');
+                                      const fileFn = document.getElementById('newClubLogo');
+                                      
+                                      if(nameFn.value && userFn.value && passFn.value) {
+                                          createClub({
+                                              name: nameFn.value, 
+                                              code: nameFn.value.slice(0,3).toUpperCase(),
+                                              username: userFn.value,
+                                              pass: passFn.value,
+                                              color: newClubColor
+                                          }, fileFn.files[0]);
+                                          
+                                          // Limpiar
+                                          nameFn.value = ''; userFn.value = ''; passFn.value = ''; fileFn.value = '';
+                                          document.getElementById('fileNameDisplay').innerText = 'Subir Escudo';
+                                          setNewClubColor('white');
+                                          setShowNewClubPass(false); // Resetear visibilidad
+                                      } else {
+                                          alert("Por favor rellena Nombre, Usuario y Contraseña");
+                                      }
+                                  }} 
+                              >
+                                  <Plus className="w-4 h-4 mr-1"/> Crear Club
+                              </Button>
                           </div>
 
                           <div className="space-y-2">
@@ -4055,16 +4214,55 @@ export default function App() {
   const [confirmation, setConfirmation] = useState(null); 
   
   const [orders, setOrders] = useState([]);
-  const [products, setProducts] = useState(PRODUCTS_INITIAL);
-  const [clubs, setClubs] = useState(CLUBS_MOCK);
-  const [seasons, setSeasons] = useState(SEASONS_INITIAL);
+  const [products, setProducts] = useState([]);
+  const [clubs, setClubs] = useState([]);
+  const [seasons, setSeasons] = useState([]);
   
-  const [financialConfig, setFinancialConfig] = useState(FINANCIAL_CONFIG_INITIAL);
+  const [financialConfig, setFinancialConfig] = useState({ 
+    clubCommissionPct: 0.12, // (Fallback legacy)
+    commercialCommissionPct: 0.05 
+});
   const [modificationFee, setModificationFee] = useState(1.00);
   const [storeConfig, setStoreConfig] = useState({ isOpen: true, closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." });
 
   useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } }; initAuth(); const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); return () => unsubscribe(); }, []);
   useEffect(() => { if (!user) return; const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); setOrders(ordersData); }, (err) => console.error("Error fetching orders:", err)); return () => unsubOrders(); }, [user]);
+
+  // Cargar Configuración Financiera Global
+useEffect(() => {
+    const unsub = onSnapshot(doc(db, 'settings', 'financial'), (doc) => {
+        if (doc.exists()) {
+            setFinancialConfig(doc.data());
+        } else {
+            // Si no existe el documento, lo creamos con valores por defecto
+            const initialConfig = { commercialCommissionPct: 0.05 };
+            setFinancialConfig(initialConfig);
+            // setDoc(doc(db, 'settings', 'financial'), initialConfig); // Opcional: auto-crear
+        }
+    });
+    return () => unsub();
+}, []);
+
+
+  // Cargar PRODUCTOS en tiempo real
+  useEffect(() => {
+      const q = query(collection(db, 'products'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          const productsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setProducts(productsData);
+      }, (error) => console.error("Error productos:", error));
+      return () => unsubscribe();
+  }, []);
+
+  // Cargar CLUBES en tiempo real
+  useEffect(() => {
+      const q = query(collection(db, 'clubs'));
+      const unsubscribe = onSnapshot(q, (snapshot) => {
+          const clubsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+          setClubs(clubsData);
+      }, (error) => console.error("Error clubes:", error));
+      return () => unsubscribe();
+  }, []);
 
   // --- NUEVO: Cargar temporadas en tiempo real desde Firebase ---
   useEffect(() => {
@@ -4159,15 +4357,143 @@ export default function App() {
           await performUpdate();
       }
   };
-  const incrementClubGlobalOrder = (clubId) => { const club = clubs.find(c => c.id === clubId); setConfirmation({ msg: `¿Cerrar el Pedido Global #${club.activeGlobalOrderId} para ${club.name}? Se abrirá el #${club.activeGlobalOrderId + 1}.`, onConfirm: () => { setClubs(clubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: c.activeGlobalOrderId + 1 } : c)); showNotification(`Nuevo Pedido Global iniciado para ${club.name}`); } }); };
-  const decrementClubGlobalOrder = (clubId, newActiveId) => { setClubs(clubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: newActiveId } : c)); showNotification(`Se ha reabierto el Pedido Global #${newActiveId}`); };
-  const updateProduct = (updatedProduct) => { setProducts(products.map(p => p.id === updatedProduct.id ? updatedProduct : p)); showNotification('Producto actualizado'); };
-  const addProduct = () => { const newProduct = { id: Date.now(), name: 'Nuevo Producto', price: 10.00, cost: 5.00, category: 'General', image: 'https://images.unsplash.com/photo-1556905055-8f358a7a47b2?auto=format&fit=crop&q=80&w=300', stockType: 'internal', stock: 0, features: { name: true, number: true, photo: false, shield: true, color: false }, defaults: { name: true, number: true, photo: false, shield: true }, modifiable: { name: true, number: true, photo: false, shield: true } }; setProducts([...products, newProduct]); showNotification('Nuevo producto creado'); };
-  const deleteProduct = (id) => { setConfirmation({ msg: '¿Estás seguro de eliminar este producto? Esta acción no se puede deshacer.', onConfirm: () => { setProducts(prevProducts => prevProducts.filter(p => p.id !== id)); showNotification('Producto eliminado'); } }); };
-  const createClub = (newClub) => { setClubs([...clubs, { ...newClub, id: `club-${Date.now()}`, pass: 'club123', blocked: false, activeGlobalOrderId: 1 }]); showNotification('Nuevo club creado'); };
-  const updateClub = (updatedClub) => { setClubs(clubs.map(c => c.id === updatedClub.id ? updatedClub : c)); showNotification('Datos del club actualizados'); };
-  const deleteClub = (clubId) => { setConfirmation({ msg: '¿Seguro que quieres eliminar este club?', onConfirm: () => { setClubs(prevClubs => prevClubs.filter(c => c.id !== clubId)); showNotification('Club eliminado'); } }); }
-  const toggleClubBlock = (clubId) => { const club = clubs.find(c => c.id === clubId); const newStatus = !club.blocked; setClubs(clubs.map(c => c.id === clubId ? { ...c, blocked: newStatus } : c)); showNotification(newStatus ? `Club ${club.name} bloqueado` : `Club ${club.name} desbloqueado`, newStatus ? 'error' : 'success'); };
+    const incrementClubGlobalOrder = (clubId) => { 
+      const club = clubs.find(c => c.id === clubId);
+      setConfirmation({ 
+          msg: `¿Cerrar el Pedido Global #${club.activeGlobalOrderId}? Se abrirá el #${club.activeGlobalOrderId + 1}.`, 
+          onConfirm: async () => { 
+              try {
+                  await updateDoc(doc(db, 'clubs', clubId), { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
+                  showNotification(`Nuevo Pedido Global iniciado`); 
+              } catch (e) { console.error(e); }
+          } 
+      }); 
+  };
+
+  const decrementClubGlobalOrder = async (clubId, newActiveId) => { 
+      try {
+          await updateDoc(doc(db, 'clubs', clubId), { activeGlobalOrderId: newActiveId });
+          showNotification(`Se ha reabierto el Pedido Global #${newActiveId}`); 
+      } catch (e) { console.error(e); }
+  };
+  
+  // --- FUNCIONES CONECTADAS A BASE DE DATOS ---
+
+  const updateProduct = async (updatedProduct) => { 
+      try {
+          const prodRef = doc(db, 'products', updatedProduct.id);
+          await updateDoc(prodRef, updatedProduct);
+          showNotification('Producto actualizado');
+      } catch (e) { console.error(e); showNotification('Error al guardar', 'error'); }
+  };
+
+  const updateFinancialConfig = async (newConfig) => {
+    try {
+        // Guardamos en la colección 'settings', documento 'financial'
+        await setDoc(doc(db, 'settings', 'financial'), newConfig);
+        showNotification('Configuración comercial guardada');
+    } catch (error) {
+        console.error(error);
+        showNotification('Error al guardar configuración', 'error');
+    }
+};
+
+  const addProduct = async () => { 
+      const newProduct = { 
+          name: 'Nuevo Producto', 
+          price: 10.00, 
+          cost: 5.00, 
+          category: 'General', 
+          image: 'https://via.placeholder.com/300', 
+          stockType: 'internal', 
+          stock: 0, 
+          features: { name: true, number: true, photo: false, shield: true, color: false }, 
+          defaults: { name: true, number: true, photo: false, shield: true }, 
+          modifiable: { name: true, number: true, photo: false, shield: true },
+          createdAt: serverTimestamp()
+      }; 
+      try {
+          await addDoc(collection(db, 'products'), newProduct);
+          showNotification('Producto creado en BD');
+      } catch (e) { console.error(e); showNotification('Error al crear', 'error'); }
+  };
+
+  const deleteProduct = (id) => { 
+      setConfirmation({ 
+          msg: '¿Eliminar producto de la base de datos?', 
+          onConfirm: async () => { 
+              try {
+                  await deleteDoc(doc(db, 'products', id));
+                  showNotification('Producto eliminado'); 
+              } catch (e) { console.error(e); showNotification('Error al eliminar', 'error'); }
+          } 
+      }); 
+  };
+
+  // --- FUNCIÓN MEJORADA: CREAR CLUB CON LOGO Y CREDENCIALES ---
+  const createClub = async (clubData, logoFile) => {
+      try {
+          let logoUrl = '';
+          
+          // 1. Si hay logo, lo subimos al Storage
+          if (logoFile) {
+              const logoRef = ref(storage, `club-logos/${Date.now()}_${logoFile.name}`);
+              await uploadBytes(logoRef, logoFile);
+              logoUrl = await getDownloadURL(logoRef);
+          }
+
+          // 2. Guardamos los datos en Firestore (incluyendo usuario, pass y logo)
+          await addDoc(collection(db, 'clubs'), {
+              name: clubData.name,
+              code: clubData.code,
+              username: clubData.username, // Nuevo: Usuario para login
+              pass: clubData.pass,         // Nuevo: Contraseña personalizada
+              color: clubData.color,
+              logoUrl: logoUrl,            // Nuevo: URL del escudo
+              commission: 0.12,
+              blocked: false,
+              activeGlobalOrderId: 1,
+              createdAt: serverTimestamp()
+          });
+          
+          showNotification('Club creado correctamente');
+      } catch (error) {
+          console.error("Error creando club:", error);
+          showNotification('Error al crear el club', 'error');
+      }
+  };
+
+  const updateClub = async (updatedClub) => { 
+      try {
+          const clubRef = doc(db, 'clubs', updatedClub.id);
+          await updateDoc(clubRef, updatedClub);
+          showNotification('Club actualizado');
+      } catch (e) { console.error(e); showNotification('Error al actualizar', 'error'); }
+  };
+
+  const deleteClub = (clubId) => { 
+      setConfirmation({ 
+          msg: '¿Eliminar este club definitivamente?', 
+          onConfirm: async () => { 
+              try {
+                  await deleteDoc(doc(db, 'clubs', clubId));
+                  showNotification('Club eliminado'); 
+              } catch (e) { console.error(e); showNotification('Error al borrar', 'error'); }
+          } 
+      }); 
+  };
+
+  const toggleClubBlock = async (clubId) => { 
+      const club = clubs.find(c => c.id === clubId);
+      if (!club) return;
+      try {
+          await updateDoc(doc(db, 'clubs', clubId), { blocked: !club.blocked });
+          showNotification(club.blocked ? 'Club desbloqueado' : 'Club bloqueado');
+      } catch (e) { console.error(e); showNotification('Error al cambiar estado', 'error'); }
+  };
+
+
+
   const addSeason = async (newSeason) => {
       try {
           // Guardamos en la colección 'seasons' de Firebase
@@ -4232,8 +4558,26 @@ export default function App() {
       }
   };
   const showNotification = (msg, type = 'success') => { setNotification({ msg, type }); setTimeout(() => setNotification(null), 4000); };
-  const handleLogin = (username, password) => { if (username === 'admin' && password === 'admin123') { setRole('admin'); setView('admin-dashboard'); showNotification('Bienvenido Administrador'); } else { const club = clubs.find(c => c.id === username && password === c.pass); if (club) { setRole('club'); setCurrentClub(club); setView('club-dashboard'); showNotification(`Bienvenido ${club.name}`); } else { showNotification('Credenciales incorrectas', 'error'); } } };
-
+  const handleLogin = (username, password) => { 
+      if (username === 'admin' && password === 'admin123') { 
+          setRole('admin'); 
+          setView('admin-dashboard'); 
+          showNotification('Bienvenido Administrador'); 
+      } else { 
+          // AHORA BUSCAMOS POR EL CAMPO 'username' O POR 'id' (para compatibilidad)
+          const club = clubs.find(c => (c.username === username || c.id === username) && password === c.pass); 
+          
+          if (club) { 
+              setRole('club'); 
+              setCurrentClub(club); 
+              setView('club-dashboard'); 
+              showNotification(`Bienvenido ${club.name}`); 
+          } else { 
+              showNotification('Credenciales incorrectas', 'error'); 
+          } 
+      } 
+  };
+  
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
       {!storeConfig.isOpen && <div className="bg-red-600 text-white p-3 text-center font-bold sticky top-0 z-[60] shadow-md flex items-center justify-center gap-2"><Ban className="w-5 h-5"/>{storeConfig.closedMessage}</div>}
@@ -4280,7 +4624,7 @@ export default function App() {
         {view === 'order-success' && <OrderSuccessView setView={setView} />}
         {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
-        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} modificationFee={modificationFee} setModificationFee={setModificationFee} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} />}
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} modificationFee={modificationFee} setModificationFee={setModificationFee} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} />}
       </main>
       <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-8" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
     </div>

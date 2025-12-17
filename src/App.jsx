@@ -130,6 +130,16 @@ const getFolderPhotos = (clubId, folderName) => {
     return MOCK_PHOTOS_DB.filter(p => p.clubId === clubId && p.folder === folderName);
 };
 
+// --- FUNCIÓN DE AYUDA: NORMALIZAR TEXTO ---
+const normalizeText = (text) => {
+  if (!text) return '';
+  return text
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/[\u0300-\u036f]/g, "") // Quita tildes
+    .trim();
+};
+
 const generateBatchExcel = (batchId, orders, clubName) => {
     try {
         const today = new Date().toLocaleDateString();
@@ -581,6 +591,7 @@ function ShopView({ products, addToCart, clubs, modificationFee, storeConfig, se
           ))}
         </div>
       ) : (
+
         // Pasar setConfirmation al ProductCustomizer
         <ProductCustomizer 
             product={selectedProduct} 
@@ -613,11 +624,73 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       playerName: '', 
       playerNumber: '', 
       color: 'white', 
+      selectedPhoto: '',
       includeName: defaults.name ?? true, 
       includeNumber: defaults.number ?? true, 
       includePhoto: defaults.photo ?? false, 
       includeShield: defaults.shield ?? true 
   });
+
+// --- ESTADOS Y LÓGICA DE BÚSQUEDA DE FOTOS ---
+  const [searchName, setSearchName] = useState('');
+  const [searchDorsal, setSearchDorsal] = useState('');
+  const [isSearching, setIsSearching] = useState(false);
+  const [searchResults, setSearchResults] = useState([]);
+  const [searchError, setSearchError] = useState('');
+
+  const handleSearchPhoto = async () => {
+      if (!customization.clubId) { setSearchError("Primero selecciona un club arriba."); return; }
+      if (!searchName && !searchDorsal) { setSearchError("Escribe nombre o dorsal."); return; }
+
+      setIsSearching(true); setSearchError(''); setSearchResults([]);
+
+      try {
+          const clubId = customization.clubId;
+          const normalizedSearchName = normalizeText(searchName);
+          const normalizedSearchDorsal = normalizeText(searchDorsal);
+
+          // 1. Obtener carpetas del club
+          const clubRef = ref(storage, clubId);
+          const categoriesRes = await listAll(clubRef);
+          let foundPhotos = [];
+
+          // 2. Buscar en paralelo
+          await Promise.all(categoriesRes.prefixes.map(async (categoryRef) => {
+              const filesRes = await listAll(categoryRef);
+              for (const item of filesRes.items) {
+                  const fileName = item.name;
+                  const normalizedFileName = normalizeText(fileName);
+                  
+                  let nameMatch = true;
+                  let dorsalMatch = true;
+
+                  if (normalizedSearchName) {
+                      const cleanName = normalizedFileName.replace(/_/g, ' ');
+                      nameMatch = cleanName.includes(normalizedSearchName) || normalizedFileName.includes(normalizedSearchName);
+                  }
+
+                  if (normalizedSearchDorsal) {
+                      // Regex para asegurar que el número está aislado (ej: _12_ o _12.)
+                      const dorsalRegex = new RegExp(`[a-z0-9]_${normalizedSearchDorsal}\\.|_${normalizedSearchDorsal}$|_${normalizedSearchDorsal}_`);
+                      dorsalMatch = dorsalRegex.test(normalizedFileName) || normalizedFileName.includes(`_${normalizedSearchDorsal}`);
+                  }
+
+                  if (nameMatch && dorsalMatch) {
+                      const url = await getDownloadURL(item);
+                      foundPhotos.push({ name: fileName, url: url, fullPath: item.fullPath });
+                  }
+              }
+          }));
+
+          setSearchResults(foundPhotos);
+          if (foundPhotos.length === 0) setSearchError("No se encontraron fotos.");
+
+      } catch (error) {
+          console.error("Error:", error);
+          setSearchError("Error al buscar.");
+      }
+      setIsSearching(false);
+  };
 
   // Sugerencias de Clubes
   const clubSuggestions = useMemo(() => {
@@ -811,6 +884,86 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                   </div>
               </div>
           )}
+
+          {/* --- SECCIÓN DE BÚSQUEDA DE FOTO (INTEGRADA) --- */}
+          {features.photo && (
+              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mt-4 animate-fade-in">
+                  <div className="flex justify-between items-center mb-2">
+                      <label className="block text-sm font-bold text-slate-700 flex items-center gap-2">
+                          <ImageIcon className="w-4 h-4 text-emerald-600"/> Tu Foto
+                      </label>
+                      {/* Checkbox para activar/desactivar foto si es opcional */}
+                      {modifiable.photo && (
+                          <input 
+                              type="checkbox" 
+                              checked={customization.includePhoto} 
+                              onChange={(e) => setCustomization({...customization, includePhoto: e.target.checked})} 
+                              className="accent-emerald-600"
+                          />
+                      )}
+                  </div>
+
+                  {customization.includePhoto && (
+                      <div className="space-y-3">
+                          {/* Inputs de Búsqueda */}
+                          <div className="flex gap-2">
+                              <input 
+                                  placeholder="Nombre (ej. Ruben)" 
+                                  className="flex-1 border rounded px-3 py-2 text-sm"
+                                  value={searchName}
+                                  onChange={e => setSearchName(e.target.value)}
+                                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPhoto()}
+                              />
+                              <input 
+                                  placeholder="Dorsal" 
+                                  className="w-20 border rounded px-3 py-2 text-sm"
+                                  value={searchDorsal}
+                                  onChange={e => setSearchDorsal(e.target.value)}
+                                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPhoto()}
+                              />
+                              <button 
+                                  type="button" // Importante type="button" para no enviar el formulario
+                                  onClick={handleSearchPhoto}
+                                  disabled={isSearching || !customization.clubId}
+                                  className="bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700 disabled:bg-gray-300"
+                              >
+                                  {isSearching ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Search className="w-4 h-4"/>}
+                              </button>
+                          </div>
+
+                          {/* Mensajes Error */}
+                          {searchError && <p className="text-xs text-red-500 bg-red-50 p-2 rounded">{searchError}</p>}
+
+                          {/* Resultados */}
+                          {searchResults.length > 0 && (
+                              <div className="grid grid-cols-3 gap-2 mt-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
+                                  {searchResults.map((photo) => (
+                                      <div 
+                                          key={photo.fullPath}
+                                          onClick={() => setCustomization(prev => ({ ...prev, selectedPhoto: photo.url }))}
+                                          className={`relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all aspect-square ${customization.selectedPhoto === photo.url ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-transparent hover:border-gray-300'}`}
+                                      >
+                                          <img src={photo.url} className="w-full h-full object-cover" />
+                                          {customization.selectedPhoto === photo.url && (
+                                              <div className="absolute inset-0 bg-emerald-500/40 flex items-center justify-center">
+                                                  <Check className="w-6 h-6 text-white drop-shadow-md" />
+                                              </div>
+                                          )}
+                                      </div>
+                                  ))}
+                              </div>
+                          )}
+                          
+                          {/* Foto Seleccionada (Feedback) */}
+                          {customization.selectedPhoto && (
+                              <div className="text-xs text-emerald-700 font-bold flex items-center gap-1 bg-emerald-100 p-2 rounded border border-emerald-200">
+                                  <Check className="w-3 h-3"/> Foto seleccionada correctamente
+                              </div>
+                          )}
+                      </div>
+                  )}
+              </div>
+          )}
           
           {/* AVISO LEGAL VISUAL (Nuevo) */}
           {(features.name || features.number) && (
@@ -853,21 +1006,54 @@ function PhotoSearchView({ clubs }) {
   const [categoryInput, setCategoryInput] = useState('');
   const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
 
+  // ESTADO NUEVO: Categorías reales cargadas desde Firebase
+  const [clubCategories, setClubCategories] = useState([]);
+
   const [result, setResult] = useState(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
 
+  // 1. Efecto para cargar categorías reales cuando eliges un club
+  useEffect(() => {
+      const fetchCategories = async () => {
+          if (selectedClub) {
+              try {
+                  const clubRef = ref(storage, selectedClub.id);
+                  const res = await listAll(clubRef);
+                  // Guardamos los nombres de las carpetas (prefixes)
+                  setClubCategories(res.prefixes.map(folderRef => folderRef.name));
+              } catch (error) {
+                  console.error("Error cargando categorías:", error);
+                  setClubCategories([]);
+              }
+          } else {
+              setClubCategories([]);
+          }
+      };
+      fetchCategories();
+  }, [selectedClub]);
+
   // Sugerencias Clubs
-  const clubSuggestions = useMemo(() => { if (clubInput.length < 2) return []; return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase())); }, [clubInput, clubs]);
+  const clubSuggestions = useMemo(() => { 
+      if (clubInput.length < 2) return []; 
+      return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase())); 
+  }, [clubInput, clubs]);
   
-  // Sugerencias Categorías
-  const clubCategories = useMemo(() => { return selectedClub ? getClubFolders(selectedClub.id) : []; }, [selectedClub]);
+  // Sugerencias Categorías (Ahora usa las reales cargadas)
   const categorySuggestions = useMemo(() => {
-      if (categoryInput.length < 2) return [];
+      // Si no ha escrito nada, mostramos todas (opcional) o esperamos input
+      if (categoryInput.length < 1) return clubCategories; 
       return clubCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase()));
   }, [categoryInput, clubCategories]);
 
-  const selectClub = (club) => { setSelectedClub(club); setClubInput(club.name); setStep(2); setError(''); setResult(null); };
+  const selectClub = (club) => { 
+      setSelectedClub(club); 
+      setClubInput(club.name); 
+      setStep(2); 
+      setError(''); 
+      setResult(null); 
+      setCategoryInput(''); // Limpiar categoría anterior
+  };
   
   const selectCategory = (cat) => {
       setSearch({ ...search, category: cat });
@@ -875,38 +1061,78 @@ function PhotoSearchView({ clubs }) {
       setShowCategorySuggestions(false);
   };
 
-  const clearSelection = () => { setSelectedClub(null); setClubInput(''); setStep(1); setSearch({ category: '', name: '', number: '' }); setCategoryInput(''); setResult(null); };
+  const clearSelection = () => { 
+      setSelectedClub(null); 
+      setClubInput(''); 
+      setStep(1); 
+      setSearch({ category: '', name: '', number: '' }); 
+      setCategoryInput(''); 
+      setResult(null); 
+  };
   
-  const handleSearch = (e) => { 
+  // --- BÚSQUEDA REAL EN FIREBASE ---
+  const handleSearch = async (e) => { 
       e.preventDefault(); 
       if (!selectedClub) return; 
       
-      // Validación estricta
       if (!search.category) { setError("Debes seleccionar una categoría."); return; }
-      if (!search.name) { setError("El nombre es obligatorio."); return; }
-      if (!search.number) { setError("El dorsal es obligatorio."); return; }
+      if (!search.name && !search.number) { setError("Escribe nombre o dorsal."); return; }
 
-      setLoading(true); setError(''); setResult(null); 
+      setLoading(true); 
+      setError(''); 
+      setResult(null); 
       
-      setTimeout(() => { 
-          setLoading(false); 
-          const formattedName = search.name.trim().replace(/\s+/g, '_'); 
-          const dorsalSuffix = search.number ? `_${search.number}` : ''; 
-          const searchPattern = formattedName + dorsalSuffix; 
+      try {
+          // 1. Normalizar textos de búsqueda
+          const normSearchName = normalizeText(search.name);
+          const normSearchDorsal = normalizeText(search.number);
+
+          // 2. Referencia a la carpeta seleccionada
+          const folderRef = ref(storage, `${selectedClub.id}/${search.category}`);
           
-          const photo = MOCK_PHOTOS_DB.find(p => { 
-              const matchesClub = p.clubId === selectedClub.id;
-              const matchesCategory = p.folder === search.category;
-              const matchesName = p.filename.toLowerCase().includes(searchPattern.toLowerCase()); 
-              return matchesClub && matchesCategory && matchesName; 
-          }); 
+          // 3. Listar archivos
+          const res = await listAll(folderRef);
           
-          if (photo) { 
-              setResult(photo.url); 
-          } else { 
-              setError(`No se encontraron fotos en ${selectedClub.name} (${search.category}) para "${formattedName.replace(/_/g, ' ')}" con dorsal ${search.number}.`); 
-          } 
-      }, 1200); 
+          let foundPhotoUrl = null;
+
+          // 4. Buscar coincidencia
+          for (const item of res.items) {
+              const fileName = item.name;
+              const normFileName = normalizeText(fileName);
+
+              // Lógica de coincidencia (Igual que en el personalizador)
+              let nameMatch = true;
+              let dorsalMatch = true;
+
+              if (normSearchName) {
+                  const cleanName = normFileName.replace(/_/g, ' ');
+                  nameMatch = cleanName.includes(normSearchName) || normFileName.includes(normSearchName);
+              }
+
+              if (normSearchDorsal) {
+                  const dorsalRegex = new RegExp(`[a-z0-9]_${normSearchDorsal}\\.|_${normSearchDorsal}$|_${normSearchDorsal}_`);
+                  dorsalMatch = dorsalRegex.test(normFileName) || normFileName.includes(`_${normSearchDorsal}`);
+              }
+
+              // Si coincide todo lo que el usuario escribió
+              if (nameMatch && dorsalMatch) {
+                  foundPhotoUrl = await getDownloadURL(item);
+                  break; // Encontrado, paramos de buscar
+              }
+          }
+
+          if (foundPhotoUrl) {
+              setResult(foundPhotoUrl);
+          } else {
+              setError(`No hemos encontrado ninguna foto en "${search.category}" que coincida.`);
+          }
+
+      } catch (err) {
+          console.error("Error en búsqueda:", err);
+          setError("Ocurrió un error al buscar en el servidor.");
+      }
+      
+      setLoading(false);
   };
 
   return (
@@ -914,17 +1140,13 @@ function PhotoSearchView({ clubs }) {
         <div className="text-center mb-8">
             <h2 className="text-3xl font-bold mb-2">Buscador de Fotos Segura</h2>
             <p className="text-gray-500">Área protegida. Solo para jugadores y familiares.</p>
-            {/* CORRECCIÓN: Se han cambiado los '->' por '→' para evitar errores de sintaxis JSX */}
-            <div className="bg-yellow-50 text-yellow-800 text-xs inline-block px-3 py-1 rounded-full mt-2 border border-yellow-200">
-                Pista Demo: "Demo Sport" → "Temporada_23_24" → "Lopez" + "10"
-            </div>
         </div>
         
         <div className="bg-white p-6 rounded-xl shadow-md mb-8">
             <div className={`transition-all duration-300 ${step === 1 ? 'opacity-100' : 'hidden'}`}>
                 <label className="block text-sm font-bold text-gray-700 mb-2">1. Selecciona tu Club</label>
                 <div className="relative">
-                    <Input placeholder="Escribe el nombre de tu club (ej. Demo)" value={clubInput} onChange={e => setClubInput(e.target.value)} autoFocus />
+                    <Input placeholder="Escribe el nombre de tu club..." value={clubInput} onChange={e => setClubInput(e.target.value)} autoFocus />
                     {clubSuggestions.length > 0 && (
                         <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-10 max-h-48 overflow-y-auto">
                             {clubSuggestions.map(c => (
@@ -950,61 +1172,79 @@ function PhotoSearchView({ clubs }) {
                     
                     <form onSubmit={handleSearch} className="space-y-4">
                         
-                        {/* BUSCADOR DE CATEGORÍA (Mismo sistema) */}
+                        {/* BUSCADOR DE CATEGORÍA CONECTADO A STORAGE */}
                         <div className="relative">
-                            <label className="block text-sm font-medium text-gray-700 mb-1">Categoría / Archivo <span className="text-red-500">*</span></label>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Categoría / Carpeta <span className="text-red-500">*</span></label>
                             <Input 
-                                placeholder="Escribe para buscar categoría..." 
+                                placeholder="Escribe o selecciona carpeta..." 
                                 value={categoryInput} 
                                 onChange={e => { setCategoryInput(e.target.value); setSearch({...search, category: ''}); setShowCategorySuggestions(true); }}
                                 onFocus={() => setShowCategorySuggestions(true)}
+                                // Pequeño delay para permitir click en sugerencia antes de cerrar
                                 onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)}
                             />
-                            {showCategorySuggestions && categorySuggestions.length > 0 && (
+                            {showCategorySuggestions && (
                                 <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                                    {categorySuggestions.map(cat => (
-                                        <div key={cat} onClick={() => selectCategory(cat)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
-                                            <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
-                                            <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
-                                        </div>
-                                    ))}
+                                    {categorySuggestions.length > 0 ? (
+                                        categorySuggestions.map(cat => (
+                                            <div key={cat} onClick={() => selectCategory(cat)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
+                                                <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
+                                                <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
+                                            </div>
+                                        ))
+                                    ) : (
+                                        <div className="px-4 py-3 text-gray-400 text-xs italic">No hay carpetas o coincidencias.</div>
+                                    )}
                                 </div>
                             )}
                         </div>
 
                         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
                             <div className="md:col-span-2">
-                                <Input label="Nombre o Texto (Espacios = _)" placeholder="Ej. Juan Perez" value={search.name} onChange={e => setSearch({...search, name: e.target.value})} required />
+                                <Input label="Nombre (Opcional)" placeholder="Ej. Juan Perez" value={search.name} onChange={e => setSearch({...search, name: e.target.value})} />
                             </div>
                             <div className="md:col-span-1">
-                                <Input label="Dorsal" placeholder="Ej. 10" value={search.number} onChange={e => setSearch({...search, number: e.target.value})} required />
+                                <Input label="Dorsal (Opcional)" placeholder="Ej. 10" value={search.number} onChange={e => setSearch({...search, number: e.target.value})} />
                             </div>
                         </div>
                         
                         <div className="mt-2">
-                            <Button type="submit" disabled={loading} className="w-full h-[48px] text-lg shadow-emerald-200 shadow-lg">{loading ? 'Buscando...' : 'Buscar Fotos'}</Button>
+                            <Button type="submit" disabled={loading} className="w-full h-[48px] text-lg shadow-emerald-200 shadow-lg flex justify-center items-center gap-2">
+                                {loading ? <RefreshCw className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
+                                {loading ? 'Buscando...' : 'Buscar Fotos'}
+                            </Button>
                         </div>
                     </form>
                 </div>
             )}
             
-            {error && <p className="text-red-500 text-sm mt-4 text-center bg-red-50 p-2 rounded border border-red-100">{error}</p>}
+            {error && (
+                <div className="mt-4 bg-red-50 border border-red-100 text-red-600 p-3 rounded-lg flex items-center gap-2 text-sm animate-fade-in">
+                    <AlertTriangle className="w-4 h-4"/> {error}
+                </div>
+            )}
         </div>
         
+        {/* RESULTADO DE LA FOTO */}
         {result && (
             <div className="bg-white p-4 rounded-xl shadow-lg relative overflow-hidden group animate-fade-in-up border border-gray-100">
                 <div className="relative">
-                    <img src={result} alt="Resultado" className="w-full rounded-lg" onContextMenu={(e) => e.preventDefault()} />
+                    <img src={result} alt="Resultado" className="w-full rounded-lg shadow-inner bg-gray-100" onContextMenu={(e) => e.preventDefault()} />
+                    
+                    {/* MARCA DE AGUA */}
                     <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
-                        <div className="w-full h-full flex flex-wrap content-center justify-center opacity-40 rotate-12 scale-150">
-                            {Array.from({ length: 20 }).map((_, i) => <span key={i} className="text-3xl font-black text-white m-8 shadow-sm">MUESTRA</span>)}
+                        <div className="w-full h-full flex flex-wrap content-center justify-center opacity-30 rotate-12 scale-150">
+                            {Array.from({ length: 20 }).map((_, i) => <span key={i} className="text-3xl font-black text-white m-8 drop-shadow-md">MUESTRA</span>)}
                         </div>
                     </div>
-                    <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white p-4 text-center">
+
+                    <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white p-4 text-center backdrop-blur-sm">
                         <ShieldCheck className="w-12 h-12 mb-2 text-emerald-400" />
-                        <p className="font-bold text-lg">Protegido por Copyright</p>
-                        <p className="text-sm text-gray-300">Prohibida la descarga. Compra la foto para obtener el original sin marca de agua.</p>
-                        <Button className="mt-4 bg-white text-black hover:bg-gray-200">Añadir al Carrito (8.00€)</Button>
+                        <p className="font-bold text-lg">Visualización Protegida</p>
+                        <p className="text-sm text-gray-300 mb-4">Esta imagen tiene derechos de autor.</p>
+                        <div className="bg-white/10 px-4 py-2 rounded-lg text-xs border border-white/20">
+                            Para comprarla, ve a la Tienda Oficial
+                        </div>
                     </div>
                 </div>
             </div>

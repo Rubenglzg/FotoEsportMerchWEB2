@@ -588,10 +588,17 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
     );
 };
 
-// --- COMPONENTE DE MARCA DE AGUA (ANTI-IA + FUERZA BRUTA) ---
-const ProtectedWatermarkImage = ({ imageUrl, logoUrl }) => {
+// --- COMPONENTE DE MARCA DE AGUA (SUTIL + INFO LEGAL) ---
+const ProtectedWatermarkImage = ({ imageUrl, logoUrl, fileName }) => {
     
-    // Patrón de ruido en base64 (muy ligero) para confundir a los algoritmos de IA
+    // 1. Limpieza del nombre del archivo
+    // Si no hay nombre, ponemos "Vista Previa". 
+    // Reemplaza guiones bajos (_) por espacios y quita la extensión (.jpg, .png)
+    const displayName = fileName 
+        ? fileName.split('/').pop().replace(/_/g, ' ').replace(/\.[^/.]+$/, "") 
+        : 'Vista Previa';
+
+    // Patrón de ruido muy sutil para confundir IA (Opacidad bajada)
     const noisePattern = "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MDAiIGhlaWdodD0iNTAwIj48ZmlsdGVyIGlkPSJnoiPjxmZVR1cmJ1bGVuY2UgdHlwZT0iZnJhY3RhbE5vaXNlIiBiYXNlRnJlcXVlbmN5PSIwLjY1IiBudW1PY3RhdmVzPSIzIiBzdGl0Y2hUaWxlcz0ic3RpdGNoIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI2cpIiBvcGFjaXR5PSIwLjE1Ii8+PC9zdmc+')";
 
     return (
@@ -602,17 +609,17 @@ const ProtectedWatermarkImage = ({ imageUrl, logoUrl }) => {
             {/* 1. FOTO ORIGINAL */}
             <img 
                 src={imageUrl} 
-                alt="Vista previa"
+                alt="Vista protegida"
                 className="relative z-0 w-full h-auto object-contain block"
             />
 
-            {/* 2. CAPA DE RUIDO ANTI-IA (Invisible al ojo humano, molesta para la IA) */}
+            {/* 2. CAPA RUIDO (Muy transparente para no opacar el fondo) */}
             <div 
-                className="absolute inset-0 z-10 opacity-30 pointer-events-none mix-blend-overlay"
+                className="absolute inset-0 z-10 opacity-10 pointer-events-none mix-blend-overlay"
                 style={{ backgroundImage: noisePattern }}
             ></div>
 
-            {/* 3. CAPA MARCA DE AGUA (Fusión de color) */}
+            {/* 3. CAPA MARCA DE AGUA (Logos sutiles) */}
             <div className="absolute inset-0 z-20 overflow-hidden pointer-events-none">
                 <div 
                     className="absolute top-1/2 left-1/2 flex flex-wrap content-center justify-center"
@@ -620,42 +627,46 @@ const ProtectedWatermarkImage = ({ imageUrl, logoUrl }) => {
                         width: '3000px',
                         height: '3000px',
                         transform: 'translate(-50%, -50%) rotate(-30deg)',
-                        gap: '50px',
+                        gap: '60px',
                     }}
                 >
-                    {Array.from({ length: 350 }).map((_, i) => (
-                        <img 
-                            key={i}
-                            src={logoUrl} 
-                            alt=""
-                            className="object-contain"
-                            style={{ 
-                                width: '120px',
-                                height: 'auto',
-                                // TRUCO ANTI-IA:
-                                // 'hard-light': Fusiona el color del logo con la foto.
-                                // Si la foto es oscura, el logo se ilumina. Si es clara, se oscurece.
-                                // Esto hace muy dificil seleccionar la marca para borrarla.
-                                mixBlendMode: 'hard-light', 
-                                opacity: 0.5,
-                                filter: 'grayscale(100%) contrast(150%)' // Alto contraste ayuda a la fusión
-                            }}
-                            onError={(e) => e.target.style.display = 'none'}
-                        />
+                    {Array.from({ length: 300 }).map((_, i) => (
+                        <div key={i} className="flex items-center justify-center">
+                            <img 
+                                src={logoUrl} 
+                                alt=""
+                                className="object-contain"
+                                style={{ 
+                                    width: '130px',
+                                    height: 'auto',
+                                    // MEJORA VISUAL: 'overlay' integra el logo con la luz de la foto sin taparla
+                                    // Opacidad baja (0.25) para que se vea bien la foto debajo
+                                    mixBlendMode: 'overlay', 
+                                    opacity: 0.4, 
+                                    filter: 'grayscale(100%)'
+                                }}
+                                onError={(e) => e.target.style.display = 'none'}
+                            />
+                        </div>
                     ))}
                 </div>
             </div>
 
-            {/* 4. CAPA ESCUDO */}
-            <div className="absolute inset-0 z-30 bg-transparent"></div>
-
-            {/* 5. AVISO */}
-            <div className="absolute inset-0 z-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
-                <div className="bg-black/70 backdrop-blur-sm text-white px-5 py-3 rounded-full text-sm font-bold shadow-2xl flex flex-col items-center">
-                    <ShieldCheck className="w-6 h-6 text-emerald-400 mb-1"/>
-                    <span>Protección Inteligente</span>
-                </div>
+            {/* 4. CAPA DE TEXTO LEGAL (PIE DE FOTO) */}
+            <div className="absolute bottom-0 left-0 right-0 z-30 bg-black/80 backdrop-blur-sm p-3 text-center border-t border-white/10">
+                {/* Nombre del archivo limpio */}
+                <p className="text-white font-bold text-sm uppercase tracking-wider mb-1">
+                    {displayName}
+                </p>
+                {/* Texto legal */}
+                <p className="text-[10px] text-gray-300 leading-tight">
+                    © FOTOESPORT MERCH. PROHIBIDA SU VENTA, REPRODUCCIÓN, DESCARGA O USO SIN AUTORIZACIÓN. 
+                    IMAGEN PROTEGIDA DIGITALMENTE CON RASTREO ID.
+                </p>
             </div>
+
+            {/* 5. CAPA ESCUDO INVISIBLE */}
+            <div className="absolute inset-0 z-40 bg-transparent"></div>
         </div>
     );
 };
@@ -1237,12 +1248,13 @@ function PhotoSearchView({ clubs }) {
               // Si coincide todo lo que el usuario escribió
               if (nameMatch && dorsalMatch) {
                   foundPhotoUrl = await getDownloadURL(item);
+                  var foundFileName = item.name;
                   break; // Encontrado, paramos de buscar
               }
           }
 
           if (foundPhotoUrl) {
-              setResult(foundPhotoUrl);
+              setResult({ url: foundPhotoUrl, name: foundFileName });
           } else {
               setError(`No hemos encontrado ninguna foto en "${search.category}" que coincida.`);
           }
@@ -1345,11 +1357,14 @@ function PhotoSearchView({ clubs }) {
             )}
         </div>
         
-        {/* RESULTADO DE LA FOTO (VERSIÓN CORREGIDA: TAMAÑO REAL + DIAGONAL) */}
+        {/* RESULTADO DE LA FOTO */}
         {result && (
             <div className="bg-white p-4 rounded-xl shadow-lg animate-fade-in-up border border-gray-100">
-                {/* Llamamos al componente nuevo pasándole la foto y tu logo */}
-                <ProtectedWatermarkImage imageUrl={result} logoUrl={LOGO_URL} />
+                <ProtectedWatermarkImage 
+                    imageUrl={result.url}   // Ahora es result.url
+                    fileName={result.name}  // Pasamos el nombre para el pie de foto
+                    logoUrl={LOGO_URL} 
+                />
             </div>
         )}
     </div>

@@ -70,7 +70,7 @@ try {
 }
 
 // --- CONFIGURACIÓN GLOBAL ---
-const LOGO_URL = null; 
+const LOGO_URL = '/logo.png'; 
 const appId = 'fotoesport-merch'; // Usamos tu ID de proyecto como referencia
 
 // --- CONSTANTE DE COLORES VISUALES (NUEVO) ---
@@ -584,6 +584,78 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                     </div>
                 </div>
             )}
+        </div>
+    );
+};
+
+// --- COMPONENTE DE MARCA DE AGUA (ANTI-IA + FUERZA BRUTA) ---
+const ProtectedWatermarkImage = ({ imageUrl, logoUrl }) => {
+    
+    // Patrón de ruido en base64 (muy ligero) para confundir a los algoritmos de IA
+    const noisePattern = "url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSI1MDAiIGhlaWdodD0iNTAwIj48ZmlsdGVyIGlkPSJnoiPjxmZVR1cmJ1bGVuY2UgdHlwZT0iZnJhY3RhbE5vaXNlIiBiYXNlRnJlcXVlbmN5PSIwLjY1IiBudW1PY3RhdmVzPSIzIiBzdGl0Y2hUaWxlcz0ic3RpdGNoIi8+PC9maWx0ZXI+PHJlY3Qgd2lkdGg9IjEwMCUiIGhlaWdodD0iMTAwJSIgZmlsdGVyPSJ1cmwoI2cpIiBvcGFjaXR5PSIwLjE1Ii8+PC9zdmc+')";
+
+    return (
+        <div 
+            className="relative w-full h-auto rounded-xl overflow-hidden shadow-lg bg-gray-50 group select-none border border-gray-100"
+            onContextMenu={(e) => e.preventDefault()}
+        >
+            {/* 1. FOTO ORIGINAL */}
+            <img 
+                src={imageUrl} 
+                alt="Vista previa"
+                className="relative z-0 w-full h-auto object-contain block"
+            />
+
+            {/* 2. CAPA DE RUIDO ANTI-IA (Invisible al ojo humano, molesta para la IA) */}
+            <div 
+                className="absolute inset-0 z-10 opacity-30 pointer-events-none mix-blend-overlay"
+                style={{ backgroundImage: noisePattern }}
+            ></div>
+
+            {/* 3. CAPA MARCA DE AGUA (Fusión de color) */}
+            <div className="absolute inset-0 z-20 overflow-hidden pointer-events-none">
+                <div 
+                    className="absolute top-1/2 left-1/2 flex flex-wrap content-center justify-center"
+                    style={{ 
+                        width: '3000px',
+                        height: '3000px',
+                        transform: 'translate(-50%, -50%) rotate(-30deg)',
+                        gap: '50px',
+                    }}
+                >
+                    {Array.from({ length: 350 }).map((_, i) => (
+                        <img 
+                            key={i}
+                            src={logoUrl} 
+                            alt=""
+                            className="object-contain"
+                            style={{ 
+                                width: '120px',
+                                height: 'auto',
+                                // TRUCO ANTI-IA:
+                                // 'hard-light': Fusiona el color del logo con la foto.
+                                // Si la foto es oscura, el logo se ilumina. Si es clara, se oscurece.
+                                // Esto hace muy dificil seleccionar la marca para borrarla.
+                                mixBlendMode: 'hard-light', 
+                                opacity: 0.5,
+                                filter: 'grayscale(100%) contrast(150%)' // Alto contraste ayuda a la fusión
+                            }}
+                            onError={(e) => e.target.style.display = 'none'}
+                        />
+                    ))}
+                </div>
+            </div>
+
+            {/* 4. CAPA ESCUDO */}
+            <div className="absolute inset-0 z-30 bg-transparent"></div>
+
+            {/* 5. AVISO */}
+            <div className="absolute inset-0 z-40 flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none">
+                <div className="bg-black/70 backdrop-blur-sm text-white px-5 py-3 rounded-full text-sm font-bold shadow-2xl flex flex-col items-center">
+                    <ShieldCheck className="w-6 h-6 text-emerald-400 mb-1"/>
+                    <span>Protección Inteligente</span>
+                </div>
+            </div>
         </div>
     );
 };
@@ -1273,28 +1345,11 @@ function PhotoSearchView({ clubs }) {
             )}
         </div>
         
-        {/* RESULTADO DE LA FOTO */}
+        {/* RESULTADO DE LA FOTO (VERSIÓN CORREGIDA: TAMAÑO REAL + DIAGONAL) */}
         {result && (
-            <div className="bg-white p-4 rounded-xl shadow-lg relative overflow-hidden group animate-fade-in-up border border-gray-100">
-                <div className="relative">
-                    <img src={result} alt="Resultado" className="w-full rounded-lg shadow-inner bg-gray-100" onContextMenu={(e) => e.preventDefault()} />
-                    
-                    {/* MARCA DE AGUA */}
-                    <div className="absolute inset-0 flex items-center justify-center pointer-events-none select-none overflow-hidden">
-                        <div className="w-full h-full flex flex-wrap content-center justify-center opacity-30 rotate-12 scale-150">
-                            {Array.from({ length: 20 }).map((_, i) => <span key={i} className="text-3xl font-black text-white m-8 drop-shadow-md">MUESTRA</span>)}
-                        </div>
-                    </div>
-
-                    <div className="absolute inset-0 bg-black/80 opacity-0 group-hover:opacity-100 transition-opacity flex flex-col items-center justify-center text-white p-4 text-center backdrop-blur-sm">
-                        <ShieldCheck className="w-12 h-12 mb-2 text-emerald-400" />
-                        <p className="font-bold text-lg">Visualización Protegida</p>
-                        <p className="text-sm text-gray-300 mb-4">Esta imagen tiene derechos de autor.</p>
-                        <div className="bg-white/10 px-4 py-2 rounded-lg text-xs border border-white/20">
-                            Para comprarla, ve a la Tienda Oficial
-                        </div>
-                    </div>
-                </div>
+            <div className="bg-white p-4 rounded-xl shadow-lg animate-fade-in-up border border-gray-100">
+                {/* Llamamos al componente nuevo pasándole la foto y tu logo */}
+                <ProtectedWatermarkImage imageUrl={result} logoUrl={LOGO_URL} />
             </div>
         )}
     </div>

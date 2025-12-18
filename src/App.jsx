@@ -576,12 +576,46 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                     <div className="bg-white rounded border overflow-hidden">
                         <div className="grid grid-cols-4 gap-2 bg-gray-100 p-2 font-bold text-gray-600 text-[10px] text-center"><div className="text-left">Opción</div><div>Disponible</div><div>Por Defecto</div><div>Modificable</div></div>
                         {['name', 'number', 'shield', 'photo'].map(k => (
-                             <div key={k} className="grid grid-cols-4 gap-2 p-2 border-t items-center text-center">
-                                 <div className="text-left font-medium capitalize">{k === 'shield' ? 'Escudo' : k === 'number' ? 'Dorsal' : k === 'photo' ? 'Foto' : 'Nombre'}</div>
-                                 <div className="flex justify-center"><input type="checkbox" checked={features[k]} onChange={() => toggleFeature(k)} className="accent-emerald-600" /></div>
-                                 <div className="flex justify-center"><input type="checkbox" checked={defaults[k]} onChange={() => toggleDefault(k)} disabled={!features[k]} className="accent-blue-500 disabled:opacity-30" /></div>
-                                 <div className="flex justify-center"><button onClick={() => toggleModifiable(k)} disabled={!features[k]} className={`p-1 rounded ${!features[k] ? 'opacity-30' : ''} ${modifiable[k] ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>{modifiable[k] ? <Unlock className="w-3 h-3"/> : <Lock className="w-3 h-3"/>}</button></div>
-                             </div>
+                            <div key={k} className="grid grid-cols-4 gap-2 p-2 border-t items-center text-center">
+                                <div className="text-left font-medium capitalize">{k === 'shield' ? 'Escudo' : k === 'number' ? 'Dorsal' : k === 'photo' ? 'Foto' : 'Nombre'}</div>
+                                
+                                {/* COLUMNA 1: DISPONIBLE (Oculta para Foto) */}
+                                <div className="flex justify-center">
+                                    {k !== 'photo' && (
+                                        <input type="checkbox" checked={features[k]} onChange={() => toggleFeature(k)} className="accent-emerald-600" />
+                                    )}
+                                </div>
+
+                                {/* COLUMNA 2: POR DEFECTO (Única casilla para Foto) */}
+                                <div className="flex justify-center">
+                                    {k === 'photo' ? (
+                                        // LÓGICA ESPECIAL FOTO: Esta casilla activa la característica Y la pone por defecto a la vez
+                                        <input 
+                                            type="checkbox" 
+                                            checked={features[k]} 
+                                            onChange={() => {
+                                                const newVal = !features[k];
+                                                updateProduct({ 
+                                                    ...product, 
+                                                    features: { ...features, [k]: newVal }, // Activa/Desactiva la característica
+                                                    defaults: { ...defaults, [k]: newVal }, // Fuerza que esté marcada por defecto
+                                                    modifiable: { ...modifiable, [k]: false } // Fuerza que NO sea modificable (candado cerrado implícito)
+                                                }); 
+                                            }} 
+                                            className="accent-blue-500" 
+                                        />
+                                    ) : (
+                                        <input type="checkbox" checked={defaults[k]} onChange={() => toggleDefault(k)} disabled={!features[k]} className="accent-blue-500 disabled:opacity-30" />
+                                    )}
+                                </div>
+
+                                {/* COLUMNA 3: MODIFICABLE (Oculta para Foto) */}
+                                <div className="flex justify-center">
+                                    {k !== 'photo' && (
+                                        <button onClick={() => toggleModifiable(k)} disabled={!features[k]} className={`p-1 rounded ${!features[k] ? 'opacity-30' : ''} ${modifiable[k] ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>{modifiable[k] ? <Unlock className="w-3 h-3"/> : <Lock className="w-3 h-3"/>}</button>
+                                    )}
+                                </div>
+                            </div>
                         ))}
                     </div>
                 </div>
@@ -753,6 +787,12 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const [searchResults, setSearchResults] = useState([]);
   const [searchError, setSearchError] = useState('');
 
+  useEffect(() => {
+      if (features.photo && !customization.includePhoto) {
+          setCustomization(prev => ({ ...prev, includePhoto: true }));
+      }
+  }, [features.photo, customization.includePhoto]);
+
   const handleSearchPhoto = async () => {
       if (!customization.clubId) { setSearchError("Primero selecciona un club arriba."); return; }
       if (!searchName && !searchDorsal) { setSearchError("Escribe nombre o dorsal."); return; }
@@ -871,7 +911,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       
       // Validaciones
       if (!customization.clubId) { alert("Debes seleccionar un club válido de la lista."); return; }
-      if (!customization.category) { alert("Debes seleccionar una categoría (archivo) de la lista."); return; }
+      // if (!customization.category) { alert("Debes seleccionar una categoría (archivo) de la lista."); return; }
       if (customization.includeName && !customization.playerName) { alert("El nombre es obligatorio."); return; }
       if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal es obligatorio."); return; }
 
@@ -927,12 +967,12 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
           </div>
 
           {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
-          {customization.clubId && (
+          {customization.clubId && !features.photo && (
               <div className="relative animate-fade-in">
                   <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona Categoría <span className="text-red-500">*</span></label>
                   <Input 
                       placeholder="Escribe para buscar categoría..." 
-                      value={categoryInput} 
+                      value={categoryInput}
                       onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: ''}); setShowCategorySuggestions(true); }}
                       onFocus={() => setShowCategorySuggestions(true)}
                       onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)}
@@ -1019,82 +1059,28 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
           )}
 
           {/* --- SECCIÓN DE BÚSQUEDA DE FOTO (INTEGRADA) --- */}
+          {/* --- SECCIÓN DE FOTO (SIMPLIFICADA - SOLO CHECKBOX) --- */}
           {features.photo && (
               <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mt-4 animate-fade-in">
-                  <div className="flex justify-between items-center mb-2">
+                  <div className="flex justify-between items-center">
                       <label className="block text-sm font-bold text-slate-700 flex items-center gap-2">
                           <ImageIcon className="w-4 h-4 text-emerald-600"/> Tu Foto
                       </label>
-                      {/* Checkbox para activar/desactivar foto si es opcional */}
-                      {modifiable.photo && (
+                      
+                      {/* Casilla marcada por defecto y deshabilitada (Visualmente activa) */}
+                      <div className="flex items-center gap-2">
+                          <span className="text-xs text-emerald-700 font-bold uppercase">Incluida</span>
                           <input 
                               type="checkbox" 
-                              checked={customization.includePhoto} 
-                              onChange={(e) => setCustomization({...customization, includePhoto: e.target.checked})} 
-                              className="accent-emerald-600"
+                              checked={true} 
+                              disabled={true} 
+                              className="accent-emerald-600 w-5 h-5 cursor-not-allowed opacity-80"
                           />
-                      )}
-                  </div>
-
-                  {customization.includePhoto && (
-                      <div className="space-y-3">
-                          {/* Inputs de Búsqueda */}
-                          <div className="flex gap-2">
-                              <input 
-                                  placeholder="Nombre (ej. Ruben)" 
-                                  className="flex-1 border rounded px-3 py-2 text-sm"
-                                  value={searchName}
-                                  onChange={e => setSearchName(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPhoto()}
-                              />
-                              <input 
-                                  placeholder="Dorsal" 
-                                  className="w-20 border rounded px-3 py-2 text-sm"
-                                  value={searchDorsal}
-                                  onChange={e => setSearchDorsal(e.target.value)}
-                                  onKeyDown={(e) => e.key === 'Enter' && handleSearchPhoto()}
-                              />
-                              <button 
-                                  type="button" // Importante type="button" para no enviar el formulario
-                                  onClick={handleSearchPhoto}
-                                  disabled={isSearching || !customization.clubId}
-                                  className="bg-emerald-600 text-white px-3 py-2 rounded hover:bg-emerald-700 disabled:bg-gray-300"
-                              >
-                                  {isSearching ? <RefreshCw className="w-4 h-4 animate-spin"/> : <Search className="w-4 h-4"/>}
-                              </button>
-                          </div>
-
-                          {/* Mensajes Error */}
-                          {searchError && <p className="text-xs text-red-500 bg-red-50 p-2 rounded">{searchError}</p>}
-
-                          {/* Resultados */}
-                          {searchResults.length > 0 && (
-                              <div className="grid grid-cols-3 gap-2 mt-2 max-h-40 overflow-y-auto custom-scrollbar p-1">
-                                  {searchResults.map((photo) => (
-                                      <div 
-                                          key={photo.fullPath}
-                                          onClick={() => setCustomization(prev => ({ ...prev, selectedPhoto: photo.url }))}
-                                          className={`relative cursor-pointer rounded-lg overflow-hidden border-2 transition-all aspect-square ${customization.selectedPhoto === photo.url ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-transparent hover:border-gray-300'}`}
-                                      >
-                                          <img src={photo.url} className="w-full h-full object-cover" />
-                                          {customization.selectedPhoto === photo.url && (
-                                              <div className="absolute inset-0 bg-emerald-500/40 flex items-center justify-center">
-                                                  <Check className="w-6 h-6 text-white drop-shadow-md" />
-                                              </div>
-                                          )}
-                                      </div>
-                                  ))}
-                              </div>
-                          )}
-                          
-                          {/* Foto Seleccionada (Feedback) */}
-                          {customization.selectedPhoto && (
-                              <div className="text-xs text-emerald-700 font-bold flex items-center gap-1 bg-emerald-100 p-2 rounded border border-emerald-200">
-                                  <Check className="w-3 h-3"/> Foto seleccionada correctamente
-                              </div>
-                          )}
                       </div>
-                  )}
+                  </div>
+                  <p className="text-[10px] text-gray-500 mt-2 italic border-t border-slate-200 pt-2">
+                      * La selección de la foto se realizará internamente por el club/organización.
+                  </p>
               </div>
           )}
           

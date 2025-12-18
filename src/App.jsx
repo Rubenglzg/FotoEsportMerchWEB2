@@ -335,10 +335,12 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
 
 // --- COMPONENTES AUXILIARES Y VISTAS (Definidos ANTES de App) ---
 
-const CompanyLogo = ({ className = "h-10" }) => (
+// --- COMPONENTE LOGO ACTUALIZADO ---
+const CompanyLogo = ({ className = "h-10", src }) => (
     <div className={`flex items-center gap-2 ${className}`}>
-        {LOGO_URL ? (
-            <img src={LOGO_URL} alt="FotoEsport Merch" className="h-full w-auto object-contain" />
+        {/* Si pasamos una imagen específica (src) la usamos, si no usamos la global (LOGO_URL) */}
+        {(src || LOGO_URL) ? (
+            <img src={src || LOGO_URL} alt="FotoEsport Merch" className="h-full w-auto object-contain" />
         ) : (
             <div className="flex items-center">
                 <div className="relative flex items-center justify-center bg-white border-4 border-emerald-700 rounded-lg w-12 h-10 mr-2 shadow-sm">
@@ -1834,6 +1836,8 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   };
   const [revertModal, setRevertModal] = useState({ active: false, clubId: null, currentBatchId: null, ordersCount: 0 });
 
+
+
   const selectedClub = clubs.find(c => c.id === selectedClubId) || clubs[0];
 
 // --- FILTRADO POR TEMPORADA ---
@@ -2205,6 +2209,79 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           return { club, batches: sortedBatches };
       });
   }, [clubs, financialOrders, filterClubId]);
+
+  // 1. Estado para el modal de detalles
+  const [accDetailsModal, setAccDetailsModal] = useState({ active: false, title: '', items: [], type: '' });
+
+  // 2. Lógica de cálculo de totales
+  const globalAccountingStats = useMemo(() => {
+      const stats = {
+        cardTotal: 0,
+        cash: { collected: 0, pending: 0, listPending: [], listCollected: [] },
+        supplier: { paid: 0, pending: 0, listPending: [], listPaid: [] },
+        commercial: { paid: 0, pending: 0, listPending: [], listPaid: [] },
+        club: { paid: 0, pending: 0, listPending: [], listPaid: [] }
+    };
+
+    accountingData.forEach(({ club, batches }) => {
+        batches.forEach(batch => {
+            const log = club.accountingLog?.[batch.id] || {};
+            
+            const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
+            const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
+            
+            const cardTotal = cardOrders.reduce((sum, o) => sum + o.total, 0);
+            const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
+            const totalBatch = cardTotal + cashTotal;
+
+            const cost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+            
+            const commComm = totalBatch * financialConfig.commercialCommissionPct;
+            const currentClubComm = club.commission !== undefined ? club.commission : 0.12; 
+            const commClub = totalBatch * currentClubComm;
+
+            // ACUMULADORES
+            stats.cardTotal += cardTotal;
+
+            const cashVal = cashTotal + (log.cashUnder || 0) - (log.cashOver || 0);
+            if (log.cashCollected) {
+                stats.cash.collected += cashVal;
+                if(cashVal > 0) stats.cash.listCollected.push({ club: club.name, batch: batch.id, amount: cashVal });
+            } else {
+                stats.cash.pending += cashVal;
+                if(cashVal > 0) stats.cash.listPending.push({ club: club.name, batch: batch.id, amount: cashVal });
+            }
+
+            const suppVal = cost + (log.supplierUnder || 0) - (log.supplierOver || 0);
+            if (log.supplierPaid) {
+                stats.supplier.paid += suppVal;
+                if(suppVal > 0) stats.supplier.listPaid.push({ club: club.name, batch: batch.id, amount: suppVal });
+            } else {
+                stats.supplier.pending += suppVal;
+                if(suppVal > 0) stats.supplier.listPending.push({ club: club.name, batch: batch.id, amount: suppVal });
+            }
+
+            const commVal = commComm + (log.commercialUnder || 0) - (log.commercialOver || 0);
+            if (log.commercialPaid) {
+                stats.commercial.paid += commVal;
+                if(commVal > 0) stats.commercial.listPaid.push({ club: club.name, batch: batch.id, amount: commVal });
+            } else {
+                stats.commercial.pending += commVal;
+                if(commVal > 0) stats.commercial.listPending.push({ club: club.name, batch: batch.id, amount: commVal });
+            }
+
+            const clubVal = commClub + (log.clubUnder || 0) - (log.clubOver || 0);
+            if (log.clubPaid) {
+                stats.club.paid += clubVal;
+                if(clubVal > 0) stats.club.listPaid.push({ club: club.name, batch: batch.id, amount: clubVal });
+            } else {
+                stats.club.pending += clubVal;
+                if(clubVal > 0) stats.club.listPending.push({ club: club.name, batch: batch.id, amount: clubVal });
+            }
+        });
+    });
+    return stats;
+  }, [accountingData, financialConfig]);
 
   const totalRevenue = financialOrders.reduce((sum, o) => sum + o.total, 0);
   const totalIncidentCosts = financialOrders.reduce((sum, o) => {
@@ -3723,6 +3800,84 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   </div>
               </div>
 
+              {/* --- PEGAR ESTO JUSTO ANTES DE {accountingData.map... --- */}
+              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
+                  {/* Tarjeta 1: Ingresos Tarjeta */}
+                  <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-between">
+                      <p className="text-xs font-bold text-gray-400 uppercase">Total Tarjeta</p>
+                      <p className="text-2xl font-bold text-blue-600 mt-1">{globalAccountingStats.cardTotal.toFixed(2)}€</p>
+                      <p className="text-[10px] text-gray-400 mt-2">Cobrado en pasarela</p>
+                  </div>
+
+                  {/* Tarjeta 2: Efectivo */}
+                  <div className="bg-white p-4 rounded-xl border border-orange-100 shadow-sm flex flex-col justify-between">
+                      <p className="text-xs font-bold text-gray-400 uppercase">Caja Efectivo</p>
+                      <div className="mt-2 space-y-1">
+                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded" 
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Efectivo YA Recogido', items: globalAccountingStats.cash.listCollected, type: 'success' })}>
+                              <span className="text-gray-600">Recogido:</span>
+                              <span className="font-bold text-green-600">{globalAccountingStats.cash.collected.toFixed(2)}€</span>
+                          </div>
+                          <div className="flex justify-between items-center text-sm cursor-pointer bg-red-50 p-1 rounded hover:bg-red-100 transition-colors"
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Efectivo PENDIENTE de Recoger', items: globalAccountingStats.cash.listPending, type: 'error' })}>
+                              <span className="text-red-800 font-bold">Pendiente:</span>
+                              <span className="font-black text-red-600">{globalAccountingStats.cash.pending.toFixed(2)}€</span>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Tarjeta 3: Proveedor */}
+                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                      <p className="text-xs font-bold text-gray-400 uppercase">Pagos Proveedor</p>
+                      <div className="mt-2 space-y-1">
+                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded"
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Proveedor PAGADO', items: globalAccountingStats.supplier.listPaid, type: 'success' })}>
+                              <span className="text-gray-600">Pagado:</span>
+                              <span className="font-bold text-green-600">{globalAccountingStats.supplier.paid.toFixed(2)}€</span>
+                          </div>
+                          <div className="flex justify-between items-center text-sm cursor-pointer bg-orange-50 p-1 rounded hover:bg-orange-100 transition-colors"
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Proveedor PENDIENTE', items: globalAccountingStats.supplier.listPending, type: 'warning' })}>
+                              <span className="text-orange-800 font-bold">Deuda:</span>
+                              <span className="font-black text-orange-600">{globalAccountingStats.supplier.pending.toFixed(2)}€</span>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Tarjeta 4: Comercial */}
+                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                      <p className="text-xs font-bold text-gray-400 uppercase">Com. Comercial</p>
+                      <div className="mt-2 space-y-1">
+                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded"
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Comercial PAGADO', items: globalAccountingStats.commercial.listPaid, type: 'success' })}>
+                              <span className="text-gray-600">Pagado:</span>
+                              <span className="font-bold text-green-600">{globalAccountingStats.commercial.paid.toFixed(2)}€</span>
+                          </div>
+                          <div className="flex justify-between items-center text-sm cursor-pointer bg-blue-50 p-1 rounded hover:bg-blue-100 transition-colors"
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Comercial PENDIENTE', items: globalAccountingStats.commercial.listPending, type: 'info' })}>
+                              <span className="text-blue-800 font-bold">Deuda:</span>
+                              <span className="font-black text-blue-600">{globalAccountingStats.commercial.pending.toFixed(2)}€</span>
+                          </div>
+                      </div>
+                  </div>
+
+                  {/* Tarjeta 5: Club */}
+                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                      <p className="text-xs font-bold text-gray-400 uppercase">Pagos a Clubes</p>
+                      <div className="mt-2 space-y-1">
+                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded"
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Club PAGADO', items: globalAccountingStats.club.listPaid, type: 'success' })}>
+                              <span className="text-gray-600">Pagado:</span>
+                              <span className="font-bold text-green-600">{globalAccountingStats.club.paid.toFixed(2)}€</span>
+                          </div>
+                          <div className="flex justify-between items-center text-sm cursor-pointer bg-purple-50 p-1 rounded hover:bg-purple-100 transition-colors"
+                               onClick={() => setAccDetailsModal({ active: true, title: 'Club PENDIENTE', items: globalAccountingStats.club.listPending, type: 'purple' })}>
+                              <span className="text-purple-800 font-bold">Deuda:</span>
+                              <span className="font-black text-purple-600">{globalAccountingStats.club.pending.toFixed(2)}€</span>
+                          </div>
+                      </div>
+                  </div>
+              </div>
+
               {accountingData.map(({ club, batches }) => {
                   // --- CÁLCULOS DE ESTADO DE CUENTA ---
                   let totalPendingCash = 0;
@@ -3748,7 +3903,9 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   });
 
                   const renderBalance = (amount, labelPositive, labelNegative) => {
-                      if (Math.abs(amount) < 0.01) return <span className="text-green-600 font-bold">Al día (0.00€)</span>;
+                      // CAMBIO: Añadido isNaN(amount) para evitar el error "NaN€"
+                      if (isNaN(amount) || Math.abs(amount) < 0.01) return <span className="text-green-600 font-bold">Al día (0.00€)</span>;
+                      
                       if (amount > 0) return <span className="text-red-600 font-bold">{labelPositive} {amount.toFixed(2)}€</span>; 
                       return <span className="text-blue-600 font-bold">{labelNegative} {Math.abs(amount).toFixed(2)}€</span>; 
                   };
@@ -3853,20 +4010,46 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                       <AdjustmentInputs fieldOver="cashOver" fieldUnder="cashUnder" />
                                                   </td>
 
-                                                  <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1"><span className="text-xs text-red-500 font-bold">-{bCost.toFixed(2)}€</span><button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>{status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}</button></div>
-                                                      <AdjustmentInputs fieldOver="supplierOver" fieldUnder="supplierUnder" />
-                                                  </td>
+                                                  {/* ... celdas anteriores ... */}
 
-                                                  <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1"><span className="text-xs text-blue-500 font-bold">-{bCommComm.toFixed(2)}€</span><button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>{status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}</button></div>
-                                                      <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
-                                                  </td>
+                                          <td className="px-4 py-4">
+                                              {/* CORREGIDO: (bCost || 0) para evitar NaN */}
+                                              <div className="flex justify-between items-center mb-1">
+                                                  <span className="text-xs text-red-500 font-bold">
+                                                      -{(bCost || 0).toFixed(2)}€
+                                                  </span>
+                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                      {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                  </button>
+                                              </div>
+                                              <AdjustmentInputs fieldOver="supplierOver" fieldUnder="supplierUnder" />
+                                          </td>
 
-                                                  <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1"><span className="text-xs text-purple-500 font-bold">-{bCommClub.toFixed(2)}€</span><button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>{status.clubPaid ? 'PAGADO' : 'PENDIENTE'}</button></div>
-                                                      <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
-                                                  </td>
+                                          <td className="px-4 py-4">
+                                              {/* CORREGIDO: (bCommComm || 0) para evitar NaN */}
+                                              <div className="flex justify-between items-center mb-1">
+                                                  <span className="text-xs text-blue-500 font-bold">
+                                                      -{(bCommComm || 0).toFixed(2)}€
+                                                  </span>
+                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                      {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                  </button>
+                                              </div>
+                                              <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
+                                          </td>
+
+                                          <td className="px-4 py-4">
+                                              {/* CORREGIDO: (bCommClub || 0) para evitar NaN */}
+                                              <div className="flex justify-between items-center mb-1">
+                                                  <span className="text-xs text-purple-500 font-bold">
+                                                      -{(bCommClub || 0).toFixed(2)}€
+                                                  </span>
+                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                      {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                  </button>
+                                              </div>
+                                              <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
+                                          </td>
                                               </tr>
                                           );
                                       })}
@@ -3876,6 +4059,66 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                       </div>
                   );
               })}
+              {/* --- PEGAR ESTO DESPUÉS DE QUE TERMINE EL MAPEO DE CLUBES --- */}
+              
+              {accDetailsModal.active && (
+                  <div className="fixed inset-0 bg-black/50 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                      <div className="bg-white rounded-xl shadow-2xl w-full max-w-md overflow-hidden">
+                          <div className={`px-6 py-4 border-b flex justify-between items-center ${
+                              accDetailsModal.type === 'error' ? 'bg-red-50 border-red-100' :
+                              accDetailsModal.type === 'success' ? 'bg-green-50 border-green-100' :
+                              accDetailsModal.type === 'warning' ? 'bg-orange-50 border-orange-100' :
+                              'bg-blue-50 border-blue-100'
+                          }`}>
+                              <h3 className="font-bold text-lg text-gray-800">{accDetailsModal.title}</h3>
+                              <button onClick={() => setAccDetailsModal({ ...accDetailsModal, active: false })}><X className="w-5 h-5 text-gray-500"/></button>
+                          </div>
+                          
+                          <div className="p-0 max-h-[60vh] overflow-y-auto">
+                              {accDetailsModal.items.length === 0 ? (
+                                  <div className="p-8 text-center text-gray-400">No hay registros.</div>
+                              ) : (
+                                  <table className="w-full text-sm">
+                                      <thead className="bg-gray-50 text-xs text-gray-500 uppercase font-bold sticky top-0">
+                                          <tr>
+                                              <th className="px-4 py-3 text-left">Club</th>
+                                              <th className="px-4 py-3 text-center">Lote</th>
+                                              <th className="px-4 py-3 text-right">Importe</th>
+                                          </tr>
+                                      </thead>
+                                      <tbody className="divide-y divide-gray-100">
+                                          {accDetailsModal.items.map((item, idx) => (
+                                              <tr key={idx} className="hover:bg-gray-50">
+                                                  <td className="px-4 py-3 font-medium text-gray-700">{item.club}</td>
+                                                  <td className="px-4 py-3 text-center">
+                                                      <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded text-xs font-bold">
+                                                          #{item.batch}
+                                                      </span>
+                                                  </td>
+                                                  <td className="px-4 py-3 text-right font-mono font-bold">
+                                                      {item.amount.toFixed(2)}€
+                                                  </td>
+                                              </tr>
+                                          ))}
+                                      </tbody>
+                                      <tfoot className="bg-gray-50 font-bold border-t">
+                                          <tr>
+                                              <td className="px-4 py-3" colSpan="2">TOTAL</td>
+                                              <td className="px-4 py-3 text-right">
+                                                  {accDetailsModal.items.reduce((acc, i) => acc + i.amount, 0).toFixed(2)}€
+                                              </td>
+                                          </tr>
+                                      </tfoot>
+                                  </table>
+                              )}
+                          </div>
+                          
+                          <div className="p-4 border-t bg-gray-50 flex justify-end">
+                              <Button variant="secondary" onClick={() => setAccDetailsModal({ ...accDetailsModal, active: false })}>Cerrar</Button>
+                          </div>
+                      </div>
+                  </div>
+              )}
           </div>
       )}
 
@@ -4653,8 +4896,13 @@ useEffect(() => {
       {!storeConfig.isOpen && <div className="bg-red-600 text-white p-3 text-center font-bold sticky top-0 z-[60] shadow-md flex items-center justify-center gap-2"><Ban className="w-5 h-5"/>{storeConfig.closedMessage}</div>}
       <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-200" style={{top: !storeConfig.isOpen ? '48px' : '0'}}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex justify-between items-center h-16">
-            <div className="flex items-center cursor-pointer" onClick={() => setView('home')}><CompanyLogo /></div>
+          <div className="flex justify-between items-center h-32">
+            <div className="flex items-center cursor-pointer" onClick={() => setView('home')}>
+                {/* CAMBIO AQUÍ: Forzamos la imagen 'logonegro.png' */}
+                <CompanyLogo className="h-40" src="/logonegro.png" />
+            </div>
+            
+            {/* ... resto del menú de navegación (sin cambios) ... */}
             <nav className="hidden md:flex space-x-8">
               {role === 'public' && <><button onClick={() => setView('home')} className="hover:text-emerald-600 font-medium">Inicio</button><button onClick={() => setView('shop')} className="hover:text-emerald-600 font-medium">Tienda</button><button onClick={() => setView('photo-search')} className="hover:text-emerald-600 font-medium">Fotos</button><button onClick={() => setView('tracking')} className="hover:text-emerald-600 font-medium">Seguimiento</button></>}
               {role === 'club' && <button className="text-emerald-600 font-bold">Portal Club: {currentClub.name}</button>}
@@ -4696,7 +4944,7 @@ useEffect(() => {
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
         {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} modificationFee={modificationFee} setModificationFee={setModificationFee} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} />}
       </main>
-      <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-8" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
+      <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-40" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
     </div>
   );
 }

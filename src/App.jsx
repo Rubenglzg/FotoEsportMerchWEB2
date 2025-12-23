@@ -9,6 +9,7 @@ import {
   ArrowRight, Calendar, Ban, Store, Calculator, DollarSign, FileSpreadsheet,
   Layers, Archive, Globe, AlertTriangle, RefreshCw, Briefcase, RotateCcw, MoveLeft,
   Landmark, Printer, FileDown, Users, Table,
+  Hash
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -450,7 +451,7 @@ const ColorPicker = ({ selectedColor, onChange }) => {
     );
 };
 
-    // --- COMPONENTE FILA DE CLUB (COLOR A LA DERECHA DEL NOMBRE) ---
+// --- COMPONENTE FILA DE CLUB (ACTUALIZADO CON CAMBIO DE FOTO) ---
 const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     const [isEditing, setIsEditing] = useState(false);
     const [editData, setEditData] = useState({ 
@@ -461,37 +462,78 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
         commission: club.commission || 0.12 
     });
     const [showPass, setShowPass] = useState(false);
+    const [newLogo, setNewLogo] = useState(null); // Estado para el nuevo logo
 
     const handleSave = () => { 
-        updateClub({ ...club, ...editData, commission: parseFloat(editData.commission) }); 
+        // Pasamos editData y el archivo newLogo a la función updateClub
+        updateClub({ ...club, ...editData, commission: parseFloat(editData.commission) }, newLogo); 
         setIsEditing(false); 
+        setNewLogo(null);
     };
 
-    const colorInfo = AVAILABLE_COLORS.find(c => c.id === (club.color || 'white')) || AVAILABLE_COLORS[0];
+    const colorInfo = AVAILABLE_COLORS.find(c => c.id === (isEditing ? editData.color : (club.color || 'white'))) || AVAILABLE_COLORS[0];
 
     if (isEditing) {
         return (
-            <div className="bg-gray-50 p-4 rounded-xl border border-emerald-200 animate-fade-in space-y-3 mb-2">
-                <div className="flex gap-2">
-                    <input className="flex-1 border rounded px-2 py-1 text-sm" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} placeholder="Nombre" />
-                    <ColorPicker selectedColor={editData.color} onChange={(val) => setEditData({...editData, color: val})} />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
-                    <input className="border rounded px-2 py-1 text-sm" value={editData.username} onChange={e => setEditData({...editData, username: e.target.value})} placeholder="Usuario" />
-                    <div className="relative">
-                        <input type={showPass ? "text" : "password"} className="w-full border rounded px-2 py-1 text-sm pr-8" value={editData.pass} onChange={e => setEditData({...editData, pass: e.target.value})} placeholder="Contraseña" />
-                        <button onClick={() => setShowPass(!showPass)} className="absolute right-2 top-1 text-gray-400 hover:text-gray-600 transition-colors">{showPass ? <EyeOff className="w-3 h-3"/> : <Eye className="w-3 h-3"/>}</button>
+            <div className="bg-white p-5 rounded-xl border-2 border-emerald-500 shadow-lg animate-fade-in space-y-4 mb-4 relative">
+                <div className="absolute top-0 right-0 bg-emerald-500 text-white text-[10px] font-bold px-2 py-1 rounded-bl-lg uppercase">Editando Club</div>
+                
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                    {/* Columna Izquierda: Datos Básicos */}
+                    <div className="space-y-3">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Nombre del Club</label>
+                            <input className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-200 outline-none" value={editData.name} onChange={e => setEditData({...editData, name: e.target.value})} />
+                        </div>
+                        <div className="flex gap-2">
+                             <div className="flex-1">
+                                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Usuario</label>
+                                <input className="w-full border rounded-lg px-3 py-2 text-sm" value={editData.username} onChange={e => setEditData({...editData, username: e.target.value})} />
+                            </div>
+                            <div className="flex-1 relative">
+                                <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Contraseña</label>
+                                <input type={showPass ? "text" : "password"} className="w-full border rounded-lg px-3 py-2 text-sm pr-8" value={editData.pass} onChange={e => setEditData({...editData, pass: e.target.value})} />
+                                <button onClick={() => setShowPass(!showPass)} className="absolute right-2 top-7 text-gray-400 hover:text-gray-600">{showPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Columna Derecha: Configuración Visual y Eco */}
+                    <div className="space-y-3">
+                         <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Color Oficial</label>
+                            <div className="flex items-center gap-2">
+                                <ColorPicker selectedColor={editData.color} onChange={(val) => setEditData({...editData, color: val})} />
+                                <div className={`w-8 h-8 rounded-full border-2 ${colorInfo.border}`} style={{backgroundColor: colorInfo.hex}}></div>
+                            </div>
+                        </div>
+                        
+                        <div>
+                             <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Cambiar Escudo (Opcional)</label>
+                             <label className="flex items-center gap-2 px-3 py-2 border rounded-lg cursor-pointer hover:bg-gray-50 bg-white group transition-colors">
+                                <Upload className="w-4 h-4 text-emerald-600 group-hover:scale-110 transition-transform"/>
+                                <span className="text-sm text-gray-600 truncate flex-1">{newLogo ? newLogo.name : 'Subir nueva imagen...'}</span>
+                                <input type="file" className="hidden" accept="image/*" onChange={(e) => setNewLogo(e.target.files[0])} />
+                             </label>
+                        </div>
                     </div>
                 </div>
-                <div className="flex justify-between items-center">
-                    <div className="flex items-center gap-2 bg-white px-2 py-1 rounded border">
-                        <span className="text-xs text-gray-500">Comisión:</span>
-                        <input type="number" step="1" className="w-10 text-right text-sm font-bold outline-none" value={(editData.commission * 100).toFixed(0)} onChange={e => setEditData({...editData, commission: parseFloat(e.target.value) / 100})} />
-                        <span className="text-xs font-bold">%</span>
+
+                {/* Pie: Comisión y Botones */}
+                <div className="flex justify-between items-end border-t pt-4 mt-2">
+                     <div>
+                        <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Comisión Venta</label>
+                        <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded border">
+                            <input type="number" step="1" className="w-12 bg-transparent text-right text-sm font-bold outline-none" value={(editData.commission * 100).toFixed(0)} onChange={e => setEditData({...editData, commission: parseFloat(e.target.value) / 100})} />
+                            <span className="text-xs font-bold">%</span>
+                        </div>
                     </div>
+
                     <div className="flex gap-2">
-                        <Button size="xs" onClick={handleSave} className="bg-emerald-600 text-white"><Check className="w-3 h-3"/> Guardar</Button>
-                        <Button size="xs" onClick={() => setIsEditing(false)} variant="secondary">Cancelar</Button>
+                        <Button size="sm" onClick={() => setIsEditing(false)} variant="secondary">Cancelar</Button>
+                        <Button size="sm" onClick={handleSave} className="bg-emerald-600 text-white shadow-md hover:bg-emerald-700">
+                            <Save className="w-4 h-4 mr-1"/> Guardar Cambios
+                        </Button>
                     </div>
                 </div>
             </div>
@@ -499,52 +541,40 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     }
 
     return (
-        <div className={`flex justify-between items-center p-3 rounded-xl border mb-2 transition-all group ${club.blocked ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
-            <div className="flex items-center gap-4">
-                
-                {/* LOGO DEL CLUB (Limpio, sin puntos encima) */}
-                <div className="w-14 h-14 rounded-lg bg-white border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 p-1 shadow-sm">
+        <div className={`flex justify-between items-center p-4 rounded-xl border mb-3 transition-all group ${club.blocked ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
+            <div className="flex items-center gap-5">
+                {/* LOGO DEL CLUB */}
+                <div className="w-16 h-16 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 p-2 shadow-inner">
                     {club.logoUrl ? (
                         <img src={club.logoUrl} alt="Logo" className="w-full h-full object-contain" />
                     ) : (
-                        <div className="w-full h-full flex items-center justify-center font-bold text-2xl text-gray-300 bg-gray-50 rounded-md">
-                            {club.name.charAt(0)}
-                        </div>
+                        <span className="font-bold text-2xl text-gray-300">{club.name.charAt(0)}</span>
                     )}
                 </div>
 
                 <div>
-                    {/* NOMBRE + CÍRCULO DE COLOR A LA DERECHA */}
-                    <div className="flex items-center gap-2">
-                        <p className={`font-bold text-sm ${club.blocked ? 'text-red-700' : 'text-gray-800'}`}>
-                            {club.name}
-                        </p>
-                        
-                        {/* AQUÍ ESTÁ EL CÍRCULO DE COLOR */}
-                        <div 
-                            className={`w-4 h-4 rounded-full border border-gray-300 shadow-sm ${colorInfo.border}`} 
-                            style={{ backgroundColor: colorInfo.hex }}
-                            title={`Color asignado: ${colorInfo.label}`}
-                        ></div>
-
-                        {club.blocked && <Ban className="w-3 h-3 text-red-500"/>}
+                    <div className="flex items-center gap-2 mb-1">
+                        <h4 className={`font-bold text-lg ${club.blocked ? 'text-red-700 line-through' : 'text-gray-800'}`}>{club.name}</h4>
+                        <div className={`w-3 h-3 rounded-full border shadow-sm ${colorInfo.border}`} style={{ backgroundColor: colorInfo.hex }} title={`Color: ${colorInfo.label}`}></div>
+                        {club.blocked && <span className="text-[10px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-bold uppercase">Bloqueado</span>}
                     </div>
 
-                    <div className="flex gap-3 text-xs text-gray-500 mt-1">
-                        <span title="Usuario de acceso" className="flex items-center gap-1 bg-gray-100 px-1.5 rounded"><User className="w-3 h-3 text-gray-400"/> {club.username || 'Sin usuario'}</span>
-                        <span className="text-emerald-600 font-bold bg-emerald-50 px-1.5 rounded border border-emerald-100">Comisión: {(club.commission * 100).toFixed(0)}%</span>
+                    <div className="flex flex-wrap gap-3 text-xs text-gray-500">
+                        <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><User className="w-3 h-3 text-gray-400"/> {club.username}</span>
+                        <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-1 rounded font-bold">Comisión: {(club.commission * 100).toFixed(0)}%</span>
+                         <span className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-100 px-2 py-1 rounded font-bold">Lote Activo: #{club.activeGlobalOrderId || 1}</span>
                     </div>
                 </div>
             </div>
 
-            <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity md:flex md:opacity-100">
-                <button onClick={() => toggleClubBlock(club.id)} className={`p-2 rounded-lg hover:bg-gray-100 transition-colors ${club.blocked ? 'text-red-500' : 'text-gray-400 hover:text-gray-600'}`} title={club.blocked ? "Desbloquear" : "Bloquear"}>
-                    {club.blocked ? <Lock className="w-4 h-4"/> : <Unlock className="w-4 h-4"/>}
+            <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+                <button onClick={() => toggleClubBlock(club.id)} className={`p-2 rounded-lg border transition-colors ${club.blocked ? 'bg-white text-green-600 border-green-200 hover:bg-green-50' : 'bg-white text-red-400 border-red-200 hover:bg-red-50 hover:text-red-600'}`} title={club.blocked ? "Desbloquear" : "Bloquear acceso"}>
+                    {club.blocked ? <Unlock className="w-4 h-4"/> : <Lock className="w-4 h-4"/>}
                 </button>
-                <button onClick={() => setIsEditing(true)} className="p-2 rounded-lg hover:bg-emerald-50 text-gray-400 hover:text-emerald-600 transition-colors" title="Editar">
+                <button onClick={() => setIsEditing(true)} className="p-2 rounded-lg bg-white border border-gray-200 text-gray-500 hover:text-emerald-600 hover:border-emerald-300 transition-colors shadow-sm" title="Editar Club">
                     <Edit3 className="w-4 h-4"/>
                 </button>
-                <button onClick={() => deleteClub(club.id)} className="p-2 rounded-lg hover:bg-red-50 text-red-300 hover:text-red-500 transition-colors" title="Eliminar">
+                <button onClick={() => deleteClub(club.id)} className="p-2 rounded-lg bg-white border border-gray-200 text-gray-400 hover:text-red-500 hover:border-red-300 transition-colors shadow-sm" title="Eliminar Definitivamente">
                     <Trash2 className="w-4 h-4"/>
                 </button>
             </div>
@@ -552,71 +582,220 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     );
 };
 
+// --- SUSTITUIR COMPONENTE ProductEditorRow COMPLETO ---
 const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
     const [isExpanded, setIsExpanded] = useState(false);
+    
+    // Valores por defecto
     const features = product.features || { name: true, number: true, photo: true, shield: true, color: true };
     const defaults = product.defaults || { name: true, number: true, photo: false, shield: true };
     const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
-    const toggleFeature = (key) => { updateProduct({ ...product, features: { ...features, [key]: !features[key] } }); }
-    const toggleDefault = (key) => { updateProduct({ ...product, defaults: { ...defaults, [key]: !defaults[key] } }); }
-    const toggleModifiable = (key) => { updateProduct({ ...product, modifiable: { ...modifiable, [key]: !modifiable[key] } }); }
+
+    const toggleFeature = (key) => updateProduct({ ...product, features: { ...features, [key]: !features[key] } });
+    const toggleDefault = (key) => updateProduct({ ...product, defaults: { ...defaults, [key]: !defaults[key] } });
+    const toggleModifiable = (key) => updateProduct({ ...product, modifiable: { ...modifiable, [key]: !modifiable[key] } });
 
     return (
-        <div className="border-b pb-4 last:border-0">
-            <div className="flex items-center gap-3">
-                <img src={product.image} className="w-12 h-12 rounded bg-gray-100 object-cover" />
-                <div className="flex-1">
-                    <div className="flex justify-between items-start"><input className="font-bold text-sm border-b border-transparent hover:border-gray-300 focus:border-emerald-500 outline-none w-1/2" value={product.name} onChange={e => updateProduct({...product, name: e.target.value})} /><div className="flex items-center gap-2"><button onClick={() => setIsExpanded(!isExpanded)} className="text-gray-400 hover:text-emerald-600"><Settings className="w-4 h-4"/></button><button type="button" onClick={() => deleteProduct(product.id)} className="text-red-400 hover:text-red-600"><Trash2 className="w-4 h-4"/></button></div></div>
-                    <div className="flex gap-2 mt-1"><div className="flex items-center gap-1"><span className="text-[10px]">PVP:</span><input type="number" className="w-14 text-xs border rounded px-1" value={product.price} onChange={e => updateProduct({...product, price: parseFloat(e.target.value)})} /></div><div className="flex items-center gap-1"><span className="text-[10px]">Coste:</span><input type="number" className="w-14 text-xs border rounded px-1" value={product.cost} onChange={e => updateProduct({...product, cost: parseFloat(e.target.value)})} /></div></div>
+        <div className={`bg-white rounded-xl transition-all duration-300 overflow-hidden group mb-3 ${isExpanded ? 'border-2 border-emerald-500 shadow-xl ring-4 ring-emerald-50/50 z-10 transform scale-[1.01]' : 'border border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
+            
+            {/* 1. CABECERA (Siempre visible) */}
+            <div className="p-4 flex items-center gap-5 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
+                
+                {/* Miniatura */}
+                <div className="relative w-14 h-14 shrink-0 bg-gray-50 rounded-lg overflow-hidden border border-gray-100">
+                    {product.image ? (
+                        <img src={product.image} className="w-full h-full object-cover" alt="" />
+                    ) : (
+                        <div className="w-full h-full flex items-center justify-center text-gray-300"><ImageIcon className="w-6 h-6 opacity-50"/></div>
+                    )}
+                </div>
+                
+                {/* Info Texto */}
+                <div className="flex-1 min-w-0">
+                    <h4 className="font-bold text-gray-800 text-base truncate mb-1 group-hover:text-emerald-700 transition-colors">
+                        {product.name}
+                    </h4>
+                    <div className="flex items-center gap-3 text-xs text-gray-500">
+                        <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100 font-bold">
+                            PVP: {product.price.toFixed(2)}€
+                        </span>
+                        <span className="text-gray-400">
+                            Coste: {product.cost.toFixed(2)}€
+                        </span>
+                    </div>
+                </div>
+
+                {/* BOTONES ACCIÓN (A la derecha) */}
+                <div className="flex items-center gap-2 pl-3 border-l border-gray-100">
+                    {/* Botón Configurar */}
+                    <button 
+                        className={`p-2 rounded-lg transition-all ${isExpanded ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-50 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600'}`}
+                        title="Configurar"
+                    >
+                        {isExpanded ? <ChevronRight className="w-5 h-5 rotate-90"/> : <Settings className="w-5 h-5"/>}
+                    </button>
+                    
+                    {/* Botón Eliminar (Visible siempre, con stopPropagation) */}
+                    <button 
+                        onClick={(e) => { e.stopPropagation(); deleteProduct(product.id); }} 
+                        className="p-2 rounded-lg bg-white border border-transparent text-gray-300 hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-colors"
+                        title="Eliminar Producto"
+                    >
+                        <Trash2 className="w-5 h-5"/>
+                    </button>
                 </div>
             </div>
+
+            {/* 2. PANEL EXPANDIDO (CONFIGURACIÓN) */}
             {isExpanded && (
-                <div className="mt-4 bg-gray-50 p-3 rounded-lg text-xs space-y-3 animate-fade-in-down">
-                    <div><label className="block text-gray-500 font-bold mb-1">URL Imagen</label><input className="w-full border p-1 rounded" value={product.image} onChange={e => updateProduct({...product, image: e.target.value})} /></div>
-                    <div className="bg-white rounded border overflow-hidden">
-                        <div className="grid grid-cols-4 gap-2 bg-gray-100 p-2 font-bold text-gray-600 text-[10px] text-center"><div className="text-left">Opción</div><div>Disponible</div><div>Por Defecto</div><div>Modificable</div></div>
-                        {['name', 'number', 'shield', 'photo'].map(k => (
-                            <div key={k} className="grid grid-cols-4 gap-2 p-2 border-t items-center text-center">
-                                <div className="text-left font-medium capitalize">{k === 'shield' ? 'Escudo' : k === 'number' ? 'Dorsal' : k === 'photo' ? 'Foto' : 'Nombre'}</div>
+                <div className="bg-gray-50/80 border-t border-gray-100 p-6 animate-fade-in-down">
+                    
+                    {/* SECCIÓN SUPERIOR: IMAGEN Y DATOS BÁSICOS */}
+                    <div className="flex flex-col md:flex-row gap-8 mb-8">
+                        
+                        {/* A. IMAGEN GRANDE */}
+                        <div className="w-full md:w-56 shrink-0 flex flex-col gap-3">
+                            <div className="w-full h-56 bg-white rounded-xl border border-gray-200 shadow-sm p-2 flex items-center justify-center relative overflow-hidden group/img">
+                                {product.image ? (
+                                    <img src={product.image} className="w-full h-full object-contain" alt="" />
+                                ) : (
+                                    <ImageIcon className="w-16 h-16 text-gray-200"/>
+                                )}
+                            </div>
+                            
+                            <label className="w-full cursor-pointer flex items-center justify-center gap-2 bg-emerald-600 text-white hover:bg-emerald-700 py-2.5 rounded-lg font-bold text-xs shadow-md transition-all active:scale-95">
+                                <Upload className="w-4 h-4"/>
+                                <span>Cambiar Imagen</span>
+                                <input 
+                                    type="file" 
+                                    className="hidden" 
+                                    accept="image/*" 
+                                    onChange={(e) => {
+                                        const file = e.target.files[0];
+                                        if(file) updateProduct(product, file); 
+                                    }} 
+                                />
+                            </label>
+                        </div>
+
+                        {/* B. INPUTS DE TEXTO (Al lado de la imagen) */}
+                        <div className="flex-1 space-y-5">
+                            <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Nombre del Producto</label>
+                                    <input 
+                                        className="w-full border-b-2 border-gray-100 focus:border-emerald-500 outline-none py-2 font-bold text-gray-800 text-lg bg-transparent transition-colors placeholder-gray-300"
+                                        value={product.name} 
+                                        onChange={(e) => updateProduct({...product, name: e.target.value})}
+                                        placeholder="Ej. Taza Personalizada"
+                                    />
+                                </div>
                                 
-                                {/* COLUMNA 1: DISPONIBLE (Oculta para Foto) */}
-                                <div className="flex justify-center">
-                                    {k !== 'photo' && (
-                                        <input type="checkbox" checked={features[k]} onChange={() => toggleFeature(k)} className="accent-emerald-600" />
-                                    )}
-                                </div>
-
-                                {/* COLUMNA 2: POR DEFECTO (Única casilla para Foto) */}
-                                <div className="flex justify-center">
-                                    {k === 'photo' ? (
-                                        // LÓGICA ESPECIAL FOTO: Esta casilla activa la característica Y la pone por defecto a la vez
-                                        <input 
-                                            type="checkbox" 
-                                            checked={features[k]} 
-                                            onChange={() => {
-                                                const newVal = !features[k];
-                                                updateProduct({ 
-                                                    ...product, 
-                                                    features: { ...features, [k]: newVal }, // Activa/Desactiva la característica
-                                                    defaults: { ...defaults, [k]: newVal }, // Fuerza que esté marcada por defecto
-                                                    modifiable: { ...modifiable, [k]: false } // Fuerza que NO sea modificable (candado cerrado implícito)
-                                                }); 
-                                            }} 
-                                            className="accent-blue-500" 
-                                        />
-                                    ) : (
-                                        <input type="checkbox" checked={defaults[k]} onChange={() => toggleDefault(k)} disabled={!features[k]} className="accent-blue-500 disabled:opacity-30" />
-                                    )}
-                                </div>
-
-                                {/* COLUMNA 3: MODIFICABLE (Oculta para Foto) */}
-                                <div className="flex justify-center">
-                                    {k !== 'photo' && (
-                                        <button onClick={() => toggleModifiable(k)} disabled={!features[k]} className={`p-1 rounded ${!features[k] ? 'opacity-30' : ''} ${modifiable[k] ? 'text-green-600 bg-green-50' : 'text-red-600 bg-red-50'}`}>{modifiable[k] ? <Unlock className="w-3 h-3"/> : <Lock className="w-3 h-3"/>}</button>
-                                    )}
+                                <div className="grid grid-cols-2 gap-5 pt-2">
+                                    <div>
+                                        <label className="text-[10px] font-bold text-emerald-600 uppercase mb-1 block">Precio Venta (PVP)</label>
+                                        <div className="relative">
+                                            <input type="number" step="0.5" className="w-full bg-emerald-50/50 border border-emerald-100 rounded-lg py-2 pl-3 pr-8 text-sm font-bold text-emerald-800 focus:ring-2 focus:ring-emerald-200 outline-none" value={product.price} onChange={e => updateProduct({...product, price: parseFloat(e.target.value)})} />
+                                            <span className="absolute right-3 top-2 text-emerald-600 text-xs font-bold">€</span>
+                                        </div>
+                                    </div>
+                                    <div>
+                                        <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Coste Producción</label>
+                                        <div className="relative">
+                                            <input type="number" step="0.5" className="w-full bg-gray-50 border border-gray-200 rounded-lg py-2 pl-3 pr-8 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-gray-200 outline-none" value={product.cost} onChange={e => updateProduct({...product, cost: parseFloat(e.target.value)})} />
+                                            <span className="absolute right-3 top-2 text-gray-400 text-xs font-bold">€</span>
+                                        </div>
+                                    </div>
                                 </div>
                             </div>
-                        ))}
+                            
+                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-800 text-xs flex items-start gap-3">
+                                <AlertCircle className="w-5 h-5 shrink-0 text-blue-500"/>
+                                <p>Recuerda: Los cambios en el nombre o precio se aplicarán inmediatamente a los nuevos pedidos. La configuración de abajo determina qué puede personalizar el cliente.</p>
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* SECCIÓN INFERIOR: TABLA DE PERSONALIZACIÓN (ANCHO COMPLETO) */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                        <div className="bg-gray-100 px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+                            <span className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
+                                <Settings className="w-4 h-4"/> Reglas de Personalización
+                            </span>
+                            
+                            {/* Leyenda pequeña */}
+                            <div className="hidden md:flex gap-8 pr-4 opacity-60">
+                                <span className="text-[9px] font-bold uppercase w-12 text-center">Activo</span>
+                                <span className="text-[9px] font-bold uppercase w-12 text-center">Defecto</span>
+                                <span className="text-[9px] font-bold uppercase w-12 text-center">Cliente</span>
+                            </div>
+                        </div>
+
+                        <div className="divide-y divide-gray-50">
+                            {['name', 'number', 'shield', 'photo'].map(k => (
+                                <div key={k} className="flex flex-col md:flex-row md:items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors gap-4 md:gap-0">
+                                    
+                                    {/* Nombre Característica */}
+                                    <div className="flex items-center gap-4">
+                                        <div className={`p-2 rounded-lg shadow-sm ${features[k] ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
+                                            {k === 'name' && <FileText className="w-5 h-5"/>}
+                                            {k === 'number' && <Hash className="w-5 h-5"/>}
+                                            {k === 'shield' && <ShieldCheck className="w-5 h-5"/>}
+                                            {k === 'photo' && <ImageIcon className="w-5 h-5"/>}
+                                        </div>
+                                        <div>
+                                            <p className={`text-sm font-bold capitalize ${features[k] ? 'text-gray-800' : 'text-gray-400'}`}>
+                                                {k === 'shield' ? 'Escudo Club' : k === 'number' ? 'Dorsal' : k === 'photo' ? 'Foto Jugador' : 'Nombre'}
+                                            </p>
+                                            <p className="text-[10px] text-gray-400 hidden md:block">
+                                                {k === 'photo' ? 'Permite subir foto personal' : 'Campo de texto o selección'}
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    {/* Controles de la Tabla */}
+                                    <div className="flex justify-between md:justify-end md:gap-8 w-full md:w-auto pr-2 bg-gray-50 md:bg-transparent p-2 md:p-0 rounded-lg">
+                                        {/* 1. Activo */}
+                                        <div className="flex flex-col items-center gap-1 w-16">
+                                            <span className="md:hidden text-[9px] font-bold uppercase text-gray-400">Activo</span>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={features[k]} 
+                                                onChange={() => toggleFeature(k)} 
+                                                className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                            />
+                                        </div>
+
+                                        {/* 2. Default */}
+                                        <div className="flex flex-col items-center gap-1 w-16">
+                                            <span className="md:hidden text-[9px] font-bold uppercase text-gray-400">Default</span>
+                                            <input 
+                                                type="checkbox" 
+                                                checked={defaults[k]} 
+                                                onChange={() => toggleDefault(k)} 
+                                                disabled={!features[k]} 
+                                                className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:opacity-20"
+                                            />
+                                        </div>
+
+                                        {/* 3. Editable */}
+                                        <div className="flex flex-col items-center gap-1 w-16">
+                                            <span className="md:hidden text-[9px] font-bold uppercase text-gray-400">Edit</span>
+                                            <button 
+                                                onClick={() => toggleModifiable(k)} 
+                                                disabled={!features[k]}
+                                                className={`transition-colors p-0.5 rounded ${!features[k] ? 'opacity-20' : ''}`}
+                                            >
+                                                {modifiable[k] ? 
+                                                    <Unlock className="w-5 h-5 text-emerald-500"/> : 
+                                                    <Lock className="w-5 h-5 text-red-400"/>
+                                                }
+                                            </button>
+                                        </div>
+                                    </div>
+                                </div>
+                            ))}
+                        </div>
                     </div>
                 </div>
             )}
@@ -857,24 +1036,29 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const [availableCategories, setAvailableCategories] = useState([]);
 
   // --- NUEVO: Cargar categorías desde Storage cuando cambia el club ---
-  useEffect(() => {
-      const fetchCategories = async () => {
-          if (customization.clubId) {
-              try {
-                  const clubRef = ref(storage, customization.clubId);
-                  const res = await listAll(clubRef);
-                  // Guardamos los nombres de las carpetas
-                  setAvailableCategories(res.prefixes.map(p => p.name));
-              } catch (error) {
-                  console.error("Error cargando categorías:", error);
-                  setAvailableCategories([]);
-              }
-          } else {
-              setAvailableCategories([]);
-          }
-      };
-      fetchCategories();
-  }, [customization.clubId]);
+    useEffect(() => {
+        const fetchCategories = async () => {
+            if (customization.clubId) {
+                try {
+                    // BUSCAMOS EL OBJETO CLUB COMPLETO
+                    const club = clubs.find(c => c.id === customization.clubId);
+                    const rootFolder = club ? club.name : customization.clubId;
+                    if (club) {
+                        // Usamos club.name
+                        const clubRef = ref(storage, club.name); // <--- CAMBIO
+                        const res = await listAll(clubRef);
+                        setAvailableCategories(res.prefixes.map(p => p.name));
+                    }
+                } catch (error) {
+                    console.error("Error cargando categorías:", error);
+                    setAvailableCategories([]);
+                }
+            } else {
+                setAvailableCategories([]);
+            }
+        };
+        fetchCategories();
+    }, [customization.clubId, clubs]); // Añadir clubs a dependencias
 
   // Sugerencias de Categorías
   const categorySuggestions = useMemo(() => {
@@ -1134,23 +1318,23 @@ function PhotoSearchView({ clubs }) {
 
   // 1. Efecto para cargar categorías reales cuando eliges un club
   useEffect(() => {
-      const fetchCategories = async () => {
-          if (selectedClub) {
-              try {
-                  const clubRef = ref(storage, selectedClub.id);
-                  const res = await listAll(clubRef);
-                  // Guardamos los nombres de las carpetas (prefixes)
-                  setClubCategories(res.prefixes.map(folderRef => folderRef.name));
-              } catch (error) {
-                  console.error("Error cargando categorías:", error);
-                  setClubCategories([]);
-              }
-          } else {
-              setClubCategories([]);
-          }
-      };
-      fetchCategories();
-  }, [selectedClub]);
+        const fetchCategories = async () => {
+            if (selectedClub) {
+                try {
+                    // selectedClub ya es el objeto entero, usamos .name
+                    const clubRef = ref(storage, selectedClub.name); // <--- CAMBIO (antes selectedClub.id)
+                    const res = await listAll(clubRef);
+                    setClubCategories(res.prefixes.map(folderRef => folderRef.name));
+                } catch (error) {
+                    console.error("Error cargando categorías:", error);
+                    setClubCategories([]);
+                }
+            } else {
+                setClubCategories([]);
+            }
+        };
+        fetchCategories();
+    }, [selectedClub]);
 
   // Sugerencias Clubs
   const clubSuggestions = useMemo(() => { 
@@ -1207,7 +1391,7 @@ function PhotoSearchView({ clubs }) {
           const normSearchDorsal = normalizeText(search.number);
 
           // 2. Referencia a la carpeta seleccionada
-          const folderRef = ref(storage, `${selectedClub.id}/${search.category}`);
+          const folderRef = ref(storage, `${selectedClub.name}/${search.category}`);
           
           // 3. Listar archivos
           const res = await listAll(folderRef);
@@ -1493,7 +1677,12 @@ const FilesManager = ({ clubs }) => {
     const loadCategories = async (clubId) => {
         setLoading(true);
         try {
-            const clubRef = ref(storage, clubId);
+            // BUSCAMOS EL CLUB POR ID PARA OBTENER SU NOMBRE
+            const club = clubs.find(c => c.id === clubId);
+            // Usamos el nombre si existe, si no el ID por seguridad
+            const rootFolder = club ? club.name : clubId;
+            
+            const clubRef = ref(storage, rootFolder); // <--- CAMBIO AQUÍ
             const res = await listAll(clubRef);
             setItems(res.prefixes);
             setLevel('categories');
@@ -1508,6 +1697,17 @@ const FilesManager = ({ clubs }) => {
     const loadPhotos = async (categoryRef) => {
         setLoading(true);
         try {
+            // categoryRef ya viene de la lista anterior, pero si necesitamos reconstruirlo:
+            // const storagePath = `${selectedClub.name}/${selectedCategory}`;
+            // En este caso, 'categoryRef' que viene de listAll ya trae la ruta correcta (nombre/categoria)
+            // así que NO suele hacer falta cambiar nada aquí si 'loadCategories' ya usó el nombre.
+            
+            // PERO por seguridad, si usabas ref textual manual en algún sitio:
+            // const photosRef = ref(storage, `${selectedClub.name}/${selectedCategory}`);
+            
+            // El código original usaba 'res = await listAll(categoryRef)', eso sigue funcionando bien 
+            // porque categoryRef es hijo de la referencia creada en loadCategories.
+            
             const res = await listAll(categoryRef);
             const photosWithUrls = await Promise.all(res.items.map(async (itemRef) => {
                 const url = await getDownloadURL(itemRef);
@@ -1536,6 +1736,7 @@ const FilesManager = ({ clubs }) => {
                 const file = filesArray[i];
                 let targetFolderName = '';
 
+                // ... lógica de carpetas smart/single igual ...
                 if (uploadMode === 'smart') {
                     const pathParts = file.webkitRelativePath.split('/');
                     if (pathParts.length >= 2) {
@@ -1548,7 +1749,10 @@ const FilesManager = ({ clubs }) => {
                 }
 
                 const cleanFolderName = targetFolderName.trim().replace(/\s+/g, '_');
-                const finalPath = `${selectedClub.id}/${cleanFolderName}/${file.name}`;
+                
+                // --- CAMBIO IMPORTANTE AQUÍ ---
+                // Usamos selectedClub.name en lugar de selectedClub.id
+                const finalPath = `${selectedClub.name}/${cleanFolderName}/${file.name}`; 
                 
                 if (!file.name.startsWith('.')) {
                     const fileRef = ref(storage, finalPath);
@@ -1558,15 +1762,17 @@ const FilesManager = ({ clubs }) => {
 
                 setUploadProgress(prev => ({ ...prev, current: i + 1 }));
             }
-
-            alert(`¡Proceso terminado! ${successCount} archivos subidos.`);
-            setIsUploading(false);
-            setUploadFiles([]);
-            setUploadProgress({ current: 0, total: 0 });
-
+            
+            // ... resto de la función (alert, limpieza, recarga) ...
+            // Al recargar, asegúrate de usar el ID que loadCategories transformará a nombre internamente:
             if (level === 'categories') loadCategories(selectedClub.id);
-            else if (level === 'files') loadPhotos(ref(storage, `${selectedClub.id}/${selectedCategory}`));
-            else loadCategories(selectedClub.id);
+            else if (level === 'files') {
+                // Aquí sí debemos construir la referencia manualmente si recargamos directo
+                const photosRef = ref(storage, `${selectedClub.name}/${selectedCategory}`);
+                loadPhotos(photosRef);
+            } else {
+                loadCategories(selectedClub.id);
+            }
 
         } catch (error) {
             console.error("Error subida:", error);
@@ -2128,28 +2334,38 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
       // Tabla Financiera (ACTUALIZADA con comisión individual)
       const clubFinancials = clubs.map(club => {
-          const clubOrders = financialOrders.filter(o => o.clubId === club.id);
-          let grossSales = 0;
-          let supplierCost = 0;
-          
-          clubOrders.forEach(order => {
-              grossSales += order.total;
-              const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
-              const incidentCost = order.incidents?.reduce((sum, inc) => sum + (inc.cost || 0), 0) || 0;
-              supplierCost += (orderCost + incidentCost);
-          });
+        const clubOrders = financialOrders.filter(o => o.clubId === club.id);
+        let grossSales = 0;
+        let supplierCost = 0;
+        let gatewayCost = 0; // NUEVA VARIABLE ACUMULADORA
 
-          // USAR LA COMISIÓN INDIVIDUAL DEL CLUB (O 12% SI NO TIENE)
-          const currentClubCommission = club.commission !== undefined ? club.commission : 0.12;
-          
-          const commClub = grossSales * currentClubCommission;
-          const commCommercial = grossSales * financialConfig.commercialCommissionPct; // Esta sigue siendo global
-          const netIncome = grossSales - supplierCost - commClub - commCommercial;
+        clubOrders.forEach(order => {
+            grossSales += order.total;
+            const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
+            const incidentCost = order.incidents?.reduce((sum, inc) => sum + (inc.cost || 0), 0) || 0;
+            supplierCost += (orderCost + incidentCost);
 
-          return {
-              id: club.id, name: club.name, ordersCount: clubOrders.length,
-              grossSales, supplierCost, commClub, commCommercial, netIncome
-          };
+            // CÁLCULO GASTO PASARELA
+            // Si no tiene método definido, asumimos tarjeta ('card')
+            if ((order.paymentMethod || 'card') === 'card') {
+                const fee = (order.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee;
+                gatewayCost += fee;
+            }
+        });
+
+        const currentClubCommission = club.commission !== undefined ? club.commission : 0.12;
+        const commClub = grossSales * currentClubCommission;
+        const commCommercial = grossSales * financialConfig.commercialCommissionPct; 
+        
+        // RESTAR GASTO DE PASARELA AL NETO
+        const netIncome = grossSales - supplierCost - commClub - commCommercial - gatewayCost;
+
+        return {
+            id: club.id, name: club.name, ordersCount: clubOrders.length,
+            grossSales, supplierCost, commClub, commCommercial, 
+            gatewayCost, // RETORNAR ESTE VALOR
+            netIncome
+        };
       }).sort((a, b) => b.grossSales - a.grossSales);
 
       return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, clubFinancials };
@@ -2203,6 +2419,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   const globalAccountingStats = useMemo(() => {
       const stats = {
         cardTotal: 0,
+        cardFees: 0,
         cash: { collected: 0, pending: 0, listPending: [], listCollected: [] },
         supplier: { paid: 0, pending: 0, listPending: [], listPaid: [] },
         commercial: { paid: 0, pending: 0, listPending: [], listPaid: [] },
@@ -2226,8 +2443,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
             const currentClubComm = club.commission !== undefined ? club.commission : 0.12; 
             const commClub = totalBatch * currentClubComm;
 
+            // CALCULAR COMISIÓN TARJETA EN ESTE LOTE
+            const fees = cardOrders.reduce((sum, o) => {
+                return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+            }, 0);
+
             // ACUMULADORES
             stats.cardTotal += cardTotal;
+            stats.cardFees += fees;
 
             const cashVal = cashTotal + (log.cashUnder || 0) - (log.cashOver || 0);
             if (log.cashCollected) {
@@ -2922,163 +3145,280 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
         ))}
       </div>
 
+{/* --- PESTAÑA DE GESTIÓN (ADMIN DASHBOARD) --- */}
 {tab === 'management' && (
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-8">
-              {/* COLUMNA IZQUIERDA: TIENDA Y PRODUCTOS */}
-              <div className="bg-white p-6 rounded-xl shadow h-fit space-y-6">
-                  {/* Configuración Tienda */}
-                  <div className={`p-4 rounded-lg border ${storeConfig.isOpen ? 'bg-emerald-50 border-emerald-100' : 'bg-red-50 border-red-100'}`}>
-                      <div className="flex justify-between items-center mb-2">
-                          <h4 className={`font-bold ${storeConfig.isOpen ? 'text-emerald-800' : 'text-red-800'}`}>Tienda Global</h4>
-                          <button onClick={() => setStoreConfig({...storeConfig, isOpen: !storeConfig.isOpen})} className={`px-3 py-1 rounded-full text-xs font-bold ${storeConfig.isOpen ? 'bg-emerald-200 text-emerald-800' : 'bg-red-200 text-red-800'}`}>
-                              {storeConfig.isOpen ? 'ABIERTA' : 'CERRADA'}
-                          </button>
-                      </div>
-                      {!storeConfig.isOpen && <input className="w-full text-xs border p-1 rounded" value={storeConfig.closedMessage} onChange={e => setStoreConfig({...storeConfig, closedMessage: e.target.value})} placeholder="Mensaje..."/>}
-                  </div>
+    <div className="space-y-8 animate-fade-in">
+        
+        {/* 1. FILA SUPERIOR: CONFIGURACIONES GLOBALES */}
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            
+            {/* A) ESTADO DE LA TIENDA */}
+            <div className={`rounded-xl shadow-sm border p-5 flex items-center justify-between transition-all ${storeConfig.isOpen ? 'bg-white border-emerald-200' : 'bg-red-50 border-red-200'}`}>
+                <div className="flex items-center gap-4">
+                    <div className={`p-3 rounded-full ${storeConfig.isOpen ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
+                        {storeConfig.isOpen ? <Store className="w-6 h-6"/> : <Ban className="w-6 h-6"/>}
+                    </div>
+                    <div>
+                        <h4 className="font-bold text-gray-800">Estado de la Tienda</h4>
+                        <p className={`text-xs font-medium ${storeConfig.isOpen ? 'text-emerald-600' : 'text-red-500'}`}>
+                            {storeConfig.isOpen ? 'Abierta al público' : 'Cerrada por mantenimiento'}
+                        </p>
+                        {!storeConfig.isOpen && (
+                            <input 
+                                className="mt-2 text-xs border border-red-200 p-1.5 rounded w-full bg-white text-red-800 placeholder-red-300 focus:outline-none" 
+                                value={storeConfig.closedMessage} 
+                                onChange={e => setStoreConfig({...storeConfig, closedMessage: e.target.value})} 
+                                placeholder="Mensaje de cierre..."
+                            />
+                        )}
+                    </div>
+                </div>
+                
+                {/* Switch Interruptor */}
+                <button 
+                    onClick={() => setStoreConfig({...storeConfig, isOpen: !storeConfig.isOpen})}
+                    className={`relative w-14 h-8 rounded-full transition-colors duration-300 shadow-inner ${storeConfig.isOpen ? 'bg-emerald-500' : 'bg-gray-300'}`}
+                >
+                    <div className={`absolute top-1 left-1 bg-white w-6 h-6 rounded-full shadow transition-transform duration-300 ${storeConfig.isOpen ? 'translate-x-6' : 'translate-x-0'}`}/>
+                </button>
+            </div>
 
-                  {/* Configuración Financiera Global */}
-                  <div className="p-4 rounded-lg border bg-blue-50 border-blue-100">
-                      <h4 className="font-bold text-blue-800 mb-2 flex items-center gap-2">
-                          <Banknote className="w-4 h-4"/> Configuración Comercial
-                      </h4>
-                      <div className="flex items-center justify-between">
-                          <label className="text-sm text-blue-700">Comisión Comercial Global</label>
-                          <div className="flex items-center relative w-20">
-                              <input 
-                                  type="number" 
-                                  className="w-full border-blue-200 rounded p-1 text-right pr-6 font-bold text-blue-900 bg-white"
-                                  value={(financialConfig.commercialCommissionPct * 100).toFixed(0)}
-                                  onChange={(e) => {
-                                      // Actualizamos en Firebase directamente la configuración global
-                                      setFinancialConfig(prev => ({...prev, commercialCommissionPct: parseFloat(e.target.value)/100}));
-                                      // Nota: Esto actualiza el estado local, más abajo en App.jsx conectaremos la función de guardado
-                                  }}
-                                  onBlur={() => updateFinancialConfig(financialConfig)} // Función que pasaremos desde App
-                              />
-                              <span className="absolute right-2 text-blue-400 text-xs font-bold">%</span>
-                          </div>
-                      </div>
-                      <p className="text-[10px] text-blue-600 mt-2">
-                          * Esta comisión se aplica a todas las ventas de todos los clubes.
-                      </p>
-                  </div>
+            {/* B) CONFIGURACIÓN FINANCIERA */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
+                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                    <Banknote className="w-5 h-5 text-blue-600"/>
+                    <h4 className="font-bold text-gray-800 text-sm uppercase">Configuración Financiera</h4>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-6">
+                    {/* Comisión Comercial */}
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Comisión Web Global</label>
+                        <div className="relative">
+                            <input 
+                                type="number" 
+                                className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 focus:border-blue-500 outline-none bg-gray-50 focus:bg-white transition-colors"
+                                value={(financialConfig.commercialCommissionPct * 100).toFixed(0)}
+                                onChange={(e) => setFinancialConfig(prev => ({...prev, commercialCommissionPct: parseFloat(e.target.value)/100}))}
+                                onBlur={() => updateFinancialConfig(financialConfig)}
+                            />
+                            <span className="absolute right-2 top-2 text-gray-400 font-bold text-sm">%</span>
+                        </div>
+                    </div>
 
-                  {/* Productos */}
-                  <div>
-                      <div className="flex justify-between items-center mb-4"><h3 className="font-bold text-lg">Productos</h3><Button size="sm" onClick={addProduct}><Plus className="w-4 h-4"/></Button></div>
-                      <div className="space-y-4 max-h-[400px] overflow-y-auto pr-2 custom-scrollbar">{products.map(p => <ProductEditorRow key={p.id} product={p} updateProduct={updateProduct} deleteProduct={deleteProduct} />)}</div>
-                  </div>
-              </div>
+                    {/* Costes Pasarela */}
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Coste Pasarela (Var + Fijo)</label>
+                        <div className="flex gap-2">
+                            <div className="relative flex-1">
+                                <input 
+                                    type="number" step="0.1"
+                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-5 font-bold text-gray-800 text-xs focus:border-blue-500 outline-none"
+                                    value={(financialConfig.gatewayPercentFee * 100).toFixed(1)}
+                                    onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayPercentFee: parseFloat(e.target.value)/100}))}
+                                    onBlur={() => updateFinancialConfig(financialConfig)}
+                                />
+                                <span className="absolute right-1 top-2 text-gray-400 font-bold text-[10px]">%</span>
+                            </div>
+                            <div className="relative flex-1">
+                                <input 
+                                    type="number" step="0.01"
+                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-4 font-bold text-gray-800 text-xs focus:border-blue-500 outline-none"
+                                    value={financialConfig.gatewayFixedFee}
+                                    onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayFixedFee: parseFloat(e.target.value)}))}
+                                    onBlur={() => updateFinancialConfig(financialConfig)}
+                                />
+                                <span className="absolute right-1 top-2 text-gray-400 font-bold text-[10px]">€</span>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
 
-              {/* COLUMNA DERECHA: SOLO CLUBES */}
-              <div className="space-y-8">
-                  <div className="bg-white p-6 rounded-xl shadow h-fit">
-                      <div>
-                          <h3 className="font-bold mb-4 text-lg">Clubes</h3>
-                          
-                          {/* --- NUEVO FORMULARIO DE CREACIÓN DE CLUB (CON SHOW PASS) --- */}
-                          {/* Necesitamos un estado local para esto, asegúrate de definirlo al inicio del AdminDashboard */}
-                          {/* const [showNewClubPass, setShowNewClubPass] = useState(false);  <-- AÑADIR ESTO ARRIBA */}
-                          
-                          <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mb-6 space-y-3 shadow-sm">
-                              <h4 className="text-xs font-bold text-gray-500 uppercase flex items-center gap-2">
-                                  <Plus className="w-3 h-3"/> Nuevo Club
-                              </h4>
-                              
-                              <div className="grid grid-cols-2 gap-3">
-                                  {/* Nombre */}
-                                  <div className="col-span-2">
-                                      <input id="newClubName" placeholder="Nombre Oficial del Club" className="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-200 outline-none" />
-                                  </div>
+        {/* 2. FILA PRINCIPAL: PRODUCTOS Y CLUBES (DIVIDIDO 50/50 en pantallas grandes) */}
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
+            
+            {/* COLUMNA IZQUIERDA: CATÁLOGO DE PRODUCTOS */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col min-h-[600px] overflow-hidden">
+                {/* Cabecera Productos */}
+                <div className="px-6 py-5 bg-gradient-to-r from-gray-50 via-white to-gray-50 border-b border-gray-100 flex justify-between items-center sticky top-0 z-10">
+                    <div>
+                        <h4 className="font-black text-gray-800 text-lg flex items-center gap-2 tracking-tight">
+                            <Package className="w-6 h-6 text-emerald-600"/>
+                            Catálogo Base
+                        </h4>
+                        <p className="text-xs text-gray-500 font-medium mt-1 ml-8">Inventario y precios globales.</p>
+                    </div>
+                    <button 
+                        onClick={addProduct} 
+                        className="bg-gray-900 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-lg shadow-gray-200 transition-all active:scale-95 flex items-center gap-2"
+                    >
+                        <Plus className="w-4 h-4"/> <span className="text-xs font-bold">Crear</span>
+                    </button>
+                </div>
 
-                                  {/* Usuario */}
-                                  <div>
-                                      <input id="newClubUser" placeholder="Usuario Acceso" className="w-full border rounded px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-200 outline-none" />
-                                  </div>
+                {/* Lista Productos */}
+                <div className="flex-1 overflow-y-auto p-5 bg-gray-50/50 custom-scrollbar space-y-4">
+                    {products.length === 0 ? (
+                        <div className="h-64 flex flex-col items-center justify-center text-gray-400 opacity-60">
+                            <Package className="w-16 h-16 text-gray-300 mb-2"/>
+                            <p className="font-bold text-sm">Catálogo vacío</p>
+                        </div>
+                    ) : (
+                        products.map(p => (
+                            <ProductEditorRow key={p.id} product={p} updateProduct={updateProduct} deleteProduct={deleteProduct} />
+                        ))
+                    )}
+                </div>
+            </div>
 
-                                  {/* Contraseña con Ojo */}
-                                  <div className="relative">
-                                      <input 
-                                          id="newClubPass" 
-                                          placeholder="Contraseña" 
-                                          type={showNewClubPass ? "text" : "password"} // <--- AQUÍ ESTÁ EL CAMBIO
-                                          className="w-full border rounded px-3 py-2 text-sm pr-8 focus:ring-2 focus:ring-emerald-200 outline-none" 
-                                      />
-                                      <button 
-                                          type="button"
-                                          onClick={() => setShowNewClubPass(!showNewClubPass)} 
-                                          className="absolute right-2 top-2.5 text-gray-400 hover:text-gray-600 transition-colors"
-                                      >
-                                          {showNewClubPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
-                                      </button>
-                                  </div>
+            {/* COLUMNA DERECHA: GESTIÓN DE CLUBES */}
+            <div className="space-y-6">
+                
+                {/* A) Formulario Crear Club (ESTILO PASTEL) */}
+                <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-blue-50 rounded-2xl shadow-sm border border-indigo-100 p-6 relative overflow-hidden">
+                    
+                    {/* Decoración Fondo Sutil */}
+                    <div className="absolute -top-20 -right-20 w-64 h-64 bg-white rounded-full blur-3xl opacity-60 pointer-events-none"></div>
+                    
+                    <div className="flex items-center gap-4 mb-6 relative z-10">
+                        <div className="bg-white p-3 rounded-xl shadow-sm border border-indigo-50 text-indigo-600">
+                            <Users className="w-6 h-6"/>
+                        </div>
+                        <div>
+                            <h3 className="text-lg font-extrabold text-indigo-900 leading-tight">Alta de Nuevo Club</h3>
+                            <p className="text-xs text-indigo-400 font-medium">Registra una nueva entidad en el sistema</p>
+                        </div>
+                    </div>
 
-                                  {/* Color y Logo */}
-                                  <div className="flex items-center gap-2 bg-white p-1 rounded border">
-                                      <span className="text-xs text-gray-400 pl-1">Color:</span>
-                                      <ColorPicker selectedColor={newClubColor} onChange={setNewClubColor} />
-                                  </div>
-                                  
-                                  <div className="flex items-center gap-2 overflow-hidden">
-                                      <label className="cursor-pointer bg-white border border-gray-300 text-gray-600 px-3 py-2 rounded text-xs flex items-center gap-2 hover:bg-gray-50 w-full truncate transition-colors hover:border-emerald-300">
-                                          <Upload className="w-3 h-3"/> 
-                                          <span id="fileNameDisplay" className="truncate">Subir Escudo</span>
-                                          <input 
-                                              type="file" 
-                                              id="newClubLogo" 
-                                              className="hidden" 
-                                              accept="image/*"
-                                              onChange={(e) => {
-                                                  const name = e.target.files[0]?.name;
-                                                  if(name) document.getElementById('fileNameDisplay').innerText = name;
-                                              }}
-                                          />
-                                      </label>
-                                  </div>
-                              </div>
+                    <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 border border-white shadow-sm relative z-10">
+                        <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
+                            
+                            {/* Logo Upload (Estilo Suave) */}
+                            <div className="md:col-span-3 flex flex-col items-center">
+                                <label className="w-full aspect-square rounded-xl bg-indigo-50/50 border-2 border-dashed border-indigo-200 flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-300 transition-all relative overflow-hidden group">
+                                    <Upload className="w-6 h-6 text-indigo-300 mb-1 group-hover:scale-110 transition-transform group-hover:text-indigo-500"/>
+                                    <span id="fileNameDisplay" className="text-[9px] text-indigo-400 font-bold uppercase text-center leading-tight px-1 group-hover:text-indigo-600">Subir<br/>Escudo</span>
+                                    <input 
+                                        type="file" 
+                                        id="newClubLogo" 
+                                        className="hidden" 
+                                        accept="image/*"
+                                        onChange={(e) => {
+                                            const file = e.target.files[0];
+                                            if(file) {
+                                                const reader = new FileReader();
+                                                reader.onload = (ev) => {
+                                                    const img = document.createElement('img');
+                                                    img.src = ev.target.result;
+                                                    img.className = "absolute inset-0 w-full h-full object-contain bg-white p-1 rounded-lg";
+                                                    e.target.parentElement.appendChild(img);
+                                                };
+                                                reader.readAsDataURL(file);
+                                            }
+                                        }}
+                                    />
+                                </label>
+                            </div>
 
-                              <Button 
-                                  className="w-full shadow-sm bg-emerald-600 hover:bg-emerald-700 text-white font-bold py-2"
-                                  onClick={() => { 
-                                      const nameFn = document.getElementById('newClubName');
-                                      const userFn = document.getElementById('newClubUser');
-                                      const passFn = document.getElementById('newClubPass');
-                                      const fileFn = document.getElementById('newClubLogo');
-                                      
-                                      if(nameFn.value && userFn.value && passFn.value) {
-                                          createClub({
-                                              name: nameFn.value, 
-                                              code: nameFn.value.slice(0,3).toUpperCase(),
-                                              username: userFn.value,
-                                              pass: passFn.value,
-                                              color: newClubColor
-                                          }, fileFn.files[0]);
-                                          
-                                          // Limpiar
-                                          nameFn.value = ''; userFn.value = ''; passFn.value = ''; fileFn.value = '';
-                                          document.getElementById('fileNameDisplay').innerText = 'Subir Escudo';
-                                          setNewClubColor('white');
-                                          setShowNewClubPass(false); // Resetear visibilidad
-                                      } else {
-                                          alert("Por favor rellena Nombre, Usuario y Contraseña");
-                                      }
-                                  }} 
-                              >
-                                  <Plus className="w-4 h-4 mr-1"/> Crear Club
-                              </Button>
-                          </div>
+                            {/* Campos de Texto (Estilo Limpio) */}
+                            <div className="md:col-span-9 space-y-3">
+                                <div>
+                                    <input 
+                                        id="newClubName" 
+                                        placeholder="Nombre Oficial del Club" 
+                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 font-bold focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none transition-all placeholder-gray-400" 
+                                    />
+                                </div>
+                                
+                                <div className="grid grid-cols-2 gap-3">
+                                    <input 
+                                        id="newClubUser" 
+                                        placeholder="Usuario" 
+                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none transition-all placeholder-gray-400" 
+                                    />
+                                    
+                                    <div className="relative">
+                                        <input 
+                                            id="newClubPass" 
+                                            type={showNewClubPass ? "text" : "password"}
+                                            placeholder="Contraseña" 
+                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm pr-8 text-gray-800 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none transition-all placeholder-gray-400" 
+                                        />
+                                        <button 
+                                            type="button"
+                                            onClick={() => setShowNewClubPass(!showNewClubPass)} 
+                                            className="absolute right-2 top-2 text-gray-400 hover:text-indigo-500"
+                                        >
+                                            {showNewClubPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
+                                        </button>
+                                    </div>
+                                </div>
 
-                          <div className="space-y-2">
-                              {clubs.map(c => (
-                                  <ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />
-                              ))}
-                          </div>
-                      </div>
-                  </div>
-              </div>
-          </div>
-      )}
+                                <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
+                                    <span className="text-[10px] uppercase font-bold text-gray-400 pl-1">Color:</span>
+                                    <ColorPicker selectedColor={newClubColor} onChange={setNewClubColor} />
+                                </div>
+                            </div>
+                        </div>
+
+                        <button 
+                            className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md hover:shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
+                            onClick={() => { 
+                                const nameFn = document.getElementById('newClubName');
+                                const userFn = document.getElementById('newClubUser');
+                                const passFn = document.getElementById('newClubPass');
+                                const fileFn = document.getElementById('newClubLogo');
+                                
+                                if(nameFn.value && userFn.value && passFn.value) {
+                                    createClub({
+                                        name: nameFn.value, 
+                                        code: nameFn.value.slice(0,3).toUpperCase(),
+                                        username: userFn.value,
+                                        pass: passFn.value,
+                                        color: newClubColor
+                                    }, fileFn.files[0]);
+                                    
+                                    // Limpiar campos
+                                    nameFn.value = ''; userFn.value = ''; passFn.value = ''; fileFn.value = '';
+                                    setNewClubColor('white');
+                                    const preview = fileFn.parentElement.querySelector('img');
+                                    if(preview) preview.remove();
+                                } else {
+                                    alert("Por favor completa los campos.");
+                                }
+                            }} 
+                        >
+                            <Plus className="w-4 h-4"/> Registrar Club
+                        </button>
+                    </div>
+                </div>
+
+                {/* B) Lista de Clubes (Estilo Consistente) */}
+                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[500px]">
+                    <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                        <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                            <Users className="w-5 h-5 text-indigo-600"/> Clubes Activos
+                        </h4>
+                        <span className="text-xs bg-white border px-2 py-1 rounded-full text-gray-500 font-medium">{clubs.length} clubes</span>
+                    </div>
+                    
+                    <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                        {clubs.length === 0 ? (
+                            <p className="text-center text-gray-400 py-10">No hay clubes registrados.</p>
+                        ) : (
+                            clubs.map(c => (
+                                <ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />
+                            ))
+                        )}
+                    </div>
+                </div>
+
+            </div>
+        </div>
+    </div>
+)}
 
       {/* --- REVERT MODAL --- */}
       {revertModal.active && (
@@ -3790,9 +4130,20 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
               <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
                   {/* Tarjeta 1: Ingresos Tarjeta */}
                   <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-between">
-                      <p className="text-xs font-bold text-gray-400 uppercase">Total Tarjeta</p>
-                      <p className="text-2xl font-bold text-blue-600 mt-1">{globalAccountingStats.cardTotal.toFixed(2)}€</p>
-                      <p className="text-[10px] text-gray-400 mt-2">Cobrado en pasarela</p>
+                    <p className="text-xs font-bold text-gray-400 uppercase">Total Tarjeta (Bruto)</p>
+                    <p className="text-2xl font-bold text-blue-600 mt-1">{globalAccountingStats.cardTotal.toFixed(2)}€</p>
+                    
+                    {/* NUEVO DESGLOSE */}
+                    <div className="mt-2 pt-2 border-t border-dashed border-gray-200">
+                        <div className="flex justify-between text-xs text-gray-500 mb-1">
+                            <span>Comisión Pasarela:</span>
+                            <span className="text-red-500 font-bold">-{globalAccountingStats.cardFees.toFixed(2)}€</span>
+                        </div>
+                        <div className="flex justify-between text-sm font-bold text-blue-800">
+                            <span>Neto Real:</span>
+                            <span>{(globalAccountingStats.cardTotal - globalAccountingStats.cardFees).toFixed(2)}€</span>
+                        </div>
+                    </div>
                   </div>
 
                   {/* Tarjeta 2: Efectivo */}
@@ -4458,6 +4809,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   <th className="px-6 py-4 text-right text-red-800">Coste Prov.</th>
                                   <th className="px-6 py-4 text-right text-purple-800">Com. Club</th>
                                   <th className="px-6 py-4 text-right text-orange-800">Neto Comercial</th>
+                                  <th className="px-6 py-4 text-right text-gray-500">Gasto Pasarela</th>
                                   <th className="px-6 py-4 text-right bg-emerald-50 text-emerald-800">Beneficio Neto</th>
                               </tr>
                           </thead>
@@ -4470,6 +4822,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                       <td className="px-6 py-4 text-right text-red-600 font-medium">-{cf.supplierCost.toFixed(2)}€</td>
                                       <td className="px-6 py-4 text-right text-purple-600">-{cf.commClub.toFixed(2)}€</td>
                                       <td className="px-6 py-4 text-right text-orange-600">+{cf.commCommercial.toFixed(2)}€</td>
+                                      <td className="px-6 py-4 text-right text-gray-500 text-xs">-{cf.gatewayCost.toFixed(2)}€</td>
                                       <td className="px-6 py-4 text-right font-black text-emerald-600 bg-emerald-50/50">{cf.netIncome.toFixed(2)}€</td>
                                   </tr>
                               ))}
@@ -4480,6 +4833,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   <td className="px-6 py-4 text-right text-red-700">-{statsData.clubFinancials.reduce((s, c) => s + c.supplierCost, 0).toFixed(2)}€</td>
                                   <td className="px-6 py-4 text-right text-purple-700">-{statsData.clubFinancials.reduce((s, c) => s + c.commClub, 0).toFixed(2)}€</td>
                                   <td className="px-6 py-4 text-right text-orange-700">+{statsData.clubFinancials.reduce((s, c) => s + c.commCommercial, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-gray-500">-{statsData.clubFinancials.reduce((s, c) => s + c.gatewayCost, 0).toFixed(2)}€</td>
                                   <td className="px-6 py-4 text-right text-emerald-700">{statsData.clubFinancials.reduce((s, c) => s + c.netIncome, 0).toFixed(2)}€</td>
                               </tr>
                           </tbody>
@@ -4518,9 +4872,13 @@ export default function App() {
   const [seasons, setSeasons] = useState([]);
   
   const [financialConfig, setFinancialConfig] = useState({ 
-    clubCommissionPct: 0.12, // (Fallback legacy)
-    commercialCommissionPct: 0.05 
-});
+    clubCommissionPct: 0.12, 
+    commercialCommissionPct: 0.05,
+    // NUEVOS VALORES POR DEFECTO
+    gatewayPercentFee: 0.015, // 1.5%
+    gatewayFixedFee: 0.25     // 0.25€
+  });
+
   const [modificationFee, setModificationFee] = useState(1.00);
   const [storeConfig, setStoreConfig] = useState({ isOpen: true, closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." });
 
@@ -4531,12 +4889,20 @@ export default function App() {
 useEffect(() => {
     const unsub = onSnapshot(doc(db, 'settings', 'financial'), (doc) => {
         if (doc.exists()) {
-            setFinancialConfig(doc.data());
+            const data = doc.data();
+            setFinancialConfig({
+                ...data,
+                // Aseguramos que existan aunque la BD sea antigua
+                gatewayPercentFee: data.gatewayPercentFee !== undefined ? data.gatewayPercentFee : 0.015,
+                gatewayFixedFee: data.gatewayFixedFee !== undefined ? data.gatewayFixedFee : 0.25
+            });
         } else {
-            // Si no existe el documento, lo creamos con valores por defecto
-            const initialConfig = { commercialCommissionPct: 0.05 };
+            const initialConfig = { 
+                commercialCommissionPct: 0.05,
+                gatewayPercentFee: 0.015,
+                gatewayFixedFee: 0.25
+            };
             setFinancialConfig(initialConfig);
-            // setDoc(doc(db, 'settings', 'financial'), initialConfig); // Opcional: auto-crear
         }
     });
     return () => unsub();
@@ -4678,13 +5044,26 @@ useEffect(() => {
   
   // --- FUNCIONES CONECTADAS A BASE DE DATOS ---
 
-  const updateProduct = async (updatedProduct) => { 
-      try {
-          const prodRef = doc(db, 'products', updatedProduct.id);
-          await updateDoc(prodRef, updatedProduct);
-          showNotification('Producto actualizado');
-      } catch (e) { console.error(e); showNotification('Error al guardar', 'error'); }
-  };
+    const updateProduct = async (updatedProduct, newImageFile) => { 
+        try {
+            let finalProduct = { ...updatedProduct };
+            
+            // Si hay archivo nuevo, lo subimos a la carpeta "Productos"
+            if (newImageFile) {
+                const storageRef = ref(storage, `Productos/${Date.now()}_${newImageFile.name}`);
+                await uploadBytes(storageRef, newImageFile);
+                const url = await getDownloadURL(storageRef);
+                finalProduct.image = url;
+            }
+
+            const prodRef = doc(db, 'products', finalProduct.id);
+            await updateDoc(prodRef, finalProduct);
+            showNotification('Producto guardado correctamente');
+        } catch (e) { 
+            console.error(e); 
+            showNotification('Error al actualizar producto', 'error'); 
+        }
+    };
 
   const updateFinancialConfig = async (newConfig) => {
     try {
@@ -4762,13 +5141,26 @@ useEffect(() => {
       }
   };
 
-  const updateClub = async (updatedClub) => { 
-      try {
-          const clubRef = doc(db, 'clubs', updatedClub.id);
-          await updateDoc(clubRef, updatedClub);
-          showNotification('Club actualizado');
-      } catch (e) { console.error(e); showNotification('Error al actualizar', 'error'); }
-  };
+    const updateClub = async (updatedClub, newLogoFile) => { 
+        try {
+            let finalClubData = { ...updatedClub };
+
+            // Si hay un nuevo archivo de logo, lo subimos primero
+            if (newLogoFile) {
+                const logoRef = ref(storage, `club-logos/${Date.now()}_${newLogoFile.name}`);
+                await uploadBytes(logoRef, newLogoFile);
+                const logoUrl = await getDownloadURL(logoRef);
+                finalClubData.logoUrl = logoUrl;
+            }
+
+            const clubRef = doc(db, 'clubs', finalClubData.id);
+            await updateDoc(clubRef, finalClubData);
+            showNotification('Club actualizado correctamente');
+        } catch (e) { 
+            console.error(e); 
+            showNotification('Error al actualizar el club', 'error'); 
+        }
+    };
 
   const deleteClub = (clubId) => { 
       setConfirmation({ 

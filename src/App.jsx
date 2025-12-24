@@ -1086,8 +1086,28 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       setShowCategorySuggestions(false);
   };
 
-  const isModified = useMemo(() => { const checkDiff = (key) => { if (!features[key]) return false; if (!modifiable[key]) return false; return customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`] !== defaults[key]; }; return checkDiff('name') || checkDiff('number') || checkDiff('photo') || checkDiff('shield'); }, [customization, defaults, features, modifiable]);
-  const finalPrice = product.price + (isModified ? modificationFee : 0);
+    // --- CAMBIO: Contar modificaciones en lugar de solo detectar si existen ---
+    const modificationCount = useMemo(() => {
+        let count = 0;
+        const checkDiff = (key) => {
+            // Si la característica no está activa o no es modificable, no la contamos
+            if (!features[key]) return false; 
+            if (!modifiable[key]) return false; 
+            // Comparamos el valor actual con el valor por defecto
+            return customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`] !== defaults[key];
+        };
+
+        if (checkDiff('name')) count++;
+        if (checkDiff('number')) count++;
+        if (checkDiff('photo')) count++;
+        if (checkDiff('shield')) count++;
+
+        return count;
+    }, [customization, defaults, features, modifiable]);
+
+    const isModified = modificationCount > 0;
+    // Multiplicamos el coste de modificación por la cantidad de cambios
+    const finalPrice = product.price + (modificationCount * modificationFee);
   
   const handleSubmit = (e) => { 
       e.preventDefault(); 
@@ -1124,7 +1144,14 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       <div className="md:w-1/2 p-8 overflow-y-auto max-h-[90vh]">
         <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1"><ChevronLeft className="rotate-180 w-4 h-4" /> Volver</button>
         <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
-        <div className="flex items-end gap-2 mb-6"><p className="text-emerald-600 font-bold text-3xl">{finalPrice.toFixed(2)}€</p>{isModified && (<span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-1 rounded mb-1 border border-orange-200">+{modificationFee}€ por modificación</span>)}</div>
+        <div className="flex items-end gap-2 mb-6">
+            <p className="text-emerald-600 font-bold text-3xl">{finalPrice.toFixed(2)}€</p>
+            {isModified && (
+                <span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-1 rounded mb-1 border border-orange-200">
+                    +{ (modificationCount * modificationFee).toFixed(2) }€ ({modificationCount} modif.)
+                </span>
+            )}
+        </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
           
@@ -1149,6 +1176,73 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                   </div>
               )}
           </div>
+
+            {customization.clubId && (() => {
+                const selectedClub = clubs.find(c => c.id === customization.clubId);
+                if (selectedClub && selectedClub.nextBatchDate) {
+                    const closeDate = new Date(selectedClub.nextBatchDate);
+                    const today = new Date();
+                    const daysLeft = Math.ceil((closeDate - today) / (1000 * 60 * 60 * 24));
+                    
+                    // FUNCIÓN: Sumar días hábiles (Lunes a Viernes)
+                    const addBusinessDays = (startDate, daysToAdd) => {
+                        let currentDate = new Date(startDate);
+                        let businessDaysAdded = 0;
+                        
+                        while (businessDaysAdded < daysToAdd) {
+                            currentDate.setDate(currentDate.getDate() + 1);
+                            const dayOfWeek = currentDate.getDay();
+                            // 0 = Domingo, 6 = Sábado
+                            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
+                                businessDaysAdded++;
+                            }
+                        }
+                        return currentDate;
+                    };
+
+                    // Cálculo EXACTO de 7 y 10 días hábiles
+                    const deliveryEstStart = addBusinessDays(closeDate, 7);
+                    const deliveryEstEnd = addBusinessDays(closeDate, 10);
+
+                    return (
+                        <div className="mt-4 bg-emerald-50 border border-emerald-100 rounded-xl p-4 animate-fade-in shadow-sm">
+                            <div className="flex items-start gap-3">
+                                <div className="bg-white p-2 rounded-lg text-emerald-600 border border-emerald-100 shadow-sm">
+                                    <Calendar className="w-5 h-5"/>
+                                </div>
+                                <div>
+                                    <h4 className="font-bold text-emerald-900 text-sm uppercase mb-1">Información de Pedido</h4>
+                                    <div className="text-sm text-emerald-800 space-y-1.5">
+                                        <p>
+                                            <span className="font-bold">Cierre de Lote:</span> {closeDate.toLocaleDateString()} 
+                                            {daysLeft > 0 ? (
+                                                <span className="text-xs ml-2 bg-emerald-200/60 text-emerald-800 px-2 py-0.5 rounded-md font-bold">
+                                                    Quedan {daysLeft} días
+                                                </span>
+                                            ) : (
+                                                <span className="text-xs ml-2 bg-red-100 text-red-600 px-2 py-0.5 rounded-md font-bold">
+                                                    Cierra hoy
+                                                </span>
+                                            )}
+                                        </p>
+                                        <p>
+                                            <span className="font-bold">Entrega Estimada:</span> Del {deliveryEstStart.toLocaleDateString()} al {deliveryEstEnd.toLocaleDateString()}
+                                        </p>
+                                    </div>
+                                    
+                                    <div className="mt-3 pt-2 border-t border-emerald-200/50">
+                                        <p className="text-xs font-semibold text-emerald-700 italic flex items-start gap-1">
+                                            <span>*</span>
+                                            Plazo de entrega de 7 a 10 días hábiles a contar desde la fecha de cierre indicada arriba.
+                                        </p>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+                    );
+                }
+                return null;
+            })()}
           
 
           {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
@@ -1988,6 +2082,64 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       original: null, 
       modified: null 
   });
+
+    // Estado para controlar qué fecha se está editando (Lógica del Lápiz)
+    const [editingDate, setEditingDate] = useState({ clubId: null, date: '' });
+
+    // EFECTO: AUTOMATIZACIÓN DE CIERRE (Con margen de 5 minutos)
+    useEffect(() => {
+        const checkAndAutoCloseBatches = async () => {
+            if (!orders || orders.length === 0 || !clubs || clubs.length === 0) return;
+
+            const today = new Date();
+            today.setHours(0, 0, 0, 0); // Resetear horas para comparar solo fechas
+
+            for (const club of clubs) {
+                if (club.nextBatchDate) {
+                    const closeDate = new Date(club.nextBatchDate);
+                    
+                    // Calculamos si estamos en "Tregua" (5 mins desde la última reapertura manual)
+                    const lastReopen = club.lastBatchReopenTime || 0;
+                    const minutesSinceReopen = (Date.now() - lastReopen) / 1000 / 60;
+                    const inGracePeriod = minutesSinceReopen < 5; 
+
+                    // Solo cerramos si: LA FECHA PASÓ + NO ESTAMOS EN TREGUA
+                    if (closeDate < today && !inGracePeriod) {
+                        
+                        const activeBatchId = club.activeGlobalOrderId;
+                        
+                        // Buscamos pedidos que sigan en "recopilando"
+                        const ordersToUpdate = orders.filter(o => 
+                            o.clubId === club.id && 
+                            o.globalBatch === activeBatchId && 
+                            o.status === 'recopilando'
+                        );
+
+                        if (ordersToUpdate.length > 0) {
+                            try {
+                                const batch = writeBatch(db);
+                                ordersToUpdate.forEach(order => {
+                                    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
+                                    batch.update(ref, { 
+                                        status: 'en_produccion', 
+                                        visibleStatus: 'En Producción (Automático)' 
+                                    });
+                                });
+                                await batch.commit();
+                                showNotification(`📅 Lote #${activeBatchId} de ${club.name} cerrado automáticamente.`, 'warning');
+                            } catch (error) {
+                                console.error("Error cierre automático:", error);
+                            }
+                        }
+                    }
+                }
+            }
+        };
+
+        // Ejecutar con un pequeño retraso para asegurar que los datos cargaron
+        const timer = setTimeout(checkAndAutoCloseBatches, 3000);
+        return () => clearTimeout(timer);
+    }, [clubs, orders]);
 
   const [confirmation, setConfirmation] = useState(null); // Nuevo estado local para confirmaciones
   
@@ -3749,359 +3901,257 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-{/* --- PESTAÑA DE PEDIDOS (V12 - DISEÑO INTEGRADO) --- */}
-      {tab === 'accounting' && (
-          <div className="bg-white p-6 rounded-xl shadow h-full animate-fade-in-up">
-              {/* CABECERA Y FILTROS */}
-              <div className="flex flex-col md:flex-row justify-between items-center mb-8 gap-4 border-b pb-6">
-                  <h3 className="font-bold text-lg flex items-center gap-2">
-                      <FileSpreadsheet className="w-6 h-6 text-emerald-600"/> 
-                      Gestión de Pedidos
-                  </h3>
-                  
-                  <div className="flex items-center gap-3">
-                      <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
-                          <Store className="w-4 h-4 text-gray-500"/>
-                          <select 
-                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm w-32 md:w-auto" 
-                              value={filterClubId} 
-                              onChange={(e) => setFilterClubId(e.target.value)}
-                          >
-                              <option value="all">Todos los Clubes</option>
-                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                      </div>
+    {/* --- PESTAÑA DE PEDIDOS (V12 - DISEÑO INTEGRADO) --- */}
+    {/* --- PESTAÑA PEDIDOS/CONTABILIDAD (AdminDashboard) --- */}
+    {tab === 'accounting' && (
+        <div className="animate-fade-in space-y-8">
+            
+            {/* BARRA SUPERIOR (Limpia, sin fecha) */}
+            <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+                <div className="flex items-center gap-4">
+                    <div className="bg-blue-100 p-2 rounded-full text-blue-600"><Layers className="w-5 h-5"/></div>
+                    <div>
+                        <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wide">Control de Lotes</h4>
+                        <p className="text-xs text-slate-500">Gestión de pedidos globales por club</p>
+                    </div>
+                </div>
 
-                      <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
-                          <Calendar className="w-4 h-4 text-gray-500"/>
-                          <select 
-                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" 
-                              value={financeSeasonId} 
-                              onChange={(e) => setFinanceSeasonId(e.target.value)}
-                          >
-                              <option value="all">Todas las Temporadas</option>
-                              {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                          </select>
-                      </div>
-                  </div>
-              </div>
-
-              {/* --- PANEL DE GESTIÓN DE LOTES (BARRA DE HERRAMIENTAS) --- */}
-              <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 mb-8 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-                  <div className="flex items-center gap-4 w-full md:w-auto">
-                      <div className="bg-blue-100 p-2 rounded-full text-blue-600">
-                          <Layers className="w-5 h-5"/>
-                      </div>
-                      <div>
-                          <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wide">Control de Lotes</h4>
-                          <p className="text-xs text-slate-500">Gestionar apertura y cierre de pedidos globales.</p>
-                      </div>
-                  </div>
-
-                    {/* Selector de Club y Lote Activo (DISEÑO LIMPIO) */}
-                  <div className="flex flex-col md:flex-row items-center gap-6 flex-1 justify-center bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100 mx-4">
-                      
-                      {/* SELECTOR DE CLUB (Sin bordes) */}
-                      <div className="relative group flex items-center">
-                          <select 
-                            className="appearance-none bg-transparent text-base font-extrabold text-slate-700 pr-8 cursor-pointer focus:outline-none hover:text-blue-600 transition-colors text-center md:text-left"
+                {/* Selector Central */}
+                <div className="flex items-center gap-6 bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100">
+                    <div className="relative group flex items-center">
+                        <select 
+                            className="appearance-none bg-transparent text-base font-extrabold text-slate-700 pr-8 cursor-pointer outline-none hover:text-blue-600 transition-colors"
                             value={selectedClubId}
                             onChange={(e) => setSelectedClubId(e.target.value)}
-                          >
-                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                          </select>
-                          {/* Flecha personalizada usando ChevronRight rotado */}
-                          <ChevronRight className="w-4 h-4 text-slate-400 absolute right-0 pointer-events-none group-hover:text-blue-500 rotate-90 transition-colors"/>
-                      </div>
-                      
-                      <div className="h-8 w-px bg-slate-100 hidden md:block"></div>
+                        >
+                            {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                        </select>
+                        <ChevronRight className="w-4 h-4 text-slate-400 absolute right-0 pointer-events-none rotate-90"/>
+                    </div>
+                    <div className="h-8 w-px bg-slate-100"></div>
+                    <div className="flex items-center gap-2">
+                        <span className="text-xs text-slate-600 font-bold uppercase">Lote Activo:</span>
+                        <span className="text-base font-extrabold text-slate-800">#{selectedClub?.activeGlobalOrderId}</span>
+                    </div>
+                </div>
 
-                      <div className="flex items-center gap-3">
-                          {/* ETIQUETA MÁS VISIBLE (Gris oscuro en vez de claro) */}
-                          <span className="text-xs text-slate-600 font-bold uppercase tracking-wider">Lote Activo</span>
-                          
-                          {isEditingActiveBatch ? (
-                              <div className="flex items-center gap-1 bg-slate-50 p-1 rounded-lg border border-slate-200">
-                                  <span className="text-base font-extrabold text-slate-500 pl-2">#</span>
-                                  <input 
-                                      type="number" 
-                                      // TAMAÑO REDUCIDO EN EDICIÓN TAMBIÉN
-                                      className="w-12 bg-transparent border-none p-0 text-base font-extrabold text-slate-800 focus:ring-0" 
-                                      value={tempBatchValue} 
-                                      onChange={(e) => setTempBatchValue(e.target.value)}
-                                      autoFocus
-                                  />
-                                  <button onClick={saveActiveBatchManually} className="text-emerald-600 hover:bg-emerald-50 p-1 rounded"><Check className="w-4 h-4"/></button>
-                                  <button onClick={() => setIsEditingActiveBatch(false)} className="text-red-500 hover:bg-red-50 p-1 rounded"><X className="w-4 h-4"/></button>
-                              </div>
-                          ) : (
-                              <div 
-                                  className="flex items-center gap-2 cursor-pointer hover:bg-slate-50 px-3 py-1.5 rounded-lg transition-colors group" 
-                                  onClick={() => { setTempBatchValue(selectedClub?.activeGlobalOrderId); setIsEditingActiveBatch(true); }}
-                                  title="Click para editar"
-                              >
-                                  {/* TAMAÑO REDUCIDO (text-base) PARA IGUALAR AL NOMBRE DEL CLUB */}
-                                  <span className="text-base font-extrabold text-slate-800">#{selectedClub?.activeGlobalOrderId}</span>
-                                  
-                                  {/* LÁPIZ MÁS VISIBLE (Verde intenso) */}
-                                  <Edit3 className="w-4 h-4 text-emerald-600 group-hover:text-emerald-700 transition-colors"/>
-                              </div>
-                          )}
-                      </div>
-                  </div>
+                {/* Botones Globales */}
+                <div className="flex items-center gap-2">
+                    {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
+                        <button 
+                            onClick={() => setConfirmation({ title: "Revertir", msg: "¿Volver al lote anterior?", onConfirm: () => handleRevertGlobalBatch(selectedClubId) })}
+                            className="text-xs font-bold text-slate-500 hover:text-red-600 px-3 py-2 flex gap-1 rounded hover:bg-red-50 transition-colors"
+                        >
+                            <RotateCcw className="w-3 h-3"/> Deshacer
+                        </button>
+                    )}
+                    <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 text-white text-xs py-2 px-4 shadow-md hover:bg-blue-700">
+                        <Archive className="w-4 h-4 mr-2"/> Cerrar Lote Manual
+                    </Button>
+                </div>
+            </div>
 
-                  {/* Botones de Acción */}
-                  <div className="flex items-center gap-2">
-                      {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
-                          <button 
-                              onClick={() => setConfirmation({
-                                  title: "⚠️ ¿Reabrir Lote Anterior?",
-                                  msg: `Estás a punto de cancelar el Lote Global #${selectedClub.activeGlobalOrderId} (Actual) para volver a activar el Lote #${selectedClub.activeGlobalOrderId - 1}.\n\nSi el lote actual tiene pedidos, se te pedirá qué hacer con ellos.\n\n¿Continuar?`,
-                                  onConfirm: () => handleRevertGlobalBatch(selectedClubId)
-                              })}
-                              className="text-xs font-bold text-slate-500 hover:text-red-600 hover:bg-red-50 px-3 py-2 rounded transition-colors flex items-center gap-2"
-                          >
-                              <RotateCcw className="w-3 h-3"/> Deshacer
-                          </button>
-                      )}
-                      
-                      <Button 
-                          onClick={() => incrementClubGlobalOrder(selectedClubId)} 
-                          className="bg-blue-600 hover:bg-blue-700 text-white shadow-md text-xs py-2 px-4"
-                      >
-                          <Archive className="w-4 h-4 mr-2"/> Cerrar y Abrir Nuevo
-                      </Button>
-                  </div>
-              </div>
-              {/* ------------------------------------------------------------- */}
-              
-              <div className="space-y-12">
-                  {accountingData.map(({ club, batches }) => (
-                      <div key={club.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm">
-                          <div className="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
-                              <div className="flex items-center gap-3">
-                                  <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs">{club.code}</div>
-                                  <h4 className="font-bold text-lg">{club.name}</h4>
-                              </div>
-                              <span className="text-xs bg-gray-700 px-3 py-1 rounded-full text-gray-300">{batches.length} Lotes</span>
-                          </div>
-                          
-                          {batches.length === 0 ? (
-                              <p className="p-8 text-gray-400 text-sm text-center italic">No hay pedidos registrados.</p>
-                          ) : (
-                              <div className="divide-y divide-gray-200">
-                                  {batches.map(batch => {
-                                      const isSpecialBatch = batch.id === 'SPECIAL';
-                                      const isIndividualBatch = batch.id === 'INDIVIDUAL';
-                                      const isStandardBatch = typeof batch.id === 'number'; 
-                                      
-                                      const isActiveBatch = isStandardBatch && batch.id === club.activeGlobalOrderId;
-                                      
-                                      const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
-                                      const batchStatus = (isSpecialBatch || isIndividualBatch) ? 'special' : (batch.orders[0]?.status || 'recopilando');
-                                      
-                                      return (
-                                          <div key={batch.id} className={`p-4 ${!isStandardBatch ? 'bg-indigo-50/30' : isActiveBatch ? 'bg-emerald-50/30' : 'bg-white hover:bg-gray-50'}`}>
-                                              {/* CABECERA DEL LOTE */}
-                                              <div className="flex flex-wrap justify-between items-center mb-4 gap-4">
-                                                  <div className="flex items-center gap-4">
-                                                      {isSpecialBatch ? (
-                                                          <span className="font-black text-lg text-indigo-700 flex items-center gap-2">
-                                                              <Briefcase className="w-5 h-5"/> PEDIDOS ESPECIALES
-                                                          </span>
-                                                      ) : isIndividualBatch ? (
-                                                          <span className="font-black text-lg text-orange-700 flex items-center gap-2">
-                                                              <Package className="w-5 h-5"/> ENTREGAS INDIVIDUALES
-                                                          </span>
-                                                      ) : (
-                                                          <div className="flex items-center gap-2">
-                                                              <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
-                                                              {/* ETIQUETA DE LOTE ACTIVO (SIN PARPADEO) */}
-                                                              {isActiveBatch && (
-                                                                  <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded border border-emerald-700 font-bold uppercase tracking-wide shadow-sm">
-                                                                      Lote Activo
-                                                                  </span>
-                                                              )}
-                                                          </div>
-                                                      )}
-                                                      
-                                                      {isStandardBatch && <Badge status={batchStatus} />}
-                                                      
-                                                      <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
-                                                          Total: {batchTotal.toFixed(2)}€
-                                                      </span>
-                                                  </div>
+            {/* LISTADO DE LOTES (Con Fecha Editable Individualmente) */}
+            <div className="space-y-12">
+                {accountingData.map(({ club, batches }) => (
+                    <div key={club.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                        {/* Cabecera Club */}
+                        <div className="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
+                            <div className="flex items-center gap-3">
+                                <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs">{club.code}</div>
+                                <h4 className="font-bold text-lg">{club.name}</h4>
+                            </div>
+                            <span className="text-xs bg-gray-700 px-3 py-1 rounded-full text-gray-300">{batches.length} Lotes</span>
+                        </div>
+                        
+                        <div className="divide-y divide-gray-200">
+                            {batches.map(batch => {
+                                const isStandard = typeof batch.id === 'number';
+                                const isActive = isStandard && batch.id === club.activeGlobalOrderId;
+                                const status = (!isStandard) ? 'special' : (batch.orders[0]?.status || 'recopilando');
+                                const isProduction = ['en_produccion', 'entregado_club'].includes(status);
+                                const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
 
-                                                  <div className="flex items-center gap-2">
-                                                      {/* Botones de Documentos */}
-                                                      <Button size="xs" variant="outline" disabled={batch.orders.length === 0} onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)}>
-                                                          <FileDown className="w-3 h-3 mr-1"/> Excel
-                                                      </Button>
-                                                      <Button size="xs" variant="outline" disabled={batch.orders.length === 0} onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)}>
-                                                          <Printer className="w-3 h-3 mr-1"/> Albarán
-                                                      </Button>
+                                return (
+                                    <div key={batch.id} className={`p-4 transition-colors ${isActive ? 'bg-emerald-50/40' : 'bg-white'}`}>
+                                        
+                                        {/* CABECERA DEL LOTE */}
+                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                                            <div className="flex flex-wrap items-center gap-3">
+                                                {isStandard ? (
+                                                    <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
+                                                ) : (
+                                                    <span className="font-black text-lg text-gray-700 flex items-center gap-2">
+                                                        {batch.id === 'SPECIAL' ? <Briefcase className="w-5 h-5 text-indigo-600"/> : <Package className="w-5 h-5 text-orange-600"/>}
+                                                        {batch.id === 'SPECIAL' ? 'ESPECIALES' : 'INDIVIDUALES'}
+                                                    </span>
+                                                )}
 
-                                                      {/* --- NUEVOS BOTONES GLOBALES DE LOTE --- */}
-                                                      {isStandardBatch && (
-                                                          <>
-                                                              <div className="h-6 w-px bg-gray-300 mx-1"></div>
-                                                              
-                                                              <button 
-                                                                  onClick={() => setMoveSeasonModal({ active: true, target: { clubId: club.id, batchId: batch.id }, type: 'batch' })}
-                                                                  className="p-1.5 text-blue-600 hover:bg-blue-50 rounded border border-blue-200"
-                                                                  title="Mover todo el lote de temporada"
-                                                              >
-                                                                  <Calendar className="w-4 h-4"/>
-                                                              </button>
+                                                {isActive && <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold uppercase">Activo</span>}
+                                                {isStandard && <Badge status={status} />}
+                                                
+                                                <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
+                                                    Total: {batchTotal.toFixed(2)}€
+                                                </span>
 
-                                                              <button 
-                                                                  onClick={() => handleDeleteGlobalBatch(club.id, batch.id)}
-                                                                  className="p-1.5 text-red-600 hover:bg-red-50 rounded border border-red-200"
-                                                                  title="Eliminar Lote Completo"
-                                                              >
-                                                                  <Trash2 className="w-4 h-4"/>
-                                                              </button>
-                                                          </>
-                                                      )}
+                                                {/* --- GESTIÓN DE FECHA DE CIERRE (Solo Lotes Activos) --- */}
+                                                {isStandard && isActive && (
+                                                    <div className="ml-2">
+                                                        {editingDate.clubId === club.id ? (
+                                                            // MODO EDICIÓN (Input + Guardar + Cancelar)
+                                                            <div className="flex items-center gap-1 bg-white p-1 rounded-lg border-2 border-blue-400 shadow-md animate-fade-in scale-105 origin-left">
+                                                                <div className="flex flex-col px-1">
+                                                                    <span className="text-[8px] font-bold text-blue-500 uppercase leading-none">Nueva Fecha</span>
+                                                                    <input 
+                                                                        type="date" 
+                                                                        className="text-xs font-bold border-none p-0 focus:ring-0 text-gray-800 bg-transparent h-5 w-24"
+                                                                        value={editingDate.date}
+                                                                        onChange={(e) => setEditingDate({...editingDate, date: e.target.value})}
+                                                                        autoFocus
+                                                                    />
+                                                                </div>
+                                                                <div className="flex gap-1 border-l pl-1 border-gray-200">
+                                                                    <button 
+                                                                        onClick={() => {
+                                                                            if(!editingDate.date) return;
+                                                                            setConfirmation({
+                                                                                title: "📅 Confirmar Fecha",
+                                                                                msg: `Vas a programar el cierre para el día:\n\n👉 ${new Date(editingDate.date).toLocaleDateString()}\n\n¿Guardar cambio?`,
+                                                                                onConfirm: async () => {
+                                                                                    await updateDoc(doc(db, 'clubs', club.id), { nextBatchDate: editingDate.date });
+                                                                                    setEditingDate({ clubId: null, date: '' });
+                                                                                    showNotification('Fecha programada correctamente');
+                                                                                }
+                                                                            });
+                                                                        }}
+                                                                        className="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 p-1.5 rounded transition-colors"
+                                                                        title="Guardar"
+                                                                    >
+                                                                        <Check className="w-3.5 h-3.5"/>
+                                                                    </button>
+                                                                    <button 
+                                                                        onClick={() => setEditingDate({ clubId: null, date: '' })}
+                                                                        className="bg-red-50 hover:bg-red-100 text-red-500 p-1.5 rounded transition-colors"
+                                                                        title="Cancelar"
+                                                                    >
+                                                                        <X className="w-3.5 h-3.5"/>
+                                                                    </button>
+                                                                </div>
+                                                            </div>
+                                                        ) : (
+                                                            // MODO VISUALIZACIÓN (Texto + Lápiz)
+                                                            <div className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${!club.nextBatchDate ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200 hover:border-blue-300'}`}>
+                                                                <Calendar className={`w-3.5 h-3.5 ${!club.nextBatchDate ? 'text-orange-500' : 'text-gray-400'}`}/>
+                                                                
+                                                                <div className="flex flex-col">
+                                                                    <span className="text-[8px] font-bold text-gray-400 uppercase leading-none">Cierre Previsto</span>
+                                                                    <span className={`text-xs font-bold ${!club.nextBatchDate ? 'text-orange-600' : 'text-gray-700'}`}>
+                                                                        {club.nextBatchDate ? new Date(club.nextBatchDate).toLocaleDateString() : 'Sin Fecha'}
+                                                                    </span>
+                                                                </div>
+                                                                
+                                                                {/* Botón Lápiz (Solo si no está bloqueado por producción) */}
+                                                                {!isProduction ? (
+                                                                    <button 
+                                                                        onClick={() => setEditingDate({ clubId: club.id, date: club.nextBatchDate || '' })}
+                                                                        className="ml-1 p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                                                        title="Editar fecha de cierre"
+                                                                    >
+                                                                        <Edit3 className="w-3.5 h-3.5"/>
+                                                                    </button>
+                                                                ) : (
+                                                                    <Lock className="w-3.5 h-3.5 text-gray-300 ml-1" title="Bloqueado: En producción"/>
+                                                                )}
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                )}
+                                            </div>
 
-                                                      {/* Selector de Estado */}
-                                                      {isStandardBatch && (
-                                                          <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
-                                                              <select 
-                                                                  value={batchStatus}
-                                                                  onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
-                                                                  className="text-xs border rounded py-1 px-2 font-bold cursor-pointer bg-white"
-                                                              >
-                                                                  <option value="recopilando">Recopilando</option>
-                                                                  <option value="en_produccion">En Producción</option>
-                                                                  <option value="entregado_club">Entregado</option>
-                                                              </select>
-                                                          </div>
-                                                      )}
-                                                  </div>
-                                              </div>
+                                            {/* Acciones */}
+                                            <div className="flex items-center gap-2">
+                                                <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)} disabled={batch.orders.length===0}>
+                                                    <FileDown className="w-3 h-3 mr-1"/> Excel
+                                                </Button>
+                                                
+                                                {isStandard && (
+                                                    <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
+                                                        <select 
+                                                            value={status}
+                                                            onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
+                                                            className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer outline-none ${
+                                                                status === 'en_produccion' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                                                status === 'entregado_club' ? 'bg-green-100 text-green-700 border-green-200' :
+                                                                'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                                                            }`}
+                                                        >
+                                                            <option value="recopilando">Recopilando</option>
+                                                            <option value="en_produccion">En Producción</option>
+                                                            <option value="entregado_club">Entregado</option>
+                                                        </select>
+                                                    </div>
+                                                )}
+                                            </div>
+                                        </div>
 
-                                              {/* LISTA DE PEDIDOS */}
-                                              {batch.orders.length === 0 ? (
-                                                  <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
-                                                      Aún no hay pedidos en este lote activo.
-                                                  </div>
-                                              ) : (
-                                                  <div className="pl-4 border-l-4 border-gray-200 space-y-2">
-                                                      {batch.orders.map(order => (
-                                                          <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all">
-                                                              <div 
-                                                                  onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
-                                                                  className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
-                                                              >
-                                                                  <div className="flex gap-4 items-center">
-                                                                      {order.type === 'special' ? (
-                                                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
-                                                                      ) : order.globalBatch === 'INDIVIDUAL' ? (
-                                                                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
-                                                                      ) : (
-                                                                          <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded">#{order.id.slice(0,6)}</span>
-                                                                      )}
-                                                                      
-                                                                      <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
-                                                                      
-                                                                      {!isStandardBatch && <Badge status={order.status} />}
-                                                                  </div>
-                                                                  <div className="flex gap-4 items-center text-sm">
-                                                                      <span className="font-bold">{order.total.toFixed(2)}€</span>
-                                                                      <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
-                                                                  </div>
-                                                              </div>
-                                                              
-                                                              {expandedOrderId === order.id && (
-                                                                  <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
-                                                                      {!isStandardBatch && (
-                                                                          <div className="mb-6 bg-white p-4 rounded-lg border-2 border-indigo-100 shadow-sm flex flex-wrap items-center gap-4">
-                                                                              <div className="flex items-center gap-2 text-indigo-700">
-                                                                                  <Briefcase className="w-5 h-5"/>
-                                                                                  <span className="font-bold text-xs uppercase tracking-wide">Gestión Individual</span>
-                                                                              </div>
-                                                                              <div className="flex flex-col">
-                                                                                  <label className="text-[10px] text-gray-400 font-bold uppercase mb-1">Estado</label>
-                                                                                  <select value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value, e.target.options[e.target.selectedIndex].text)} className="text-xs border-indigo-200 rounded py-1.5 px-2 bg-indigo-50 font-medium focus:ring-2 focus:ring-indigo-500 cursor-pointer">
-                                                                                      <option value="recopilando">Recopilando</option>
-                                                                                      <option value="en_produccion">En Producción</option>
-                                                                                      <option value="entregado_club">Entregado</option>
-                                                                                  </select>
-                                                                              </div>
-                                                                              <div className="h-8 w-px bg-gray-200 mx-2"></div>
-                                                                              <div className="flex gap-2">
-                                                                                  <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" onClick={() => generateBatchExcel(`IND-${order.id.slice(0,6)}`, [order], club.name)}><FileDown className="w-4 h-4 mr-1"/> Excel</Button>
-                                                                                  <Button size="sm" variant="outline" className="bg-white hover:bg-indigo-50 text-indigo-700 border-indigo-200 shadow-sm" onClick={() => printBatchAlbaran(`IND-${order.id.slice(0,6)}`, [order], club.name, 0)}><Printer className="w-4 h-4 mr-1"/> Albarán</Button>
-                                                                              </div>
-                                                                          </div>
-                                                                      )}
-                                                                      <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2"><Package className="w-3 h-3"/> Productos del Pedido</h5>
-                                                                      <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100">
-                                                                          {order.items.map(item => {
-                                                                              const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
-                                                                              const itemTotal = (item.quantity || 1) * item.price;
-                                                                              return (
-                                                                                <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
-                                                                                    <div className="flex gap-3 items-center flex-1">
-                                                                                        {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
-                                                                                        <div><p className="font-bold text-gray-800 text-sm">{item.name}</p><p className="text-xs text-gray-500">{renderProductDetails(item)}</p></div>
-                                                                                    </div>
-                                                                                    <div className="flex items-center gap-6 mr-4">
-                                                                                        <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Cantidad</p><p className="font-medium text-sm">{item.quantity || 1} ud.</p></div>
-                                                                                        <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Precio Unit.</p><p className="font-medium text-sm">{item.price.toFixed(2)}€</p></div>
-                                                                                        <div className="text-right w-20"><p className="text-[10px] text-gray-400 uppercase font-bold">Subtotal</p><p className="font-bold text-emerald-600 text-sm">{itemTotal.toFixed(2)}€</p></div>
-                                                                                    </div>
-                                                                                    <div className="flex items-center gap-3 border-l pl-4">
-                                                                                        {isIncident && <span className="text-xs text-red-600 font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Reportado</span>}
-                                                                                        <button onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} className="text-red-600 bg-red-50 hover:bg-red-100 hover:text-red-800 p-1.5 rounded-md transition-colors flex items-center gap-1 font-medium text-xs border border-red-100 shadow-sm" title="Reportar Incidencia"><AlertTriangle className="w-4 h-4"/> Reportar Fallo</button>
-                                                                                    </div>
+                                        {/* LISTA DE PEDIDOS */}
+                                        {batch.orders.length === 0 ? (
+                                            <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
+                                                Lote vacío.
+                                            </div>
+                                        ) : (
+                                            <div className="pl-4 border-l-4 border-gray-200 space-y-2">
+                                                {batch.orders.map(order => (
+                                                    <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:border-emerald-300 group/order">
+                                                        <div onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none">
+                                                            <div className="flex gap-4 items-center">
+                                                                <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded text-gray-600">#{order.id.slice(0,6)}</span>
+                                                                <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
+                                                                {!isStandard && <Badge status={order.status} />}
+                                                            </div>
+                                                            <div className="flex gap-4 items-center text-sm">
+                                                                <span className="font-bold">{order.total.toFixed(2)}€</span>
+                                                                <ChevronRight className={`w-4 h-4 text-gray-300 transition-transform ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
+                                                            </div>
+                                                        </div>
+                                                        
+                                                        {/* Detalle Expandido */}
+                                                        {expandedOrderId === order.id && (
+                                                            <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
+                                                                <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2"><Package className="w-3 h-3"/> Productos</h5>
+                                                                <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100 mb-4">
+                                                                    {order.items.map(item => (
+                                                                        <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3">
+                                                                            <div className="flex gap-3 items-center flex-1">
+                                                                                <div className="font-bold text-gray-800 text-xs">{item.quantity}x</div>
+                                                                                <div>
+                                                                                    <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                                                                                    <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
                                                                                 </div>
-                                                                              );
-                                                                          })}
-                                                                      </div>
-                                                                        {/* --- ACCIONES INDIVIDUALES (EDITAR / ELIMINAR) --- */}
-                                                                        <div className="mt-6 pt-4 border-t border-gray-200 flex flex-wrap gap-3 justify-end bg-gray-50/50 p-2 rounded">
-                                                                            <span className="text-xs font-bold text-gray-400 uppercase self-center mr-auto">Gestión Pedido:</span>
-                                                                            
-                                                                            {/* Botón MODIFICAR DATOS (Nuevo) */}
-                                                                            <button 
-                                                                                onClick={(e) => { 
-                                                                                    e.stopPropagation(); 
-                                                                                    // CORRECCIÓN: Crear dos copias independientes para que la comparación funcione
-                                                                                    const original = JSON.parse(JSON.stringify(order));
-                                                                                    const modified = JSON.parse(JSON.stringify(order));
-                                                                                    setEditOrderModal({ active: true, original, modified }); 
-                                                                                }}
-                                                                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors"
-                                                                            >
-                                                                                <Edit3 className="w-3 h-3"/> Modificar Datos
-                                                                            </button>
-
-                                                                            {/* Botón ELIMINAR (Corregido) */}
-                                                                            <button 
-                                                                                onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }}
-                                                                                className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
-                                                                            >
-                                                                                <Trash2 className="w-3 h-3"/> Eliminar
-                                                                            </button>
+                                                                            </div>
+                                                                            <span className="font-bold text-emerald-600 text-sm">{((item.quantity||1)*item.price).toFixed(2)}€</span>
                                                                         </div>
-                                                                  </div>
-                                                              )}
-                                                          </div>
-                                                      ))}
-                                                  </div>
-                                              )}
-                                          </div>
-                                      )
-                                  })}
-                              </div>
-                          )}
-                      </div>
-                  ))}
-              </div>
-          </div>
-      )}
+                                                                    ))}
+                                                                </div>
+                                                                <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+                                                                    <button onClick={(e) => { e.stopPropagation(); const o = JSON.parse(JSON.stringify(order)); setEditOrderModal({ active: true, original: o, modified: o }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200"><Edit3 className="w-3 h-3"/> Editar</button>
+                                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200"><Trash2 className="w-3 h-3"/> Eliminar</button>
+                                                                </div>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                ))}
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                ))}
+            </div>
+        </div>
+    )}
 
 {/* --- PESTAÑA DE CONTABILIDAD (VERSIÓN V5 - CON PEDIDOS ESPECIALES SEPARADOS) --- */}
       {tab === 'accounting-control' && (
@@ -4975,54 +5025,55 @@ useEffect(() => {
   const addIncident = async (orderId, incidentData) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents: arrayUnion(incidentData) }); showNotification('Incidencia/Reimpresión registrada'); } catch (e) { showNotification('Error registrando incidencia', 'error'); } };
   const updateIncidentStatus = async (orderId, incidents) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents }); showNotification('Estado de incidencia actualizado'); } catch(e) { showNotification('Error actualizando incidencia', 'error'); } };
   // --- ACTUALIZAR ESTADO DE LOTE GLOBAL (CON CONFIRMACIÓN DE CIERRE) ---
-  const updateGlobalBatchStatus = async (clubId, batchId, newStatus) => { 
-      // Definimos la lógica de actualización para ejecutarla después de confirmar
-      const performUpdate = async () => {
-          const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); 
-          const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; 
-          
-          let count = 0; 
-          for (const order of batchOrders) { 
-              if (order.status !== newStatus) { 
-                  const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id); 
-                  await updateDoc(orderRef, { status: newStatus, visibleStatus: batchLabel }); 
-                  count++; 
-              } 
-          } 
 
-          // Si pasamos a producción, cerramos el lote actual y abrimos el siguiente
-          if (newStatus === 'en_produccion') { 
-              const club = clubs.find(c => c.id === clubId); 
-              if (club && club.activeGlobalOrderId === batchId) { 
-                  // Incrementamos el contador global del club
-                  setClubs(prevClubs => prevClubs.map(c => c.id === clubId ? { ...c, activeGlobalOrderId: c.activeGlobalOrderId + 1 } : c)); 
-                  showNotification(`Lote Global enviado a Producción. Se ha abierto automáticamente el Lote #${batchId + 1} para nuevos pedidos.`, 'success'); 
-              } 
-          } 
-          showNotification(`Se actualizaron ${count} pedidos del Lote #${batchId} a "${batchLabel}".`); 
-      };
 
-      // Si el estado es 'en_produccion', pedimos confirmación de seguridad
-      if (newStatus === 'en_produccion') {
-          const club = clubs.find(c => c.id === clubId);
-          // Verificamos si es el lote activo para personalizar el mensaje
-          if (club && club.activeGlobalOrderId === batchId) {
-              setConfirmation({
-                  msg: `¿Estás seguro de pasar el Lote Global #${batchId} a PRODUCCIÓN? \n\n⚠️ Esta acción cerrará el lote actual y abrirá automáticamente el Lote Global #${batchId + 1}. Los nuevos pedidos que entren se anotarán en este nuevo lote.`,
-                  onConfirm: performUpdate
-              });
-          } else {
-              // Si es un lote antiguo, solo confirmamos el cambio de estado sin aviso de cierre
-              setConfirmation({
-                  msg: `¿Estás seguro de cambiar el estado del Lote Global #${batchId} a PRODUCCIÓN?`,
-                  onConfirm: performUpdate
-              });
-          }
-      } else {
-          // Para otros estados (recopilando/entregado), ejecutamos directamente
-          await performUpdate();
-      }
-  };
+    const updateGlobalBatchStatus = async (clubId, batchId, newStatus) => { 
+        const performUpdate = async () => {
+            const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); 
+            const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; 
+            
+            const batchWrite = writeBatch(db);
+            let count = 0; 
+            
+            batchOrders.forEach(order => {
+                if (order.status !== newStatus) { 
+                    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
+                    batchWrite.update(ref, { status: newStatus, visibleStatus: batchLabel });
+                    count++; 
+                }
+            });
+
+            // --- LÓGICA DE TREGUA ---
+            // Si volvemos a "Recopilando", guardamos la hora actual.
+            // El sistema automático respetará 5 minutos antes de volver a cerrar.
+            if (newStatus === 'recopilando') {
+                const clubRef = doc(db, 'clubs', clubId);
+                batchWrite.update(clubRef, { lastBatchReopenTime: Date.now() });
+            }
+            // ------------------------
+
+            if (newStatus === 'en_produccion') { 
+                const club = clubs.find(c => c.id === clubId); 
+                if (club && club.activeGlobalOrderId === batchId) { 
+                    const clubRef = doc(db, 'clubs', clubId);
+                    batchWrite.update(clubRef, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
+                } 
+            } 
+
+            await batchWrite.commit();
+            showNotification(`Lote #${batchId}: ${count} pedidos pasaron a "${batchLabel}".`); 
+        };
+
+        if (newStatus === 'en_produccion') {
+            setConfirmation({
+                title: "⚠️ Pasar a Producción",
+                msg: `¿Cerrar Lote Global #${batchId}?\n\nLos pedidos pasarán a producción y se abrirá el Lote #${batchId+1} para nuevas compras.`,
+                onConfirm: performUpdate
+            });
+        } else {
+            await performUpdate();
+        }
+    };
     const incrementClubGlobalOrder = (clubId) => { 
       const club = clubs.find(c => c.id === clubId);
       setConfirmation({ 

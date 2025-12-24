@@ -2086,38 +2086,41 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
     // Estado para controlar qué fecha se está editando (Lógica del Lápiz)
     const [editingDate, setEditingDate] = useState({ clubId: null, date: '' });
 
-    // EFECTO: AUTOMATIZACIÓN DE CIERRE (Con margen de 5 minutos)
+    // EFECTO: AUTOMATIZACIÓN DE CIERRE (Con margen de 5 minutos + Avanzar Lote)
     useEffect(() => {
         const checkAndAutoCloseBatches = async () => {
             if (!orders || orders.length === 0 || !clubs || clubs.length === 0) return;
 
             const today = new Date();
-            today.setHours(0, 0, 0, 0); // Resetear horas para comparar solo fechas
+            today.setHours(0, 0, 0, 0);
 
             for (const club of clubs) {
                 if (club.nextBatchDate) {
                     const closeDate = new Date(club.nextBatchDate);
                     
-                    // Calculamos si estamos en "Tregua" (5 mins desde la última reapertura manual)
+                    // Calculamos si estamos en "Tregua" (5 mins)
                     const lastReopen = club.lastBatchReopenTime || 0;
                     const minutesSinceReopen = (Date.now() - lastReopen) / 1000 / 60;
                     const inGracePeriod = minutesSinceReopen < 5; 
 
-                    // Solo cerramos si: LA FECHA PASÓ + NO ESTAMOS EN TREGUA
+                    // Solo actuamos si la fecha venció Y NO estamos en tregua
                     if (closeDate < today && !inGracePeriod) {
                         
                         const activeBatchId = club.activeGlobalOrderId;
                         
-                        // Buscamos pedidos que sigan en "recopilando"
+                        // Buscamos pedidos del lote activo que sigan "recopilando"
                         const ordersToUpdate = orders.filter(o => 
                             o.clubId === club.id && 
                             o.globalBatch === activeBatchId && 
                             o.status === 'recopilando'
                         );
 
+                        // Si hay pedidos o si simplemente queremos cerrar el lote vacío por fecha:
                         if (ordersToUpdate.length > 0) {
                             try {
                                 const batch = writeBatch(db);
+                                
+                                // 1. Actualizar los pedidos a "En Producción"
                                 ordersToUpdate.forEach(order => {
                                     const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
                                     batch.update(ref, { 
@@ -2125,8 +2128,16 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                         visibleStatus: 'En Producción (Automático)' 
                                     });
                                 });
+
+                                // 2. NUEVO: Cerrar Lote actual, abrir el siguiente y limpiar fecha
+                                const clubRef = doc(db, 'clubs', club.id);
+                                batch.update(clubRef, { 
+                                    activeGlobalOrderId: activeBatchId + 1, // Abrir siguiente
+                                    nextBatchDate: null // Quitar la fecha vencida
+                                });
+
                                 await batch.commit();
-                                showNotification(`📅 Lote #${activeBatchId} de ${club.name} cerrado automáticamente.`, 'warning');
+                                showNotification(`📅 Lote #${activeBatchId} de ${club.name} cerrado y procesado.`, 'warning');
                             } catch (error) {
                                 console.error("Error cierre automático:", error);
                             }
@@ -2136,7 +2147,6 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
             }
         };
 
-        // Ejecutar con un pequeño retraso para asegurar que los datos cargaron
         const timer = setTimeout(checkAndAutoCloseBatches, 3000);
         return () => clearTimeout(timer);
     }, [clubs, orders]);
@@ -2160,25 +2170,29 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       cost: 0,          // Coste de reimpresión
       reason: '', 
       responsibility: 'internal', // 'internal' o 'club'
+      internalOrigin: 'us',
       recharge: false,  // Si es fallo del club, ¿se cobra?
       targetBatch: ''   // A qué lote va la reposición
   });
 
   // --- FUNCIÓN PARA ABRIR EL MODAL ---
-  const handleOpenIncident = (order, item) => {
-      const club = clubs.find(c => c.id === order.clubId);
-      setIncidentForm({
-          active: true,
-          order: order,
-          item: item,
-          qty: item.quantity || 1, // Por defecto toda la cantidad
-          cost: item.cost || 0,    // Por defecto el coste original
-          reason: '',
-          responsibility: 'internal',
-          recharge: false,
-          targetBatch: club ? club.activeGlobalOrderId : 1
-      });
-  };
+    const handleOpenIncident = (order, item) => {
+        // Calculamos el coste inicial (1 unidad * coste unitario del producto)
+        const unitCost = item.cost || 0; 
+
+        setIncidentForm({
+            active: true,
+            order,
+            item,
+            qty: 1,
+            cost: unitCost, // <--- ASIGNACIÓN AUTOMÁTICA INICIAL
+            reason: '',
+            responsibility: 'internal',
+            internalOrigin: 'us',
+            recharge: false,
+            targetBatch: order.globalBatch === 'INDIVIDUAL' ? 'INDIVIDUAL' : (selectedClub?.activeGlobalOrderId || '')
+        });
+    };
   const [revertModal, setRevertModal] = useState({ active: false, clubId: null, currentBatchId: null, ordersCount: 0 });
 
 
@@ -2726,71 +2740,83 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   };
 
 // --- LÓGICA DE CREACIÓN DE REPOSICIÓN (V2 - Soporte Individual) ---
-  const submitIncident = async () => {
-      if (!incidentForm.item || !incidentForm.order) return;
+    const submitIncident = async () => {
+        if (!incidentForm.item || !incidentForm.order) return;
 
-      const { order, item, qty, cost, reason, responsibility, recharge, targetBatch } = incidentForm;
-      
-      // Si es fallo interno/fabrica o club sin cobro, precio 0. Si se cobra, precio original.
-      const finalPrice = (responsibility === 'club' && recharge) ? item.price : 0;
-      const totalOrder = finalPrice * qty;
+        const { order, item, qty, cost, reason, responsibility, internalOrigin, recharge, targetBatch } = incidentForm;
+        
+        // 1. Calcular PRECIO DE VENTA (Lo que paga el cliente/club)
+        // Solo cobramos si es culpa del club y marcamos "Cobrar de nuevo"
+        const finalPrice = (responsibility === 'club' && recharge) ? item.price : 0;
+        
+        // 2. Calcular COSTE (Lo que pagamos nosotros al proveedor)
+        // Si es fallo 'internal':
+        //    - 'supplier': El proveedor asume el coste -> Coste para nosotros = 0
+        //    - 'us': Nosotros asumimos el coste -> Coste = El coste de reimpresión introducido
+        // Si es fallo 'club':
+        //    - Nosotros pagamos la reimpresión (aunque luego se la cobremos al club en el precio) -> Coste = input cost
+        let finalCost = parseFloat(cost);
+        if (responsibility === 'internal' && internalOrigin === 'supplier') {
+            finalCost = 0;
+        }
 
-      // Determinar el ID del lote (Número o String 'INDIVIDUAL')
-      const batchIdToSave = targetBatch === 'INDIVIDUAL' ? 'INDIVIDUAL' : parseInt(targetBatch);
+        const totalOrder = finalPrice * qty;
+        const batchIdToSave = targetBatch === 'INDIVIDUAL' ? 'INDIVIDUAL' : parseInt(targetBatch);
 
-      try {
-          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
-              createdAt: serverTimestamp(),
-              clubId: order.clubId,
-              clubName: order.clubName || 'Club',
-              customer: { 
-                  name: `${order.customer.name} (REPOSICIÓN)`, 
-                  email: order.customer.email, 
-                  phone: order.customer.phone 
-              },
-              items: [{
-                  ...item,
-                  quantity: parseInt(qty),
-                  price: finalPrice,
-                  cost: parseFloat(cost),
-                  name: `${item.name} [REP]`
-              }],
-              total: totalOrder,
-              status: targetBatch === 'INDIVIDUAL' ? 'en_produccion' : 'recopilando', // Si es individual pasa directo
-              visibleStatus: 'Reposición / Incidencia',
-              type: 'replacement',
-              paymentMethod: 'incident', 
-              globalBatch: batchIdToSave, // <--- AQUÍ GUARDAMOS EL LOTE O 'INDIVIDUAL'
-              relatedOrderId: order.id,
-              incidentDetails: {
-                  originalItemId: item.cartId,
-                  reason: reason,
-                  responsibility: responsibility
-              },
-              incidents: []
-          });
+        try {
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
+                createdAt: serverTimestamp(),
+                clubId: order.clubId,
+                clubName: order.clubName || 'Club',
+                customer: { 
+                    name: `${order.customer.name} (REPOSICIÓN)`, 
+                    email: order.customer.email, 
+                    phone: order.customer.phone 
+                },
+                items: [{
+                    ...item,
+                    quantity: parseInt(qty),
+                    price: finalPrice,
+                    cost: finalCost, // <--- COSTE AJUSTADO
+                    name: `${item.name} [REP]`
+                }],
+                total: totalOrder,
+                status: targetBatch === 'INDIVIDUAL' ? 'en_produccion' : 'recopilando',
+                visibleStatus: 'Reposición / Incidencia',
+                type: 'replacement',
+                paymentMethod: 'incident', 
+                globalBatch: batchIdToSave,
+                relatedOrderId: order.id,
+                incidentDetails: {
+                    originalItemId: item.cartId,
+                    reason: reason,
+                    responsibility: responsibility,
+                    internalOrigin: responsibility === 'internal' ? internalOrigin : null // Guardamos el detalle
+                },
+                incidents: []
+            });
 
-          // Marcar incidencia resuelta en el original
-          const originalRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-          await updateDoc(originalRef, {
-              incidents: arrayUnion({
-                  id: Date.now(),
-                  itemId: item.cartId,
-                  itemName: item.name,
-                  date: new Date().toISOString(),
-                  resolved: true,
-                  note: `Reposición generada (${targetBatch === 'INDIVIDUAL' ? 'Entr. Individual' : 'Lote ' + targetBatch})`
-              })
-          });
+            // Marcar incidencia resuelta en el original
+            const originalRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
+            await updateDoc(originalRef, {
+                incidents: arrayUnion({
+                    id: Date.now(),
+                    itemId: item.cartId,
+                    itemName: item.name,
+                    date: new Date().toISOString(),
+                    resolved: true,
+                    note: `Reposición generada (${targetBatch === 'INDIVIDUAL' ? 'Entr. Individual' : 'Lote ' + targetBatch})`
+                })
+            });
 
-          showNotification('Pedido de reposición generado correctamente');
-          setIncidentForm({ ...incidentForm, active: false });
+            showNotification('Pedido de reposición generado correctamente');
+            setIncidentForm({ ...incidentForm, active: false });
 
-      } catch (e) {
-          console.error(e);
-          showNotification('Error al generar la reposición', 'error');
-      }
-  };
+        } catch (e) {
+            console.error(e);
+            showNotification('Error al generar la reposición', 'error');
+        }
+    };
 
   const toggleIncidentResolved = (order, incidentId) => {
       const updatedIncidents = order.incidents.map(inc => 
@@ -3686,70 +3712,110 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
                       {/* Configuración de la Reposición */}
                       <div className="grid grid-cols-2 gap-4">
-                          <div>
-                              <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Cantidad a Reponer</label>
-                              <input 
-                                  type="number" 
-                                  min="1" 
-                                  max={incidentForm.item.quantity}
-                                  className="w-full border rounded p-2 text-sm focus:ring-2 focus:ring-orange-500 outline-none" 
-                                  value={incidentForm.qty} 
-                                  onChange={e => setIncidentForm({...incidentForm, qty: e.target.value})} 
-                              />
-                          </div>
-                          <div>
-                              <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Coste Reimpresión</label>
-                              <div className="relative">
-                                  <input 
-                                      type="number" 
-                                      step="0.01" 
-                                      className="w-full border rounded p-2 pl-6 text-sm focus:ring-2 focus:ring-orange-500 outline-none" 
-                                      value={incidentForm.cost} 
-                                      onChange={e => setIncidentForm({...incidentForm, cost: e.target.value})} 
-                                  />
-                                  <span className="absolute left-2 top-2 text-gray-400 text-sm">€</span>
-                              </div>
-                          </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Cantidad a Reponer</label>
+                                <input 
+                                    type="number" 
+                                    min="1"
+                                    max={incidentForm.item.quantity}
+                                    className="w-full border border-gray-300 rounded-lg p-2 font-bold text-gray-800"
+                                    value={incidentForm.qty}
+                                    onChange={(e) => {
+                                        const newQty = parseInt(e.target.value) || 1;
+                                        const unitCost = incidentForm.item.cost || 0;
+                                        
+                                        // ACTUALIZAMOS CANTIDAD Y RECALCULAMOS COSTE AUTOMÁTICAMENTE
+                                        setIncidentForm({
+                                            ...incidentForm, 
+                                            qty: newQty,
+                                            cost: parseFloat((newQty * unitCost).toFixed(2)) // Coste = Cantidad * Coste Unitario
+                                        });
+                                    }}
+                                />
+                            </div>
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Coste Producción</label>
+                                <div className="relative">
+                                    <input 
+                                        type="number" 
+                                        step="0.01"
+                                        className="w-full border border-gray-300 rounded-lg p-2 font-bold text-gray-600 bg-gray-100 cursor-not-allowed"
+                                        value={incidentForm.cost}
+                                        readOnly // <--- SOLO LECTURA (Se calcula solo)
+                                    />
+                                    <span className="absolute right-3 top-2 text-gray-500 font-bold">€</span>
+                                </div>
+                                <p className="text-[9px] text-gray-400 mt-1">
+                                    Calculado: {incidentForm.qty} u. x {incidentForm.item.cost?.toFixed(2)}€/ud
+                                </p>
+                            </div>
                       </div>
 
                       {/* Responsabilidad y Cobro */}
-                      <div>
-                          <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">Origen del Fallo</label>
-                          <div className="grid grid-cols-2 gap-3 mb-3">
-                              <button 
-                                  type="button"
-                                  onClick={() => setIncidentForm({...incidentForm, responsibility: 'internal'})}
-                                  className={`p-2 rounded text-sm border flex flex-col items-center gap-1 ${incidentForm.responsibility === 'internal' ? 'bg-red-50 border-red-200 text-red-700 font-bold' : 'bg-white border-gray-200 text-gray-500'}`}
-                              >
-                                  <span>Interno / Fabrica</span>
-                                  <span className="text-[10px] font-normal">Nosotros asumimos coste</span>
-                              </button>
-                              <button 
-                                  type="button"
-                                  onClick={() => setIncidentForm({...incidentForm, responsibility: 'club'})}
-                                  className={`p-2 rounded text-sm border flex flex-col items-center gap-1 ${incidentForm.responsibility === 'club' ? 'bg-blue-50 border-blue-200 text-blue-700 font-bold' : 'bg-white border-gray-200 text-gray-500'}`}
-                              >
-                                  <span>Error del Club</span>
-                                  <span className="text-[10px] font-normal">Decidir si cobrar</span>
-                              </button>
-                          </div>
+                        <div>
+                            <label className="block text-xs font-bold text-gray-600 mb-2 uppercase">Origen del Fallo</label>
+                            
+                            {/* NIVEL 1: ¿QUIÉN TIENE LA CULPA? */}
+                            <div className="grid grid-cols-2 gap-3 mb-3">
+                                <button 
+                                    type="button"
+                                    onClick={() => setIncidentForm({...incidentForm, responsibility: 'internal'})}
+                                    className={`p-2 rounded text-sm border flex flex-col items-center gap-1 transition-all ${incidentForm.responsibility === 'internal' ? 'bg-red-50 border-red-300 text-red-700 ring-2 ring-red-100 font-bold' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                >
+                                    <span>Interno / Fabrica</span>
+                                </button>
+                                <button 
+                                    type="button"
+                                    onClick={() => setIncidentForm({...incidentForm, responsibility: 'club'})}
+                                    className={`p-2 rounded text-sm border flex flex-col items-center gap-1 transition-all ${incidentForm.responsibility === 'club' ? 'bg-blue-50 border-blue-300 text-blue-700 ring-2 ring-blue-100 font-bold' : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50'}`}
+                                >
+                                    <span>Error del Club</span>
+                                </button>
+                            </div>
 
-                          {/* Opción de Cobrar solo si es fallo del club */}
-                          {incidentForm.responsibility === 'club' && (
-                              <div className="flex items-center gap-2 bg-blue-50 p-2 rounded border border-blue-100 animate-fade-in">
-                                  <input 
-                                      type="checkbox" 
-                                      id="recharge" 
-                                      className="w-4 h-4 text-blue-600 rounded"
-                                      checked={incidentForm.recharge}
-                                      onChange={e => setIncidentForm({...incidentForm, recharge: e.target.checked})}
-                                  />
-                                  <label htmlFor="recharge" className="text-sm text-blue-800 font-medium cursor-pointer">
-                                      ¿Volver a cobrar el precio de venta ({incidentForm.item.price}€)?
-                                  </label>
-                              </div>
-                          )}
-                      </div>
+                            {/* NIVEL 2: DETALLES SEGÚN SELECCIÓN */}
+                            
+                            {/* CASO A: FALLO INTERNO (Sub-selección Proveedor vs Nosotros) */}
+                            {incidentForm.responsibility === 'internal' && (
+                                <div className="bg-red-50 p-3 rounded-lg border border-red-100 animate-fade-in mb-3">
+                                    <p className="text-[10px] uppercase font-bold text-red-400 mb-2">¿Quién asume el coste de reposición?</p>
+                                    <div className="grid grid-cols-2 gap-2">
+                                        <button 
+                                            type="button"
+                                            onClick={() => setIncidentForm({...incidentForm, internalOrigin: 'us'})}
+                                            className={`px-2 py-2 text-xs rounded border transition-colors flex flex-col items-center ${incidentForm.internalOrigin === 'us' ? 'bg-white border-red-300 text-red-700 shadow-sm font-bold' : 'bg-red-100/50 border-transparent text-red-400 hover:bg-red-100'}`}
+                                        >
+                                            <span>Nosotros (F.Esport)</span>
+                                            <span className="text-[9px] mt-0.5 opacity-80">Pagamos coste ({incidentForm.cost}€)</span>
+                                        </button>
+                                        <button 
+                                            type="button"
+                                            onClick={() => setIncidentForm({...incidentForm, internalOrigin: 'supplier'})}
+                                            className={`px-2 py-2 text-xs rounded border transition-colors flex flex-col items-center ${incidentForm.internalOrigin === 'supplier' ? 'bg-white border-red-300 text-red-700 shadow-sm font-bold' : 'bg-red-100/50 border-transparent text-red-400 hover:bg-red-100'}`}
+                                        >
+                                            <span>El Proveedor</span>
+                                            <span className="text-[9px] mt-0.5 opacity-80">Garantía (Coste 0€)</span>
+                                        </button>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* CASO B: FALLO CLUB (Opción de cobrar) */}
+                            {incidentForm.responsibility === 'club' && (
+                                <div className="flex items-center gap-2 bg-blue-50 p-3 rounded-lg border border-blue-100 animate-fade-in mb-3">
+                                    <input 
+                                        type="checkbox" 
+                                        id="recharge" 
+                                        className="w-4 h-4 text-blue-600 rounded cursor-pointer"
+                                        checked={incidentForm.recharge}
+                                        onChange={e => setIncidentForm({...incidentForm, recharge: e.target.checked})}
+                                    />
+                                    <label htmlFor="recharge" className="text-sm text-blue-800 font-medium cursor-pointer select-none">
+                                        ¿Cobrar de nuevo al club? <span className="font-bold">({incidentForm.item.price.toFixed(2)}€)</span>
+                                    </label>
+                                </div>
+                            )}
+                        </div>
 
                         {/* Asignación a Lote Inteligente */}
                       <div>
@@ -3920,257 +3986,302 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-    {/* --- PESTAÑA DE PEDIDOS (V12 - DISEÑO INTEGRADO) --- */}
-    {/* --- PESTAÑA PEDIDOS/CONTABILIDAD (AdminDashboard) --- */}
-    {tab === 'accounting' && (
-        <div className="animate-fade-in space-y-8">
-            
-            {/* BARRA SUPERIOR (Limpia, sin fecha) */}
-            <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
-                <div className="flex items-center gap-4">
-                    <div className="bg-blue-100 p-2 rounded-full text-blue-600"><Layers className="w-5 h-5"/></div>
-                    <div>
-                        <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wide">Control de Lotes</h4>
-                        <p className="text-xs text-slate-500">Gestión de pedidos globales por club</p>
-                    </div>
-                </div>
-
-                {/* Selector Central */}
-                <div className="flex items-center gap-6 bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100">
-                    <div className="relative group flex items-center">
-                        <select 
-                            className="appearance-none bg-transparent text-base font-extrabold text-slate-700 pr-8 cursor-pointer outline-none hover:text-blue-600 transition-colors"
-                            value={selectedClubId}
-                            onChange={(e) => setSelectedClubId(e.target.value)}
-                        >
-                            {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                        </select>
-                        <ChevronRight className="w-4 h-4 text-slate-400 absolute right-0 pointer-events-none rotate-90"/>
-                    </div>
-                    <div className="h-8 w-px bg-slate-100"></div>
-                    <div className="flex items-center gap-2">
-                        <span className="text-xs text-slate-600 font-bold uppercase">Lote Activo:</span>
-                        <span className="text-base font-extrabold text-slate-800">#{selectedClub?.activeGlobalOrderId}</span>
-                    </div>
-                </div>
-
-                {/* Botones Globales */}
-                <div className="flex items-center gap-2">
-                    {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
-                        <button 
-                            onClick={() => setConfirmation({ title: "Revertir", msg: "¿Volver al lote anterior?", onConfirm: () => handleRevertGlobalBatch(selectedClubId) })}
-                            className="text-xs font-bold text-slate-500 hover:text-red-600 px-3 py-2 flex gap-1 rounded hover:bg-red-50 transition-colors"
-                        >
-                            <RotateCcw className="w-3 h-3"/> Deshacer
-                        </button>
-                    )}
-                    <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 text-white text-xs py-2 px-4 shadow-md hover:bg-blue-700">
-                        <Archive className="w-4 h-4 mr-2"/> Cerrar Lote Manual
-                    </Button>
+{/* --- PESTAÑA PEDIDOS/CONTABILIDAD (FINAL: GESTIÓN POR LOTES) --- */}
+{tab === 'accounting' && (
+    <div className="animate-fade-in space-y-8">
+        
+        {/* A. BARRA DE HERRAMIENTAS SUPERIOR (LIMPIA) */}
+        <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
+            <div className="flex items-center gap-4">
+                <div className="bg-blue-100 p-2 rounded-full text-blue-600"><Layers className="w-5 h-5"/></div>
+                <div>
+                    <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wide">Control de Lotes</h4>
+                    <p className="text-xs text-slate-500">Gestión de pedidos globales</p>
                 </div>
             </div>
 
-            {/* LISTADO DE LOTES (Con Fecha Editable Individualmente) */}
-            <div className="space-y-12">
-                {accountingData.map(({ club, batches }) => (
-                    <div key={club.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
-                        {/* Cabecera Club */}
-                        <div className="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
-                            <div className="flex items-center gap-3">
-                                <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs">{club.code}</div>
-                                <h4 className="font-bold text-lg">{club.name}</h4>
-                            </div>
-                            <span className="text-xs bg-gray-700 px-3 py-1 rounded-full text-gray-300">{batches.length} Lotes</span>
-                        </div>
-                        
-                        <div className="divide-y divide-gray-200">
-                            {batches.map(batch => {
-                                const isStandard = typeof batch.id === 'number';
-                                const isActive = isStandard && batch.id === club.activeGlobalOrderId;
-                                const status = (!isStandard) ? 'special' : (batch.orders[0]?.status || 'recopilando');
-                                const isProduction = ['en_produccion', 'entregado_club'].includes(status);
-                                const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
+            {/* Selector Central */}
+            <div className="flex items-center gap-6 bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100">
+                <div className="relative group flex items-center">
+                    <select 
+                        className="appearance-none bg-transparent text-base font-extrabold text-slate-700 pr-8 cursor-pointer outline-none hover:text-blue-600 transition-colors"
+                        value={selectedClubId}
+                        onChange={(e) => setSelectedClubId(e.target.value)}
+                    >
+                        {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                    </select>
+                    <ChevronRight className="w-4 h-4 text-slate-400 absolute right-0 pointer-events-none rotate-90"/>
+                </div>
+                <div className="h-8 w-px bg-slate-100"></div>
+                <div className="flex items-center gap-2">
+                    <span className="text-xs text-slate-600 font-bold uppercase">Lote Activo:</span>
+                    <span className="text-base font-extrabold text-slate-800">#{selectedClub?.activeGlobalOrderId}</span>
+                </div>
+            </div>
 
-                                return (
-                                    <div key={batch.id} className={`p-4 transition-colors ${isActive ? 'bg-emerald-50/40' : 'bg-white'}`}>
-                                        
-                                        {/* CABECERA DEL LOTE */}
-                                        <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
-                                            <div className="flex flex-wrap items-center gap-3">
-                                                {isStandard ? (
-                                                    <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
-                                                ) : (
-                                                    <span className="font-black text-lg text-gray-700 flex items-center gap-2">
-                                                        {batch.id === 'SPECIAL' ? <Briefcase className="w-5 h-5 text-indigo-600"/> : <Package className="w-5 h-5 text-orange-600"/>}
-                                                        {batch.id === 'SPECIAL' ? 'ESPECIALES' : 'INDIVIDUALES'}
-                                                    </span>
-                                                )}
-
-                                                {isActive && <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold uppercase">Activo</span>}
-                                                {isStandard && <Badge status={status} />}
-                                                
-                                                <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
-                                                    Total: {batchTotal.toFixed(2)}€
-                                                </span>
-
-                                                {/* --- GESTIÓN DE FECHA DE CIERRE (Solo Lotes Activos) --- */}
-                                                {isStandard && isActive && (
-                                                    <div className="ml-2">
-                                                        {editingDate.clubId === club.id ? (
-                                                            // MODO EDICIÓN (Input + Guardar + Cancelar)
-                                                            <div className="flex items-center gap-1 bg-white p-1 rounded-lg border-2 border-blue-400 shadow-md animate-fade-in scale-105 origin-left">
-                                                                <div className="flex flex-col px-1">
-                                                                    <span className="text-[8px] font-bold text-blue-500 uppercase leading-none">Nueva Fecha</span>
-                                                                    <input 
-                                                                        type="date" 
-                                                                        className="text-xs font-bold border-none p-0 focus:ring-0 text-gray-800 bg-transparent h-5 w-24"
-                                                                        value={editingDate.date}
-                                                                        onChange={(e) => setEditingDate({...editingDate, date: e.target.value})}
-                                                                        autoFocus
-                                                                    />
-                                                                </div>
-                                                                <div className="flex gap-1 border-l pl-1 border-gray-200">
-                                                                    <button 
-                                                                        onClick={() => {
-                                                                            if(!editingDate.date) return;
-                                                                            setConfirmation({
-                                                                                title: "📅 Confirmar Fecha",
-                                                                                msg: `Vas a programar el cierre para el día:\n\n👉 ${new Date(editingDate.date).toLocaleDateString()}\n\n¿Guardar cambio?`,
-                                                                                onConfirm: async () => {
-                                                                                    await updateDoc(doc(db, 'clubs', club.id), { nextBatchDate: editingDate.date });
-                                                                                    setEditingDate({ clubId: null, date: '' });
-                                                                                    showNotification('Fecha programada correctamente');
-                                                                                }
-                                                                            });
-                                                                        }}
-                                                                        className="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 p-1.5 rounded transition-colors"
-                                                                        title="Guardar"
-                                                                    >
-                                                                        <Check className="w-3.5 h-3.5"/>
-                                                                    </button>
-                                                                    <button 
-                                                                        onClick={() => setEditingDate({ clubId: null, date: '' })}
-                                                                        className="bg-red-50 hover:bg-red-100 text-red-500 p-1.5 rounded transition-colors"
-                                                                        title="Cancelar"
-                                                                    >
-                                                                        <X className="w-3.5 h-3.5"/>
-                                                                    </button>
-                                                                </div>
-                                                            </div>
-                                                        ) : (
-                                                            // MODO VISUALIZACIÓN (Texto + Lápiz)
-                                                            <div className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${!club.nextBatchDate ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200 hover:border-blue-300'}`}>
-                                                                <Calendar className={`w-3.5 h-3.5 ${!club.nextBatchDate ? 'text-orange-500' : 'text-gray-400'}`}/>
-                                                                
-                                                                <div className="flex flex-col">
-                                                                    <span className="text-[8px] font-bold text-gray-400 uppercase leading-none">Cierre Previsto</span>
-                                                                    <span className={`text-xs font-bold ${!club.nextBatchDate ? 'text-orange-600' : 'text-gray-700'}`}>
-                                                                        {club.nextBatchDate ? new Date(club.nextBatchDate).toLocaleDateString() : 'Sin Fecha'}
-                                                                    </span>
-                                                                </div>
-                                                                
-                                                                {/* Botón Lápiz (Solo si no está bloqueado por producción) */}
-                                                                {!isProduction ? (
-                                                                    <button 
-                                                                        onClick={() => setEditingDate({ clubId: club.id, date: club.nextBatchDate || '' })}
-                                                                        className="ml-1 p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                                                        title="Editar fecha de cierre"
-                                                                    >
-                                                                        <Edit3 className="w-3.5 h-3.5"/>
-                                                                    </button>
-                                                                ) : (
-                                                                    <Lock className="w-3.5 h-3.5 text-gray-300 ml-1" title="Bloqueado: En producción"/>
-                                                                )}
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                )}
-                                            </div>
-
-                                            {/* Acciones */}
-                                            <div className="flex items-center gap-2">
-                                                <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)} disabled={batch.orders.length===0}>
-                                                    <FileDown className="w-3 h-3 mr-1"/> Excel
-                                                </Button>
-                                                
-                                                {isStandard && (
-                                                    <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
-                                                        <select 
-                                                            value={status}
-                                                            onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
-                                                            className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer outline-none ${
-                                                                status === 'en_produccion' ? 'bg-purple-100 text-purple-700 border-purple-200' :
-                                                                status === 'entregado_club' ? 'bg-green-100 text-green-700 border-green-200' :
-                                                                'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
-                                                            }`}
-                                                        >
-                                                            <option value="recopilando">Recopilando</option>
-                                                            <option value="en_produccion">En Producción</option>
-                                                            <option value="entregado_club">Entregado</option>
-                                                        </select>
-                                                    </div>
-                                                )}
-                                            </div>
-                                        </div>
-
-                                        {/* LISTA DE PEDIDOS */}
-                                        {batch.orders.length === 0 ? (
-                                            <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
-                                                Lote vacío.
-                                            </div>
-                                        ) : (
-                                            <div className="pl-4 border-l-4 border-gray-200 space-y-2">
-                                                {batch.orders.map(order => (
-                                                    <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:border-emerald-300 group/order">
-                                                        <div onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none">
-                                                            <div className="flex gap-4 items-center">
-                                                                <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded text-gray-600">#{order.id.slice(0,6)}</span>
-                                                                <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
-                                                                {!isStandard && <Badge status={order.status} />}
-                                                            </div>
-                                                            <div className="flex gap-4 items-center text-sm">
-                                                                <span className="font-bold">{order.total.toFixed(2)}€</span>
-                                                                <ChevronRight className={`w-4 h-4 text-gray-300 transition-transform ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
-                                                            </div>
-                                                        </div>
-                                                        
-                                                        {/* Detalle Expandido */}
-                                                        {expandedOrderId === order.id && (
-                                                            <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
-                                                                <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2"><Package className="w-3 h-3"/> Productos</h5>
-                                                                <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100 mb-4">
-                                                                    {order.items.map(item => (
-                                                                        <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3">
-                                                                            <div className="flex gap-3 items-center flex-1">
-                                                                                <div className="font-bold text-gray-800 text-xs">{item.quantity}x</div>
-                                                                                <div>
-                                                                                    <p className="font-bold text-gray-800 text-sm">{item.name}</p>
-                                                                                    <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
-                                                                                </div>
-                                                                            </div>
-                                                                            <span className="font-bold text-emerald-600 text-sm">{((item.quantity||1)*item.price).toFixed(2)}€</span>
-                                                                        </div>
-                                                                    ))}
-                                                                </div>
-                                                                <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
-                                                                    <button onClick={(e) => { e.stopPropagation(); const o = JSON.parse(JSON.stringify(order)); setEditOrderModal({ active: true, original: o, modified: o }); }} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200"><Edit3 className="w-3 h-3"/> Editar</button>
-                                                                    <button onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }} className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200"><Trash2 className="w-3 h-3"/> Eliminar</button>
-                                                                </div>
-                                                            </div>
-                                                        )}
-                                                    </div>
-                                                ))}
-                                            </div>
-                                        )}
-                                    </div>
-                                );
-                            })}
-                        </div>
-                    </div>
-                ))}
+            {/* Acciones Globales */}
+            <div className="flex items-center gap-2">
+                {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
+                    <button 
+                        onClick={() => setConfirmation({ title: "Revertir", msg: "¿Volver al lote anterior?", onConfirm: () => handleRevertGlobalBatch(selectedClubId) })}
+                        className="text-xs font-bold text-slate-500 hover:text-red-600 px-3 py-2 flex gap-1 rounded hover:bg-red-50 transition-colors"
+                    >
+                        <RotateCcw className="w-3 h-3"/> Deshacer
+                    </button>
+                )}
+                <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 text-white text-xs py-2 px-4 shadow-md hover:bg-blue-700">
+                    <Archive className="w-4 h-4 mr-2"/> Cerrar Lote Manual
+                </Button>
             </div>
         </div>
-    )}
+
+        {/* B. LISTADO DE LOTES */}
+        <div className="space-y-12">
+            {accountingData.map(({ club, batches }) => (
+                <div key={club.id} className="border border-gray-200 rounded-xl overflow-hidden shadow-sm bg-white">
+                    {/* Cabecera Club */}
+                    <div className="bg-gray-800 text-white px-6 py-3 flex justify-between items-center">
+                        <div className="flex items-center gap-3">
+                            <div className="bg-gray-700 w-8 h-8 rounded-full flex items-center justify-center font-bold text-xs">{club.code}</div>
+                            <h4 className="font-bold text-lg">{club.name}</h4>
+                        </div>
+                        <span className="text-xs bg-gray-700 px-3 py-1 rounded-full text-gray-300">{batches.length} Lotes</span>
+                    </div>
+                    
+                    <div className="divide-y divide-gray-200">
+                        {batches.map(batch => {
+                            const isStandard = typeof batch.id === 'number';
+                            const isActive = isStandard && batch.id === club.activeGlobalOrderId;
+                            const status = (!isStandard) ? 'special' : (batch.orders[0]?.status || 'recopilando');
+                            const isProduction = ['en_produccion', 'entregado_club'].includes(status);
+                            const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
+
+                            return (
+                                <div key={batch.id} className={`p-4 transition-colors ${isActive ? 'bg-emerald-50/40' : 'bg-white'}`}>
+                                    
+                                    {/* 1. CABECERA DEL LOTE (Aquí están los botones globales de Excel/Albarán/Estado) */}
+                                    <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
+                                        <div className="flex flex-wrap items-center gap-3">
+                                            {/* Título */}
+                                            {isStandard ? (
+                                                <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
+                                            ) : (
+                                                <span className="font-black text-lg text-gray-700 flex items-center gap-2">
+                                                    {batch.id === 'SPECIAL' ? <Briefcase className="w-5 h-5 text-indigo-600"/> : <Package className="w-5 h-5 text-orange-600"/>}
+                                                    {batch.id === 'SPECIAL' ? 'ESPECIALES' : 'INDIVIDUALES'}
+                                                </span>
+                                            )}
+
+                                            {isActive && <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold uppercase">Activo</span>}
+                                            {isStandard && <Badge status={status} />}
+                                            
+                                            <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
+                                                Total: {batchTotal.toFixed(2)}€
+                                            </span>
+
+                                            {/* --- GESTIÓN DE FECHA DE CIERRE (Solo Lotes Activos) --- */}
+                                            {isStandard && isActive && (
+                                                <div className="ml-2">
+                                                    {editingDate.clubId === club.id ? (
+                                                        // MODO EDICIÓN
+                                                        <div className="flex items-center gap-1 bg-white p-1 rounded-lg border-2 border-blue-400 shadow-md animate-fade-in scale-105 origin-left">
+                                                            <div className="flex flex-col px-1">
+                                                                <span className="text-[8px] font-bold text-blue-500 uppercase leading-none">Nueva Fecha</span>
+                                                                <input 
+                                                                    type="date" 
+                                                                    className="text-xs font-bold border-none p-0 focus:ring-0 text-gray-800 bg-transparent h-5 w-24"
+                                                                    value={editingDate.date}
+                                                                    onChange={(e) => setEditingDate({...editingDate, date: e.target.value})}
+                                                                    autoFocus
+                                                                />
+                                                            </div>
+                                                            <div className="flex gap-1 border-l pl-1 border-gray-200">
+                                                                <button 
+                                                                    onClick={() => {
+                                                                        if(!editingDate.date) return;
+                                                                        setConfirmation({
+                                                                            title: "📅 Confirmar Fecha",
+                                                                            msg: `Vas a programar el cierre para el día:\n\n👉 ${new Date(editingDate.date).toLocaleDateString()}\n\n¿Guardar cambio?`,
+                                                                            onConfirm: async () => {
+                                                                                await updateDoc(doc(db, 'clubs', club.id), { nextBatchDate: editingDate.date });
+                                                                                setEditingDate({ clubId: null, date: '' });
+                                                                                showNotification('Fecha programada correctamente');
+                                                                            }
+                                                                        });
+                                                                    }}
+                                                                    className="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 p-1.5 rounded transition-colors"
+                                                                >
+                                                                    <Check className="w-3.5 h-3.5"/>
+                                                                </button>
+                                                                <button 
+                                                                    onClick={() => setEditingDate({ clubId: null, date: '' })}
+                                                                    className="bg-red-50 hover:bg-red-100 text-red-500 p-1.5 rounded transition-colors"
+                                                                >
+                                                                    <X className="w-3.5 h-3.5"/>
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    ) : (
+                                                        // MODO VISUALIZACIÓN
+                                                        <div className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${!club.nextBatchDate ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200 hover:border-blue-300'}`}>
+                                                            <Calendar className={`w-3.5 h-3.5 ${!club.nextBatchDate ? 'text-orange-500' : 'text-gray-400'}`}/>
+                                                            <div className="flex flex-col">
+                                                                <span className="text-[8px] font-bold text-gray-400 uppercase leading-none">Cierre Previsto</span>
+                                                                <span className={`text-xs font-bold ${!club.nextBatchDate ? 'text-orange-600' : 'text-gray-700'}`}>
+                                                                    {club.nextBatchDate ? new Date(club.nextBatchDate).toLocaleDateString() : 'Sin Fecha'}
+                                                                </span>
+                                                            </div>
+                                                            {!isProduction ? (
+                                                                <button 
+                                                                    onClick={() => setEditingDate({ clubId: club.id, date: club.nextBatchDate || '' })}
+                                                                    className="ml-1 p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
+                                                                    title="Editar fecha de cierre"
+                                                                >
+                                                                    <Edit3 className="w-3.5 h-3.5"/>
+                                                                </button>
+                                                            ) : (
+                                                                <Lock className="w-3.5 h-3.5 text-gray-300 ml-1" title="Bloqueado: En producción"/>
+                                                            )}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            )}
+                                        </div>
+
+                                        {/* ACCIONES DEL LOTE (Aquí están Excel y Albarán Globales) */}
+                                        <div className="flex items-center gap-2">
+                                            <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)} disabled={batch.orders.length===0}>
+                                                <FileDown className="w-3 h-3 mr-1"/> Excel
+                                            </Button>
+                                            <Button size="xs" variant="outline" onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)} disabled={batch.orders.length===0}>
+                                                <Printer className="w-3 h-3 mr-1"/> Albarán
+                                            </Button>
+
+                                            {isStandard && (
+                                                <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
+                                                    <select 
+                                                        value={status}
+                                                        onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
+                                                        className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer outline-none ${
+                                                            status === 'en_produccion' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                                            status === 'entregado_club' ? 'bg-green-100 text-green-700 border-green-200' :
+                                                            'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                                                        }`}
+                                                    >
+                                                        <option value="recopilando">Recopilando</option>
+                                                        <option value="en_produccion">En Producción</option>
+                                                        <option value="entregado_club">Entregado</option>
+                                                    </select>
+                                                </div>
+                                            )}
+                                        </div>
+                                    </div>
+
+                                    {/* 2. LISTA DE PEDIDOS INDIVIDUALES */}
+                                    {batch.orders.length === 0 ? (
+                                        <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
+                                            Aún no hay pedidos en este lote activo.
+                                        </div>
+                                    ) : (
+                                        <div className="pl-4 border-l-4 border-gray-200 space-y-2">
+                                            {batch.orders.map(order => (
+                                                <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:border-emerald-300 group/order">
+                                                    {/* Resumen Pedido */}
+                                                    <div 
+                                                        onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
+                                                        className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
+                                                    >
+                                                        <div className="flex gap-4 items-center">
+                                                            {order.type === 'special' ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
+                                                            ) : order.globalBatch === 'INDIVIDUAL' ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
+                                                            ) : (
+                                                                <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded text-gray-600">#{order.id.slice(0,6)}</span>
+                                                            )}
+                                                            
+                                                            <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
+                                                            {!isStandard && <Badge status={order.status} />}
+                                                        </div>
+                                                        <div className="flex gap-4 items-center text-sm">
+                                                            <span className="font-bold">{order.total.toFixed(2)}€</span>
+                                                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
+                                                        </div>
+                                                    </div>
+                                                    
+                                                    {/* Detalle Expandido (SIN BARRA DE DOCUMENTACIÓN INDIVIDUAL) */}
+                                                    {expandedOrderId === order.id && (
+                                                        <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
+                                                            
+                                                            <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2"><Package className="w-3 h-3"/> Productos del Pedido</h5>
+                                                            <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100 mb-4">
+                                                                {order.items.map(item => {
+                                                                    const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
+                                                                    return (
+                                                                      <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                                                                          <div className="flex gap-3 items-center flex-1">
+                                                                              {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
+                                                                              <div>
+                                                                                  <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                                                                                  <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
+                                                                              </div>
+                                                                          </div>
+                                                                          <div className="flex items-center gap-6 mr-4">
+                                                                              <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Cant.</p><p className="font-medium text-sm">{item.quantity || 1}</p></div>
+                                                                              <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Precio</p><p className="font-medium text-sm">{item.price.toFixed(2)}€</p></div>
+                                                                          </div>
+                                                                          <div className="flex items-center gap-2 border-l pl-3">
+                                                                              {/* Botón REPORTAR FALLO */}
+                                                                              {isIncident ? (
+                                                                                  <span className="text-xs text-red-600 font-bold flex items-center gap-1 bg-red-50 px-2 py-1 rounded"><AlertTriangle className="w-3 h-3"/> Reportado</span>
+                                                                              ) : (
+                                                                                  <button 
+                                                                                      onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
+                                                                                      className="text-orange-600 bg-orange-50 hover:bg-orange-100 p-1.5 rounded-md text-xs border border-orange-200 flex items-center gap-1 transition-colors" 
+                                                                                      title="Reportar Fallo / Incidencia"
+                                                                                  >
+                                                                                      <AlertTriangle className="w-3 h-3"/> Fallo
+                                                                                  </button>
+                                                                              )}
+                                                                          </div>
+                                                                      </div>
+                                                                    );
+                                                                })}
+                                                            </div>
+                                                            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+                                                                <button 
+                                                                    onClick={(e) => { 
+                                                                        e.stopPropagation(); 
+                                                                        const original = JSON.parse(JSON.stringify(order)); 
+                                                                        const modified = JSON.parse(JSON.stringify(order)); 
+                                                                        setEditOrderModal({ active: true, original, modified }); 
+                                                                    }} 
+                                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors"
+                                                                >
+                                                                    <Edit3 className="w-3 h-3"/> Modificar Datos
+                                                                </button>
+                                                                <button 
+                                                                    onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }} 
+                                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
+                                                                >
+                                                                    <Trash2 className="w-3 h-3"/> Eliminar
+                                                                </button>
+                                                            </div>
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )}
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
+            ))}
+        </div>
+    </div>
+)}
 
 {/* --- PESTAÑA DE CONTABILIDAD (VERSIÓN V5 - CON PEDIDOS ESPECIALES SEPARADOS) --- */}
       {tab === 'accounting-control' && (

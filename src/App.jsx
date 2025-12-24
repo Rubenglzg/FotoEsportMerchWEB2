@@ -716,85 +716,173 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                         </div>
                     </div>
 
-                    {/* SECCIÓN INFERIOR: TABLA DE PERSONALIZACIÓN (ANCHO COMPLETO) */}
-                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm">
+                    {/* --- BLOQUE 1: TABLA DE PERSONALIZACIÓN (TALLA Y FOTO ESTRICTOS) --- */}
+                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm mt-6">
                         <div className="bg-gray-100 px-6 py-3 border-b border-gray-200 flex justify-between items-center">
-                            <span className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
+                            <h4 className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
                                 <Settings className="w-4 h-4"/> Reglas de Personalización
-                            </span>
-                            
-                            {/* Leyenda pequeña */}
-                            <div className="hidden md:flex gap-8 pr-4 opacity-60">
+                            </h4>
+                            <div className="flex gap-8 pr-4 opacity-60">
                                 <span className="text-[9px] font-bold uppercase w-12 text-center">Activo</span>
                                 <span className="text-[9px] font-bold uppercase w-12 text-center">Defecto</span>
-                                <span className="text-[9px] font-bold uppercase w-12 text-center">Cliente</span>
+                                <span className="text-[9px] font-bold uppercase w-12 text-center">Edit</span>
                             </div>
                         </div>
 
-                        <div className="divide-y divide-gray-50">
-                            {['name', 'number', 'shield', 'photo'].map(k => (
-                                <div key={k} className="flex flex-col md:flex-row md:items-center justify-between px-6 py-4 hover:bg-gray-50 transition-colors gap-4 md:gap-0">
-                                    
-                                    {/* Nombre Característica */}
-                                    <div className="flex items-center gap-4">
-                                        <div className={`p-2 rounded-lg shadow-sm ${features[k] ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
-                                            {k === 'name' && <FileText className="w-5 h-5"/>}
-                                            {k === 'number' && <Hash className="w-5 h-5"/>}
-                                            {k === 'shield' && <ShieldCheck className="w-5 h-5"/>}
-                                            {k === 'photo' && <ImageIcon className="w-5 h-5"/>}
+                        <div className="divide-y divide-gray-50 p-4">
+                            
+                            {/* 1. TALLA (MODIFICADO: Estricto como Foto) */}
+                            <div className="flex flex-col gap-2 py-2">
+                                <div className="flex items-center justify-between">
+                                    <div className="flex items-center gap-3">
+                                        <div className={`p-2 rounded-lg ${features.size ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
+                                            <Hash className="w-5 h-5"/> 
                                         </div>
-                                        <div>
-                                            <p className={`text-sm font-bold capitalize ${features[k] ? 'text-gray-800' : 'text-gray-400'}`}>
-                                                {k === 'shield' ? 'Escudo Club' : k === 'number' ? 'Dorsal' : k === 'photo' ? 'Foto Jugador' : 'Nombre'}
-                                            </p>
-                                            <p className="text-[10px] text-gray-400 hidden md:block">
-                                                {k === 'photo' ? 'Permite subir foto personal' : 'Campo de texto o selección'}
-                                            </p>
-                                        </div>
+                                        <span className="text-sm font-bold text-gray-700">Talla</span>
                                     </div>
-
-                                    {/* Controles de la Tabla */}
-                                    <div className="flex justify-between md:justify-end md:gap-8 w-full md:w-auto pr-2 bg-gray-50 md:bg-transparent p-2 md:p-0 rounded-lg">
-                                        {/* 1. Activo */}
-                                        <div className="flex flex-col items-center gap-1 w-16">
-                                            <span className="md:hidden text-[9px] font-bold uppercase text-gray-400">Activo</span>
+                                    
+                                    <div className="flex gap-8 pr-2">
+                                        {/* Activo: Al activar, forzamos defaults=true y modifiable=false */}
+                                        <div className="flex justify-center w-12">
                                             <input 
                                                 type="checkbox" 
-                                                checked={features[k]} 
-                                                onChange={() => toggleFeature(k)} 
-                                                className="h-5 w-5 rounded border-gray-300 text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                checked={features.size} 
+                                                onChange={() => {
+                                                    const newState = !features.size;
+                                                    updateProduct({ 
+                                                        ...product, 
+                                                        features: { ...features, size: newState },
+                                                        defaults: { ...defaults, size: newState ? true : defaults.size }, // Si activo, force default true
+                                                        modifiable: { ...modifiable, size: newState ? false : modifiable.size } // Si activo, force edit false
+                                                    });
+                                                }} 
+                                                className="rounded text-emerald-600 cursor-pointer"
+                                            />
+                                        </div>
+                                        
+                                        {/* Defecto: SIEMPRE CHECKED Y DISABLED si está activo */}
+                                        <div className="flex justify-center w-12">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={features.size ? true : defaults.size} 
+                                                disabled={true} 
+                                                className="rounded text-blue-600 opacity-50 cursor-not-allowed"
                                             />
                                         </div>
 
-                                        {/* 2. Default */}
-                                        <div className="flex flex-col items-center gap-1 w-16">
-                                            <span className="md:hidden text-[9px] font-bold uppercase text-gray-400">Default</span>
-                                            <input 
-                                                type="checkbox" 
-                                                checked={defaults[k]} 
-                                                onChange={() => toggleDefault(k)} 
-                                                disabled={!features[k]} 
-                                                className="h-5 w-5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 cursor-pointer disabled:opacity-20"
-                                            />
-                                        </div>
-
-                                        {/* 3. Editable */}
-                                        <div className="flex flex-col items-center gap-1 w-16">
-                                            <span className="md:hidden text-[9px] font-bold uppercase text-gray-400">Edit</span>
-                                            <button 
-                                                onClick={() => toggleModifiable(k)} 
-                                                disabled={!features[k]}
-                                                className={`transition-colors p-0.5 rounded ${!features[k] ? 'opacity-20' : ''}`}
-                                            >
-                                                {modifiable[k] ? 
-                                                    <Unlock className="w-5 h-5 text-emerald-500"/> : 
-                                                    <Lock className="w-5 h-5 text-red-400"/>
-                                                }
+                                        {/* Edit: SIEMPRE CANDADO ROJO Y DISABLED si está activo */}
+                                        <div className="flex justify-center w-12">
+                                            <button disabled={true} className="opacity-50 cursor-not-allowed">
+                                                <Lock className="w-5 h-5 text-red-400"/>
                                             </button>
                                         </div>
                                     </div>
                                 </div>
-                            ))}
+                                
+                                {/* Input opciones talla */}
+                                {features.size && (
+                                    <div className="ml-12 bg-gray-50 p-2 rounded border border-gray-200 animate-fade-in">
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Opciones de Talla (Separadas por comas)</label>
+                                        <input 
+                                            type="text" 
+                                            className="w-full border rounded p-1.5 text-xs bg-white focus:ring-1 focus:ring-emerald-500 outline-none" 
+                                            placeholder="Ej: S, M, L, XL, XXL (Dejar vacío para texto libre)"
+                                            value={product.sizes ? product.sizes.join(', ') : ''}
+                                            onChange={(e) => updateProduct({
+                                                ...product, 
+                                                sizes: e.target.value.split(',').map(s => s.trim())
+                                            })}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 2. NOMBRE */}
+                            <div className="flex items-center justify-between py-2 border-t border-gray-50">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${features.name ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
+                                        <FileText className="w-5 h-5"/>
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-700">Nombre</span>
+                                </div>
+                                <div className="flex gap-8 pr-2">
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.name} onChange={() => toggleFeature('name')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={defaults.name} onChange={() => toggleDefault('name')} disabled={!features.name} className="rounded text-blue-600 cursor-pointer"/></div>
+                                    <div className="flex justify-center w-12"><button onClick={() => toggleModifiable('name')} disabled={!features.name}>{modifiable.name ? <Unlock className="w-5 h-5 text-emerald-500"/> : <Lock className="w-5 h-5 text-red-400"/>}</button></div>
+                                </div>
+                            </div>
+
+                            {/* 3. DORSAL */}
+                            <div className="flex items-center justify-between py-2 border-t border-gray-50">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${features.number ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
+                                        <Hash className="w-5 h-5"/>
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-700">Dorsal</span>
+                                </div>
+                                <div className="flex gap-8 pr-2">
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.number} onChange={() => toggleFeature('number')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={defaults.number} onChange={() => toggleDefault('number')} disabled={!features.number} className="rounded text-blue-600 cursor-pointer"/></div>
+                                    <div className="flex justify-center w-12"><button onClick={() => toggleModifiable('number')} disabled={!features.number}>{modifiable.number ? <Unlock className="w-5 h-5 text-emerald-500"/> : <Lock className="w-5 h-5 text-red-400"/>}</button></div>
+                                </div>
+                            </div>
+
+                            {/* 4. ESCUDO */}
+                            <div className="flex items-center justify-between py-2 border-t border-gray-50">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${features.shield ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
+                                        <ShieldCheck className="w-5 h-5"/>
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-700">Escudo</span>
+                                </div>
+                                <div className="flex gap-8 pr-2">
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.shield} onChange={() => toggleFeature('shield')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={defaults.shield} onChange={() => toggleDefault('shield')} disabled={!features.shield} className="rounded text-blue-600 cursor-pointer"/></div>
+                                    <div className="flex justify-center w-12"><button onClick={() => toggleModifiable('shield')} disabled={!features.shield}>{modifiable.shield ? <Unlock className="w-5 h-5 text-emerald-500"/> : <Lock className="w-5 h-5 text-red-400"/>}</button></div>
+                                </div>
+                            </div>
+
+                            {/* 5. FOTO (Lógica Estricta) */}
+                            <div className="flex items-center justify-between py-2 border-t border-gray-50">
+                                <div className="flex items-center gap-3">
+                                    <div className={`p-2 rounded-lg ${features.photo ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
+                                        <ImageIcon className="w-5 h-5"/>
+                                    </div>
+                                    <span className="text-sm font-bold text-gray-700">Foto</span>
+                                </div>
+                                <div className="flex gap-8 pr-2">
+                                    <div className="flex justify-center w-12">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={features.photo} 
+                                            onChange={() => {
+                                                const newState = !features.photo;
+                                                updateProduct({ 
+                                                    ...product, 
+                                                    features: { ...features, photo: newState },
+                                                    defaults: { ...defaults, photo: newState ? true : defaults.photo },
+                                                    modifiable: { ...modifiable, photo: newState ? false : modifiable.photo }
+                                                });
+                                            }} 
+                                            className="rounded text-emerald-600 cursor-pointer"
+                                        />
+                                    </div>
+                                    <div className="flex justify-center w-12">
+                                        <input 
+                                            type="checkbox" 
+                                            checked={features.photo ? true : defaults.photo} 
+                                            disabled={true} 
+                                            className="rounded text-blue-600 opacity-50 cursor-not-allowed"
+                                        />
+                                    </div>
+                                    <div className="flex justify-center w-12">
+                                        <button disabled={true} className="opacity-50 cursor-not-allowed">
+                                            <Lock className="w-5 h-5 text-red-400"/>
+                                        </button>
+                                    </div>
+                                </div>
+                            </div>
+
                         </div>
                     </div>
                 </div>
@@ -2885,43 +2973,40 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
     // Función auxiliar para añadir producto a la lista temporal
     const addManualItemToOrder = () => {
-        const { productId, size, name, number, quantity, activeName, activeNumber } = manualOrderForm.tempItem;
+        // Extraemos todos los flags, incluyendo Talla (activeSize) y Escudo (activeShield)
+        const { productId, size, name, number, quantity, activeName, activeNumber, activeSize, activeShield } = manualOrderForm.tempItem;
         if (!productId) return;
 
         const productDef = products.find(p => p.id === productId);
         
-        const defaults = productDef.defaults || { name: true, number: true };
-        const modifiable = productDef.modifiable || { name: true, number: true };
+        // Configuración completa (con defaults seguros)
+        const defaults = productDef.defaults || { name: false, number: false, size: false, shield: true };
+        const modifiable = productDef.modifiable || { name: true, number: true, size: true, shield: true };
         const fee = financialConfig.modificationFee || 0;
 
         let unitPrice = productDef.price;
 
-        // LÓGICA DE COBRO "CUALQUIER CAMBIO SE PAGA":
-        // Si es modificable Y el estado final es distinto al default -> Se cobra.
-        
-        // CASO NOMBRE
-        if (modifiable.name) {
-            // Si viene (true) y lo quito (false) -> Cobra
-            // Si no viene (false) y lo pongo (true) -> Cobra
-            if (activeName !== defaults.name) {
-                unitPrice += fee;
-            }
-        }
+        // --- LÓGICA DE COBRO EXACTA ---
+        // Se cobra si:
+        // 1. Es modificable.
+        // 2. El estado actual (activo/inactivo) es DIFERENTE al estado por defecto.
+        // Ejemplo: Viene Escudo (true). Lo quito (activeShield = false). true != false -> COBRA.
+        // Ejemplo: No viene Nombre (false). Lo pongo (activeName = true). false != true -> COBRA.
 
-        // CASO DORSAL
-        if (modifiable.number) {
-            if (activeNumber !== defaults.number) {
-                unitPrice += fee;
-            }
-        }
+        if (modifiable.size && (activeSize !== defaults.size)) unitPrice += fee;
+        if (modifiable.name && (activeName !== defaults.name)) unitPrice += fee;
+        if (modifiable.number && (activeNumber !== defaults.number)) unitPrice += fee;
+        if (modifiable.shield && (activeShield !== defaults.shield)) unitPrice += fee;
 
         const newItem = {
             productId,
             name: productDef.name, 
-            size: size || 'Única',
+            // Si la talla está activa guardamos la talla, si no vacio
+            size: activeSize ? (size || 'Única') : '',
             personalization: { 
-                name: activeName ? (name || '') : '', // Solo guardamos texto si está activo
-                number: activeNumber ? (number || '') : ''
+                name: activeName ? (name || '') : '', 
+                number: activeNumber ? (number || '') : '',
+                shield: activeShield // true/false
             },
             price: unitPrice, 
             quantity: parseInt(quantity),
@@ -2932,7 +3017,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
         setManualOrderForm({
             ...manualOrderForm,
             items: [...manualOrderForm.items, newItem],
-            tempItem: { productId: '', size: '', name: '', number: '', price: 0, quantity: 1, activeName: false, activeNumber: false } 
+            // Resetear formulario temporal
+            tempItem: { 
+                productId: '', size: '', name: '', number: '', price: 0, quantity: 1, 
+                activeName: false, activeNumber: false, activeSize: false, activeShield: false 
+            } 
         });
     };
 
@@ -4498,7 +4587,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                             
                             <div className="flex flex-wrap items-end gap-2 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
                                 
-                                {/* Selector Producto */}
+                                {/* 1. SELECTOR DE PRODUCTO (Inicializa estados) */}
                                 <div className="flex-1 min-w-[150px]">
                                     <label className="text-[10px] font-bold text-gray-400 uppercase">Producto</label>
                                     <select 
@@ -4507,8 +4596,8 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                         onChange={(e) => {
                                             const p = products.find(prod => prod.id === e.target.value);
                                             if(p) {
-                                                // Configuración por defecto del producto
-                                                const defs = p.defaults || { name: false, number: false };
+                                                // Cargar configuración por defecto
+                                                const defs = p.defaults || { name: false, number: false, size: true, shield: true };
                                                 
                                                 setManualOrderForm({
                                                     ...manualOrderForm, 
@@ -4516,10 +4605,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                         ...manualOrderForm.tempItem, 
                                                         productId: p.id, 
                                                         name: '', number: '', size: '', quantity: 1,
-                                                        // INICIALIZAR ESTADOS: 
-                                                        // Si viene por defecto (true), la casilla sale marcada.
+                                                        // Inicializar checkboxes igual que el producto
                                                         activeName: defs.name, 
-                                                        activeNumber: defs.number
+                                                        activeNumber: defs.number,
+                                                        activeSize: defs.size !== undefined ? defs.size : true, // Talla por defecto true si no existe
+                                                        activeShield: defs.shield !== undefined ? defs.shield : true
                                                     }
                                                 });
                                             }
@@ -4530,26 +4620,23 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                     </select>
                                 </div>
 
-                                {/* Inputs Dinámicos */}
+                                {/* 2. INPUTS DINÁMICOS */}
                                 {(() => {
                                     const selectedProd = products.find(p => p.id === manualOrderForm.tempItem.productId);
                                     if (!selectedProd) return null;
 
-                                    const features = selectedProd.features || { name: true, number: true };
-                                    const defaults = selectedProd.defaults || { name: false, number: false };
-                                    const modifiable = selectedProd.modifiable || { name: true, number: true };
+                                    const features = selectedProd.features || { name: true, number: true, size: true, shield: true };
+                                    const defaults = selectedProd.defaults || { name: false, number: false, size: true, shield: true };
+                                    const modifiable = selectedProd.modifiable || { name: true, number: true, size: true, shield: true };
                                     const fee = financialConfig.modificationFee || 0;
+                                    const prodSizes = selectedProd.sizes || []; // Array de tallas
 
-                                    // --- CALCULAR PRECIO VISUAL ---
+                                    // Calcular precio visual
                                     let currentPrice = selectedProd.price;
-                                    
-                                    // Si el estado actual es diferente al default, sumamos fee
-                                    if (modifiable.name && (manualOrderForm.tempItem.activeName !== defaults.name)) {
-                                        currentPrice += fee;
-                                    }
-                                    if (modifiable.number && (manualOrderForm.tempItem.activeNumber !== defaults.number)) {
-                                        currentPrice += fee;
-                                    }
+                                    if (modifiable.size && (manualOrderForm.tempItem.activeSize !== defaults.size)) currentPrice += fee;
+                                    if (modifiable.name && (manualOrderForm.tempItem.activeName !== defaults.name)) currentPrice += fee;
+                                    if (modifiable.number && (manualOrderForm.tempItem.activeNumber !== defaults.number)) currentPrice += fee;
+                                    if (modifiable.shield && (manualOrderForm.tempItem.activeShield !== defaults.shield)) currentPrice += fee;
 
                                     return (
                                         <>
@@ -4558,42 +4645,68 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                 <input type="number" min="1" className="w-full border rounded p-1.5 text-sm" value={manualOrderForm.tempItem.quantity} onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, quantity: e.target.value}})} />
                                             </div>
 
-                                            <div className="w-20">
-                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Talla</label>
-                                                <input className="w-full border rounded p-1.5 text-sm" placeholder="Talla" value={manualOrderForm.tempItem.size} onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, size: e.target.value}})} />
-                                            </div>
+                                            {/* --- TALLA --- */}
+                                            {features.size && (
+                                                <div className="w-28">
+                                                    <div className="flex items-center gap-1 mb-1">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={manualOrderForm.tempItem.activeSize || false}
+                                                            onChange={(e) => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, activeSize: e.target.checked}})}
+                                                            disabled={!modifiable.size}
+                                                            className="rounded text-emerald-600 cursor-pointer"
+                                                        />
+                                                        <label className="text-[10px] font-bold text-gray-400 uppercase">
+                                                            Talla
+                                                            {modifiable.size && manualOrderForm.tempItem.activeSize !== defaults.size && (
+                                                                <span className="ml-1 text-orange-500">{defaults.size ? `(-${fee}€)` : `(+${fee}€)`}</span>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                    
+                                                    {prodSizes.length > 0 ? (
+                                                        <select 
+                                                            className={`w-full border rounded p-1.5 text-sm ${!manualOrderForm.tempItem.activeSize ? 'bg-gray-100 text-gray-400' : ''}`}
+                                                            value={manualOrderForm.tempItem.size} 
+                                                            onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, size: e.target.value}})}
+                                                            disabled={!manualOrderForm.tempItem.activeSize}
+                                                        >
+                                                            <option value="">Seleccionar...</option>
+                                                            {prodSizes.map(s => <option key={s} value={s}>{s}</option>)}
+                                                        </select>
+                                                    ) : (
+                                                        <input 
+                                                            className={`w-full border rounded p-1.5 text-sm ${!manualOrderForm.tempItem.activeSize ? 'bg-gray-100 text-gray-400' : ''}`}
+                                                            placeholder="Talla" 
+                                                            value={manualOrderForm.tempItem.size} 
+                                                            onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, size: e.target.value}})} 
+                                                            disabled={!manualOrderForm.tempItem.activeSize}
+                                                        />
+                                                    )}
+                                                </div>
+                                            )}
 
-                                            {/* --- BLOQUE NOMBRE --- */}
+                                            {/* --- NOMBRE --- */}
                                             {features.name && (
                                                 <div className="flex-1 min-w-[100px]">
                                                     <div className="flex items-center gap-1 mb-1">
                                                         <input 
                                                             type="checkbox" 
-                                                            id="chk-name"
                                                             checked={manualOrderForm.tempItem.activeName || false}
                                                             onChange={(e) => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, activeName: e.target.checked}})}
                                                             disabled={!modifiable.name} 
-                                                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                            className="rounded text-emerald-600 cursor-pointer"
                                                         />
-                                                        <label htmlFor="chk-name" className="text-[10px] font-bold text-gray-400 uppercase cursor-pointer select-none">
+                                                        <label className="text-[10px] font-bold text-gray-400 uppercase">
                                                             Nombre
-                                                            {/* LÓGICA DE ETIQUETAS VISUALES */}
-                                                            {modifiable.name ? (
-                                                                manualOrderForm.tempItem.activeName !== defaults.name ? (
-                                                                    <span className="ml-1 text-orange-500">
-                                                                        {defaults.name ? `(Quitado +${fee}€)` : `(+${fee}€)`}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="ml-1 text-emerald-600">(Incl.)</span>
-                                                                )
-                                                            ) : (
-                                                                <span className="ml-1 text-gray-400">(Fijo)</span>
+                                                            {modifiable.name && manualOrderForm.tempItem.activeName !== defaults.name && (
+                                                                <span className="ml-1 text-orange-500">{defaults.name ? `(-${fee}€)` : `(+${fee}€)`}</span>
                                                             )}
                                                         </label>
                                                     </div>
                                                     <input 
                                                         className={`w-full border rounded p-1.5 text-sm transition-colors ${!manualOrderForm.tempItem.activeName ? 'bg-gray-100 text-gray-400' : ''}`} 
-                                                        placeholder={defaults.name ? "Nombre (Incluido)" : "Nombre (Extra)"} 
+                                                        placeholder={defaults.name ? "Nombre" : "Nombre"} 
                                                         value={manualOrderForm.tempItem.name} 
                                                         onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, name: e.target.value}})}
                                                         disabled={!manualOrderForm.tempItem.activeName} 
@@ -4601,31 +4714,21 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                 </div>
                                             )}
 
-                                            {/* --- BLOQUE DORSAL --- */}
+                                            {/* --- DORSAL --- */}
                                             {features.number && (
-                                                <div className="w-24">
+                                                <div className="w-20">
                                                     <div className="flex items-center gap-1 mb-1">
                                                         <input 
                                                             type="checkbox" 
-                                                            id="chk-num"
                                                             checked={manualOrderForm.tempItem.activeNumber || false}
                                                             onChange={(e) => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, activeNumber: e.target.checked}})}
                                                             disabled={!modifiable.number}
-                                                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                            className="rounded text-emerald-600 cursor-pointer"
                                                         />
-                                                        <label htmlFor="chk-num" className="text-[10px] font-bold text-gray-400 uppercase cursor-pointer select-none">
+                                                        <label className="text-[10px] font-bold text-gray-400 uppercase">
                                                             Dorsal
-                                                            {/* LÓGICA DE ETIQUETAS VISUALES */}
-                                                            {modifiable.number ? (
-                                                                manualOrderForm.tempItem.activeNumber !== defaults.number ? (
-                                                                    <span className="ml-1 text-orange-500">
-                                                                        {defaults.number ? `(Quitado +${fee}€)` : `(+${fee}€)`}
-                                                                    </span>
-                                                                ) : (
-                                                                    <span className="ml-1 text-emerald-600">(Incl.)</span>
-                                                                )
-                                                            ) : (
-                                                                <span className="ml-1 text-gray-400">(Fijo)</span>
+                                                            {modifiable.number && manualOrderForm.tempItem.activeNumber !== defaults.number && (
+                                                                <span className="ml-1 text-orange-500">{defaults.number ? `(-${fee}€)` : `(+${fee}€)`}</span>
                                                             )}
                                                         </label>
                                                     </div>
@@ -4639,7 +4742,28 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                 </div>
                                             )}
 
-                                            {/* Precio Visual */}
+                                            {/* --- ESCUDO (CHECKBOX) --- */}
+                                            {features.shield && (
+                                                <div className="w-16 flex flex-col items-center">
+                                                    <label className="text-[10px] font-bold text-gray-400 uppercase mb-2">Escudo</label>
+                                                    <div className="relative">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            checked={manualOrderForm.tempItem.activeShield || false}
+                                                            onChange={(e) => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, activeShield: e.target.checked}})}
+                                                            disabled={!modifiable.shield}
+                                                            className="w-6 h-6 rounded text-emerald-600 cursor-pointer focus:ring-emerald-500"
+                                                        />
+                                                        {modifiable.shield && manualOrderForm.tempItem.activeShield !== defaults.shield && (
+                                                            <span className="absolute -top-4 left-1/2 -translate-x-1/2 text-[8px] font-bold text-orange-500 whitespace-nowrap">
+                                                                {defaults.shield ? `-${fee}€` : `+${fee}€`}
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+
+                                            {/* PRECIO Y BOTÓN */}
                                             <div className="w-20">
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Precio/Ud</label>
                                                 <div className="relative">

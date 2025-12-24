@@ -2175,6 +2175,20 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       targetBatch: ''   // A qué lote va la reposición
   });
 
+  // Estado para Creación de Pedido Manual
+    const [manualOrderModal, setManualOrderModal] = useState(false);
+    const [manualOrderForm, setManualOrderForm] = useState({
+        clubId: '',
+        customerName: '',
+        customerEmail: '',
+        customerPhone: '',
+        paymentMethod: 'transfer', // manual, bizum, cash, transfer
+        targetBatch: '', // Se rellenará automáticamente al elegir club
+        items: [], // Lista de productos añadidos
+        // Estado temporal para el producto que se está añadiendo ahora
+        tempItem: { productId: '', size: '', name: '', number: '', price: 0, quantity: 1 } 
+    });
+
   // --- FUNCIÓN PARA ABRIR EL MODAL ---
     const handleOpenIncident = (order, item) => {
         // Calculamos el coste inicial (1 unidad * coste unitario del producto)
@@ -2816,6 +2830,110 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
             console.error(e);
             showNotification('Error al generar la reposición', 'error');
         }
+    };
+
+    const submitManualOrder = async () => {
+    // Validaciones básicas
+    if (!manualOrderForm.clubId || !manualOrderForm.customerName || manualOrderForm.items.length === 0) {
+        showNotification('Faltan datos (Club, Cliente o Productos)', 'error');
+        return;
+    }
+
+    const selectedClub = clubs.find(c => c.id === manualOrderForm.clubId);
+    const totalOrder = manualOrderForm.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+    const batchId = manualOrderForm.targetBatch ? parseInt(manualOrderForm.targetBatch) : selectedClub.activeGlobalOrderId;
+
+    try {
+        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
+            createdAt: serverTimestamp(),
+            clubId: selectedClub.id,
+            clubName: selectedClub.name,
+            customer: { 
+                name: manualOrderForm.customerName, 
+                email: manualOrderForm.customerEmail || 'manual@pedido.com', 
+                phone: manualOrderForm.customerPhone || '' 
+            },
+            items: manualOrderForm.items.map(item => ({
+                ...item,
+                // Aseguramos campos mínimos para que no falle el renderizado
+                cartId: Date.now() + Math.random(),
+                image: products.find(p => p.id === item.productId)?.image || null
+            })),
+            total: totalOrder,
+            status: 'recopilando', // Estado inicial por defecto
+            visibleStatus: 'Pedido Manual (Admin)',
+            type: 'manual', // Marca especial para identificarlo
+            paymentMethod: manualOrderForm.paymentMethod, 
+            globalBatch: batchId,
+            incidents: []
+        });
+
+        showNotification('Pedido manual creado correctamente');
+        setManualOrderModal(false);
+        // Resetear formulario
+        setManualOrderForm({
+            clubId: '', customerName: '', customerEmail: '', customerPhone: '',
+            paymentMethod: 'transfer', targetBatch: '', items: [],
+            tempItem: { productId: '', size: '', name: '', number: '', price: 0, quantity: 1 }
+        });
+
+    } catch (error) {
+        console.error("Error creando pedido manual:", error);
+        showNotification('Error al crear el pedido', 'error');
+    }
+};
+
+    // Función auxiliar para añadir producto a la lista temporal
+    const addManualItemToOrder = () => {
+        const { productId, size, name, number, quantity, activeName, activeNumber } = manualOrderForm.tempItem;
+        if (!productId) return;
+
+        const productDef = products.find(p => p.id === productId);
+        
+        const defaults = productDef.defaults || { name: true, number: true };
+        const modifiable = productDef.modifiable || { name: true, number: true };
+        const fee = financialConfig.modificationFee || 0;
+
+        let unitPrice = productDef.price;
+
+        // LÓGICA DE COBRO "CUALQUIER CAMBIO SE PAGA":
+        // Si es modificable Y el estado final es distinto al default -> Se cobra.
+        
+        // CASO NOMBRE
+        if (modifiable.name) {
+            // Si viene (true) y lo quito (false) -> Cobra
+            // Si no viene (false) y lo pongo (true) -> Cobra
+            if (activeName !== defaults.name) {
+                unitPrice += fee;
+            }
+        }
+
+        // CASO DORSAL
+        if (modifiable.number) {
+            if (activeNumber !== defaults.number) {
+                unitPrice += fee;
+            }
+        }
+
+        const newItem = {
+            productId,
+            name: productDef.name, 
+            size: size || 'Única',
+            personalization: { 
+                name: activeName ? (name || '') : '', // Solo guardamos texto si está activo
+                number: activeNumber ? (number || '') : ''
+            },
+            price: unitPrice, 
+            quantity: parseInt(quantity),
+            cost: productDef.cost || 0,
+            image: productDef.image
+        };
+
+        setManualOrderForm({
+            ...manualOrderForm,
+            items: [...manualOrderForm.items, newItem],
+            tempItem: { productId: '', size: '', name: '', number: '', price: 0, quantity: 1, activeName: false, activeNumber: false } 
+        });
     };
 
   const toggleIncidentResolved = (order, incidentId) => {
@@ -3986,11 +4104,12 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
           </div>
       )}
 
-{/* --- PESTAÑA PEDIDOS/CONTABILIDAD (FINAL: GESTIÓN POR LOTES) --- */}
+
+{/* --- PESTAÑA PEDIDOS/CONTABILIDAD (AdminDashboard) --- */}
 {tab === 'accounting' && (
-    <div className="animate-fade-in space-y-8">
+    <div className="animate-fade-in space-y-8 relative">
         
-        {/* A. BARRA DE HERRAMIENTAS SUPERIOR (LIMPIA) */}
+        {/* A. BARRA DE HERRAMIENTAS */}
         <div className="bg-slate-50 rounded-xl border border-slate-200 p-4 flex flex-col md:flex-row items-center justify-between gap-6 shadow-sm">
             <div className="flex items-center gap-4">
                 <div className="bg-blue-100 p-2 rounded-full text-blue-600"><Layers className="w-5 h-5"/></div>
@@ -4021,16 +4140,32 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
             {/* Acciones Globales */}
             <div className="flex items-center gap-2">
+                {/* BOTÓN NUEVO: CREAR PEDIDO MANUAL */}
+                <button 
+                    onClick={() => {
+                        setManualOrderForm({
+                            ...manualOrderForm, 
+                            clubId: selectedClubId, // Preseleccionar el club actual
+                            targetBatch: selectedClub?.activeGlobalOrderId || ''
+                        });
+                        setManualOrderModal(true);
+                    }}
+                    className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2 px-4 rounded shadow flex items-center gap-2 transition-colors"
+                >
+                    <Plus className="w-4 h-4"/> Nuevo Pedido Manual
+                </button>
+
                 {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
                     <button 
                         onClick={() => setConfirmation({ title: "Revertir", msg: "¿Volver al lote anterior?", onConfirm: () => handleRevertGlobalBatch(selectedClubId) })}
                         className="text-xs font-bold text-slate-500 hover:text-red-600 px-3 py-2 flex gap-1 rounded hover:bg-red-50 transition-colors"
+                        title="Deshacer cierre de lote"
                     >
-                        <RotateCcw className="w-3 h-3"/> Deshacer
+                        <RotateCcw className="w-3 h-3"/>
                     </button>
                 )}
                 <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 text-white text-xs py-2 px-4 shadow-md hover:bg-blue-700">
-                    <Archive className="w-4 h-4 mr-2"/> Cerrar Lote Manual
+                    <Archive className="w-4 h-4 mr-2"/> Cerrar Lote
                 </Button>
             </div>
         </div>
@@ -4059,7 +4194,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                             return (
                                 <div key={batch.id} className={`p-4 transition-colors ${isActive ? 'bg-emerald-50/40' : 'bg-white'}`}>
                                     
-                                    {/* 1. CABECERA DEL LOTE (Aquí están los botones globales de Excel/Albarán/Estado) */}
+                                    {/* 1. CABECERA DEL LOTE */}
                                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                                         <div className="flex flex-wrap items-center gap-3">
                                             {/* Título */}
@@ -4079,7 +4214,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                 Total: {batchTotal.toFixed(2)}€
                                             </span>
 
-                                            {/* --- GESTIÓN DE FECHA DE CIERRE (Solo Lotes Activos) --- */}
+                                            {/* --- GESTIÓN DE FECHA DE CIERRE (Con Lápiz) --- */}
                                             {isStandard && isActive && (
                                                 <div className="ml-2">
                                                     {editingDate.clubId === club.id ? (
@@ -4110,12 +4245,14 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                                         });
                                                                     }}
                                                                     className="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 p-1.5 rounded transition-colors"
+                                                                    title="Guardar"
                                                                 >
                                                                     <Check className="w-3.5 h-3.5"/>
                                                                 </button>
                                                                 <button 
                                                                     onClick={() => setEditingDate({ clubId: null, date: '' })}
                                                                     className="bg-red-50 hover:bg-red-100 text-red-500 p-1.5 rounded transition-colors"
+                                                                    title="Cancelar"
                                                                 >
                                                                     <X className="w-3.5 h-3.5"/>
                                                                 </button>
@@ -4148,7 +4285,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                             )}
                                         </div>
 
-                                        {/* ACCIONES DEL LOTE (Aquí están Excel y Albarán Globales) */}
+                                        {/* ACCIONES DEL LOTE */}
                                         <div className="flex items-center gap-2">
                                             <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)} disabled={batch.orders.length===0}>
                                                 <FileDown className="w-3 h-3 mr-1"/> Excel
@@ -4177,23 +4314,29 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                         </div>
                                     </div>
 
-                                    {/* 2. LISTA DE PEDIDOS INDIVIDUALES */}
+                                    {/* 2. LISTA DE PEDIDOS */}
                                     {batch.orders.length === 0 ? (
                                         <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
-                                            Aún no hay pedidos en este lote activo.
+                                            Aún no hay pedidos en este lote.
                                         </div>
                                     ) : (
                                         <div className="pl-4 border-l-4 border-gray-200 space-y-2">
                                             {batch.orders.map(order => (
-                                                <div key={order.id} className="border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:border-emerald-300 group/order">
-                                                    {/* Resumen Pedido */}
+                                            <div key={order.id} className={`border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:border-emerald-300 group/order ${order.type === 'manual' ? 'border-l-4 border-l-orange-400' : ''}`}>
+                                        
+                                                    {/* CABECERA TARJETA */}
                                                     <div 
                                                         onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
                                                         className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
                                                     >
                                                         <div className="flex gap-4 items-center">
+                                                            {/* Etiquetas de Tipo */}
                                                             {order.type === 'special' ? (
                                                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
+                                                            ) : order.type === 'manual' ? (
+                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
+                                                                    <Edit3 className="w-3 h-3"/> ANOTADO MANUALMENTE
+                                                                </span>
                                                             ) : order.globalBatch === 'INDIVIDUAL' ? (
                                                                 <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
                                                             ) : (
@@ -4205,11 +4348,11 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                         </div>
                                                         <div className="flex gap-4 items-center text-sm">
                                                             <span className="font-bold">{order.total.toFixed(2)}€</span>
-                                                            <ChevronRight className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
+                                                            <ChevronRight className={`w-4 h-4 text-gray-300 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
                                                         </div>
                                                     </div>
                                                     
-                                                    {/* Detalle Expandido (SIN BARRA DE DOCUMENTACIÓN INDIVIDUAL) */}
+                                                    {/* DETALLE EXPANDIDO */}
                                                     {expandedOrderId === order.id && (
                                                         <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
                                                             
@@ -4218,36 +4361,37 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                                 {order.items.map(item => {
                                                                     const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
                                                                     return (
-                                                                      <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
-                                                                          <div className="flex gap-3 items-center flex-1">
-                                                                              {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
-                                                                              <div>
-                                                                                  <p className="font-bold text-gray-800 text-sm">{item.name}</p>
-                                                                                  <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
-                                                                              </div>
-                                                                          </div>
-                                                                          <div className="flex items-center gap-6 mr-4">
-                                                                              <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Cant.</p><p className="font-medium text-sm">{item.quantity || 1}</p></div>
-                                                                              <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Precio</p><p className="font-medium text-sm">{item.price.toFixed(2)}€</p></div>
-                                                                          </div>
-                                                                          <div className="flex items-center gap-2 border-l pl-3">
-                                                                              {/* Botón REPORTAR FALLO */}
-                                                                              {isIncident ? (
-                                                                                  <span className="text-xs text-red-600 font-bold flex items-center gap-1 bg-red-50 px-2 py-1 rounded"><AlertTriangle className="w-3 h-3"/> Reportado</span>
-                                                                              ) : (
-                                                                                  <button 
-                                                                                      onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
-                                                                                      className="text-orange-600 bg-orange-50 hover:bg-orange-100 p-1.5 rounded-md text-xs border border-orange-200 flex items-center gap-1 transition-colors" 
-                                                                                      title="Reportar Fallo / Incidencia"
-                                                                                  >
-                                                                                      <AlertTriangle className="w-3 h-3"/> Fallo
-                                                                                  </button>
-                                                                              )}
-                                                                          </div>
-                                                                      </div>
+                                                                        <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                                                                            <div className="flex gap-3 items-center flex-1">
+                                                                                {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
+                                                                                <div>
+                                                                                    <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                                                                                    {/* Muestra los detalles (Talla, Nombre, Dorsal) */}
+                                                                                    <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
+                                                                                </div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-6 mr-4">
+                                                                                <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Cant.</p><p className="font-medium text-sm">{item.quantity || 1}</p></div>
+                                                                                <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Precio</p><p className="font-medium text-sm">{item.price.toFixed(2)}€</p></div>
+                                                                            </div>
+                                                                            <div className="flex items-center gap-2 border-l pl-3">
+                                                                                {isIncident ? (
+                                                                                    <span className="text-xs text-red-600 font-bold flex items-center gap-1 bg-red-50 px-2 py-1 rounded"><AlertTriangle className="w-3 h-3"/> Reportado</span>
+                                                                                ) : (
+                                                                                    <button 
+                                                                                        onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
+                                                                                        className="text-orange-600 bg-orange-50 hover:bg-orange-100 p-1.5 rounded-md text-xs border border-orange-200 flex items-center gap-1 transition-colors" 
+                                                                                        title="Reportar Fallo / Incidencia"
+                                                                                    >
+                                                                                        <AlertTriangle className="w-3 h-3"/> Fallo
+                                                                                    </button>
+                                                                                )}
+                                                                            </div>
+                                                                        </div>
                                                                     );
                                                                 })}
                                                             </div>
+                                                            
                                                             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
                                                                 <button 
                                                                     onClick={(e) => { 
@@ -4280,6 +4424,283 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                 </div>
             ))}
         </div>
+
+        {/* --- C. MODAL DE CREACIÓN DE PEDIDO MANUAL (ACTUALIZADO) --- */}
+        {manualOrderModal && (
+            <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
+                    {/* Cabecera */}
+                    <div className="bg-gray-800 p-5 flex justify-between items-center text-white">
+                        <div className="flex items-center gap-3">
+                            <Plus className="w-6 h-6 text-emerald-400"/>
+                            <div>
+                                <h3 className="text-lg font-bold">Nuevo Pedido Manual</h3>
+                                <p className="text-xs text-gray-400">El precio respetará la configuración del producto</p>
+                            </div>
+                        </div>
+                        <button onClick={() => setManualOrderModal(false)} className="text-gray-400 hover:text-white"><X className="w-6 h-6"/></button>
+                    </div>
+
+                    {/* Cuerpo Scrollable */}
+                    <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
+                        
+                        {/* 1. Datos Generales (Igual que antes) */}
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Club</label>
+                                <select 
+                                    className="w-full border rounded p-2 mt-1"
+                                    value={manualOrderForm.clubId}
+                                    onChange={(e) => {
+                                        const c = clubs.find(cl => cl.id === e.target.value);
+                                        setManualOrderForm({...manualOrderForm, clubId: e.target.value, targetBatch: c?.activeGlobalOrderId});
+                                    }}
+                                >
+                                    <option value="">Selecciona Club...</option>
+                                    {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-xs font-bold text-gray-500 uppercase">Lote Destino</label>
+                                <input 
+                                    type="number" 
+                                    className="w-full border rounded p-2 mt-1"
+                                    value={manualOrderForm.targetBatch}
+                                    onChange={e => setManualOrderForm({...manualOrderForm, targetBatch: e.target.value})}
+                                    placeholder="Ej. 1"
+                                />
+                            </div>
+                        </div>
+
+                        {/* 2. Cliente y Pago (Igual que antes) */}
+                        <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
+                            <h4 className="text-xs font-bold text-gray-700 uppercase mb-3 border-b border-gray-200 pb-2">Datos Cliente</h4>
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                                <input placeholder="Nombre Completo" className="border rounded p-2 text-sm" value={manualOrderForm.customerName} onChange={e => setManualOrderForm({...manualOrderForm, customerName: e.target.value})} />
+                                <input placeholder="Email (Opcional)" className="border rounded p-2 text-sm" value={manualOrderForm.customerEmail} onChange={e => setManualOrderForm({...manualOrderForm, customerEmail: e.target.value})} />
+                                <input placeholder="Teléfono" className="border rounded p-2 text-sm" value={manualOrderForm.customerPhone} onChange={e => setManualOrderForm({...manualOrderForm, customerPhone: e.target.value})} />
+                                
+                                <select 
+                                    className="border rounded p-2 text-sm font-bold text-gray-700" 
+                                    value={manualOrderForm.paymentMethod} 
+                                    onChange={e => setManualOrderForm({...manualOrderForm, paymentMethod: e.target.value})}
+                                >
+                                    <option value="transfer">Transferencia</option>
+                                    <option value="bizum">Bizum</option>
+                                    <option value="cash">Efectivo</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        {/* 3. Productos (Carrito Manual Inteligente) */}
+                        <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
+                            <h4 className="text-xs font-bold text-emerald-800 uppercase mb-3 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Productos</h4>
+                            
+                            <div className="flex flex-wrap items-end gap-2 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
+                                
+                                {/* Selector Producto */}
+                                <div className="flex-1 min-w-[150px]">
+                                    <label className="text-[10px] font-bold text-gray-400 uppercase">Producto</label>
+                                    <select 
+                                        className="w-full border rounded p-1.5 text-sm font-bold"
+                                        value={manualOrderForm.tempItem.productId}
+                                        onChange={(e) => {
+                                            const p = products.find(prod => prod.id === e.target.value);
+                                            if(p) {
+                                                // Configuración por defecto del producto
+                                                const defs = p.defaults || { name: false, number: false };
+                                                
+                                                setManualOrderForm({
+                                                    ...manualOrderForm, 
+                                                    tempItem: { 
+                                                        ...manualOrderForm.tempItem, 
+                                                        productId: p.id, 
+                                                        name: '', number: '', size: '', quantity: 1,
+                                                        // INICIALIZAR ESTADOS: 
+                                                        // Si viene por defecto (true), la casilla sale marcada.
+                                                        activeName: defs.name, 
+                                                        activeNumber: defs.number
+                                                    }
+                                                });
+                                            }
+                                        }}
+                                    >
+                                        <option value="">Elegir...</option>
+                                        {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                    </select>
+                                </div>
+
+                                {/* Inputs Dinámicos */}
+                                {(() => {
+                                    const selectedProd = products.find(p => p.id === manualOrderForm.tempItem.productId);
+                                    if (!selectedProd) return null;
+
+                                    const features = selectedProd.features || { name: true, number: true };
+                                    const defaults = selectedProd.defaults || { name: false, number: false };
+                                    const modifiable = selectedProd.modifiable || { name: true, number: true };
+                                    const fee = financialConfig.modificationFee || 0;
+
+                                    // --- CALCULAR PRECIO VISUAL ---
+                                    let currentPrice = selectedProd.price;
+                                    
+                                    // Si el estado actual es diferente al default, sumamos fee
+                                    if (modifiable.name && (manualOrderForm.tempItem.activeName !== defaults.name)) {
+                                        currentPrice += fee;
+                                    }
+                                    if (modifiable.number && (manualOrderForm.tempItem.activeNumber !== defaults.number)) {
+                                        currentPrice += fee;
+                                    }
+
+                                    return (
+                                        <>
+                                            <div className="w-16">
+                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Cant.</label>
+                                                <input type="number" min="1" className="w-full border rounded p-1.5 text-sm" value={manualOrderForm.tempItem.quantity} onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, quantity: e.target.value}})} />
+                                            </div>
+
+                                            <div className="w-20">
+                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Talla</label>
+                                                <input className="w-full border rounded p-1.5 text-sm" placeholder="Talla" value={manualOrderForm.tempItem.size} onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, size: e.target.value}})} />
+                                            </div>
+
+                                            {/* --- BLOQUE NOMBRE --- */}
+                                            {features.name && (
+                                                <div className="flex-1 min-w-[100px]">
+                                                    <div className="flex items-center gap-1 mb-1">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            id="chk-name"
+                                                            checked={manualOrderForm.tempItem.activeName || false}
+                                                            onChange={(e) => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, activeName: e.target.checked}})}
+                                                            disabled={!modifiable.name} 
+                                                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                        />
+                                                        <label htmlFor="chk-name" className="text-[10px] font-bold text-gray-400 uppercase cursor-pointer select-none">
+                                                            Nombre
+                                                            {/* LÓGICA DE ETIQUETAS VISUALES */}
+                                                            {modifiable.name ? (
+                                                                manualOrderForm.tempItem.activeName !== defaults.name ? (
+                                                                    <span className="ml-1 text-orange-500">
+                                                                        {defaults.name ? `(Quitado +${fee}€)` : `(+${fee}€)`}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="ml-1 text-emerald-600">(Incl.)</span>
+                                                                )
+                                                            ) : (
+                                                                <span className="ml-1 text-gray-400">(Fijo)</span>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                    <input 
+                                                        className={`w-full border rounded p-1.5 text-sm transition-colors ${!manualOrderForm.tempItem.activeName ? 'bg-gray-100 text-gray-400' : ''}`} 
+                                                        placeholder={defaults.name ? "Nombre (Incluido)" : "Nombre (Extra)"} 
+                                                        value={manualOrderForm.tempItem.name} 
+                                                        onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, name: e.target.value}})}
+                                                        disabled={!manualOrderForm.tempItem.activeName} 
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {/* --- BLOQUE DORSAL --- */}
+                                            {features.number && (
+                                                <div className="w-24">
+                                                    <div className="flex items-center gap-1 mb-1">
+                                                        <input 
+                                                            type="checkbox" 
+                                                            id="chk-num"
+                                                            checked={manualOrderForm.tempItem.activeNumber || false}
+                                                            onChange={(e) => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, activeNumber: e.target.checked}})}
+                                                            disabled={!modifiable.number}
+                                                            className="rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                                        />
+                                                        <label htmlFor="chk-num" className="text-[10px] font-bold text-gray-400 uppercase cursor-pointer select-none">
+                                                            Dorsal
+                                                            {/* LÓGICA DE ETIQUETAS VISUALES */}
+                                                            {modifiable.number ? (
+                                                                manualOrderForm.tempItem.activeNumber !== defaults.number ? (
+                                                                    <span className="ml-1 text-orange-500">
+                                                                        {defaults.number ? `(Quitado +${fee}€)` : `(+${fee}€)`}
+                                                                    </span>
+                                                                ) : (
+                                                                    <span className="ml-1 text-emerald-600">(Incl.)</span>
+                                                                )
+                                                            ) : (
+                                                                <span className="ml-1 text-gray-400">(Fijo)</span>
+                                                            )}
+                                                        </label>
+                                                    </div>
+                                                    <input 
+                                                        className={`w-full border rounded p-1.5 text-sm transition-colors ${!manualOrderForm.tempItem.activeNumber ? 'bg-gray-100 text-gray-400' : ''}`} 
+                                                        placeholder="#" 
+                                                        value={manualOrderForm.tempItem.number} 
+                                                        onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, number: e.target.value}})} 
+                                                        disabled={!manualOrderForm.tempItem.activeNumber}
+                                                    />
+                                                </div>
+                                            )}
+
+                                            {/* Precio Visual */}
+                                            <div className="w-20">
+                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Precio/Ud</label>
+                                                <div className="relative">
+                                                    <input 
+                                                        type="text" 
+                                                        readOnly 
+                                                        className="w-full border rounded p-1.5 text-sm bg-gray-100 text-gray-600 font-bold cursor-not-allowed" 
+                                                        value={currentPrice.toFixed(2)} 
+                                                    />
+                                                    <span className="absolute right-1 top-1.5 text-xs text-gray-400">€</span>
+                                                </div>
+                                            </div>
+                                        </>
+                                    );
+                                })()}
+
+                                <button onClick={addManualItemToOrder} className="bg-emerald-600 text-white p-2 rounded hover:bg-emerald-700 shadow-sm"><Plus className="w-4 h-4"/></button>
+                            </div>
+
+                            {/* Lista Items (Igual que antes) */}
+                            {manualOrderForm.items.length > 0 && (
+                                <div className="space-y-1">
+                                    {manualOrderForm.items.map((it, idx) => (
+                                        <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-gray-100 text-sm">
+                                            <div className="flex gap-2">
+                                                <span className="font-bold text-emerald-700">{it.quantity}x</span>
+                                                <span className="font-bold">{it.name}</span>
+                                                <span className="text-gray-500 text-xs flex items-center gap-1">
+                                                    [{it.size}] 
+                                                    {it.personalization.name && <span className="bg-gray-100 px-1 rounded">N: {it.personalization.name}</span>}
+                                                    {it.personalization.number && <span className="bg-gray-100 px-1 rounded">#: {it.personalization.number}</span>}
+                                                </span>
+                                            </div>
+                                            <div className="flex items-center gap-3">
+                                                <span className="font-bold text-gray-800">{it.price.toFixed(2)}€/ud</span>
+                                                <button onClick={() => {
+                                                    const newItems = [...manualOrderForm.items];
+                                                    newItems.splice(idx, 1);
+                                                    setManualOrderForm({...manualOrderForm, items: newItems});
+                                                }} className="text-red-400 hover:text-red-600"><X className="w-3 h-3"/></button>
+                                            </div>
+                                        </div>
+                                    ))}
+                                    <div className="text-right font-black text-emerald-800 mt-3 text-lg border-t pt-2">
+                                        Total Pedido: {manualOrderForm.items.reduce((acc, i) => acc + (i.price*i.quantity), 0).toFixed(2)}€
+                                    </div>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+
+                    {/* Footer Botones */}
+                    <div className="p-5 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
+                        <button onClick={() => setManualOrderModal(false)} className="px-4 py-2 text-gray-500 hover:text-gray-800 font-bold text-sm">Cancelar</button>
+                        <button onClick={submitManualOrder} className="px-6 py-2 bg-gray-900 text-white rounded-lg font-bold shadow-lg hover:bg-black transition-transform active:scale-95 flex items-center gap-2">
+                            <Check className="w-4 h-4"/> Confirmar Pedido
+                        </button>
+                    </div>
+                </div>
+            </div>
+        )}
     </div>
 )}
 

@@ -1149,6 +1149,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                   </div>
               )}
           </div>
+          
 
           {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
           {customization.clubId && !features.photo && (

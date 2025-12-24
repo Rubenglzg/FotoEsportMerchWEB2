@@ -3336,15 +3336,17 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                 </button>
             </div>
 
-            {/* B) CONFIGURACIÓN FINANCIERA */}
+            {/* B) CONFIGURACIÓN FINANCIERA (ACTUALIZADA CON COSTE PERSONALIZACIÓN) */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
-                <div className="flex items-center gap-2 mb-3 pb-2 border-b border-gray-100">
+                <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-100">
                     <Banknote className="w-5 h-5 text-blue-600"/>
                     <h4 className="font-bold text-gray-800 text-sm uppercase">Configuración Financiera</h4>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-6">
-                    {/* Comisión Comercial */}
+                {/* CAMBIAMOS A GRID DE 3 COLUMNAS PARA QUE QUEPA TODO */}
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    
+                    {/* 1. Comisión Comercial */}
                     <div>
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Comisión Web Global</label>
                         <div className="relative">
@@ -3359,7 +3361,24 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                         </div>
                     </div>
 
-                    {/* Costes Pasarela */}
+                    {/* 2. NUEVO: Coste por Personalización */}
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Extra Personalización</label>
+                        <div className="relative">
+                            <input 
+                                type="number" 
+                                step="0.10"
+                                className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 focus:border-blue-500 outline-none bg-gray-50 focus:bg-white transition-colors"
+                                value={financialConfig.modificationFee}
+                                onChange={(e) => setFinancialConfig(prev => ({...prev, modificationFee: parseFloat(e.target.value)}))}
+                                onBlur={() => updateFinancialConfig(financialConfig)}
+                            />
+                            <span className="absolute right-2 top-2 text-gray-400 font-bold text-sm">€</span>
+                        </div>
+                        <p className="text-[9px] text-gray-400 mt-1">Coste unitario por cada modificación.</p>
+                    </div>
+
+                    {/* 3. Costes Pasarela */}
                     <div>
                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Coste Pasarela (Var + Fijo)</label>
                         <div className="flex gap-2">
@@ -4922,43 +4941,43 @@ export default function App() {
   const [clubs, setClubs] = useState([]);
   const [seasons, setSeasons] = useState([]);
   
-  const [financialConfig, setFinancialConfig] = useState({ 
-    clubCommissionPct: 0.12, 
-    commercialCommissionPct: 0.05,
-    // NUEVOS VALORES POR DEFECTO
-    gatewayPercentFee: 0.015, // 1.5%
-    gatewayFixedFee: 0.25     // 0.25€
-  });
+    const [financialConfig, setFinancialConfig] = useState({ 
+        clubCommissionPct: 0.12, 
+        commercialCommissionPct: 0.05,
+        gatewayPercentFee: 0.015, 
+        gatewayFixedFee: 0.25,
+        modificationFee: 1.00 // <--- NUEVO CAMPO (Valor por defecto)
+    });
 
-  const [modificationFee, setModificationFee] = useState(1.00);
   const [storeConfig, setStoreConfig] = useState({ isOpen: true, closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." });
 
   useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } }; initAuth(); const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); return () => unsubscribe(); }, []);
   useEffect(() => { if (!user) return; const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); setOrders(ordersData); }, (err) => console.error("Error fetching orders:", err)); return () => unsubOrders(); }, [user]);
 
   // Cargar Configuración Financiera Global
-useEffect(() => {
-    const unsub = onSnapshot(doc(db, 'settings', 'financial'), (doc) => {
-        if (doc.exists()) {
-            const data = doc.data();
-            setFinancialConfig({
-                ...data,
-                // Aseguramos que existan aunque la BD sea antigua
-                gatewayPercentFee: data.gatewayPercentFee !== undefined ? data.gatewayPercentFee : 0.015,
-                gatewayFixedFee: data.gatewayFixedFee !== undefined ? data.gatewayFixedFee : 0.25
-            });
-        } else {
-            const initialConfig = { 
-                commercialCommissionPct: 0.05,
-                gatewayPercentFee: 0.015,
-                gatewayFixedFee: 0.25
-            };
-            setFinancialConfig(initialConfig);
-        }
-    });
-    return () => unsub();
-}, []);
-
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'settings', 'financial'), (doc) => {
+            if (doc.exists()) {
+                const data = doc.data();
+                setFinancialConfig({
+                    ...data,
+                    // Aseguramos que existan todos los campos
+                    gatewayPercentFee: data.gatewayPercentFee !== undefined ? data.gatewayPercentFee : 0.015,
+                    gatewayFixedFee: data.gatewayFixedFee !== undefined ? data.gatewayFixedFee : 0.25,
+                    modificationFee: data.modificationFee !== undefined ? data.modificationFee : 1.00 // <--- CARGAR
+                });
+            } else {
+                const initialConfig = { 
+                    commercialCommissionPct: 0.05,
+                    gatewayPercentFee: 0.015,
+                    gatewayFixedFee: 0.25,
+                    modificationFee: 1.00
+                };
+                setFinancialConfig(initialConfig);
+            }
+        });
+        return () => unsub();
+    }, []);
 
   // Cargar PRODUCTOS en tiempo real
   useEffect(() => {
@@ -5364,7 +5383,7 @@ useEffect(() => {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[calc(100vh-200px)]">
         {notification && <div className={`fixed top-20 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white flex items-center gap-3 ${notification.type === 'error' ? 'bg-red-500' : 'bg-gray-800'} transition-all animate-fade-in-down`}>{notification.type === 'success' && <Check className="w-5 h-5 text-emerald-400" />}{notification.type === 'error' && <AlertCircle className="w-5 h-5 text-white" />}<span className="font-medium">{notification.msg}</span></div>}
         {view === 'home' && <HomeView setView={setView} />}
-        {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={modificationFee} storeConfig={storeConfig} setConfirmation={setConfirmation} />}
+        {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={financialConfig.modificationFee} storeConfig={storeConfig} setConfirmation={setConfirmation} />}
         {view === 'cart' && <CartView cart={cart} removeFromCart={removeFromCart} createOrder={createOrder} total={cart.reduce((sum, item) => sum + item.price, 0)} clubs={clubs} storeConfig={storeConfig} />}
         {view === 'photo-search' && <PhotoSearchView clubs={clubs} />}
         {view === 'tracking' && <TrackingView orders={orders} />}
@@ -5372,7 +5391,7 @@ useEffect(() => {
         {view === 'order-success' && <OrderSuccessView setView={setView} />}
         {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
-        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} modificationFee={modificationFee} setModificationFee={setModificationFee} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} />}
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} />}
       </main>
       <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-40" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
     </div>

@@ -2171,6 +2171,28 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       modified: null 
   });
 
+    const INITIAL_MANUAL_FORM_STATE = {
+        clubId: '',
+        customerName: '',
+        customerEmail: '',
+        customerPhone: '',
+        paymentMethod: 'transfer',
+        targetBatch: '',
+        items: [],
+        tempItem: {
+            productId: '',
+            size: '',
+            name: '',
+            number: '',
+            price: 0,
+            quantity: 1,
+            activeName: false,
+            activeNumber: false,
+            activeSize: false,
+            activeShield: false
+        }
+    };
+
     // Estado para controlar qué fecha se está editando (Lógica del Lápiz)
     const [editingDate, setEditingDate] = useState({ clubId: null, date: '' });
 
@@ -2265,17 +2287,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
   // Estado para Creación de Pedido Manual
     const [manualOrderModal, setManualOrderModal] = useState(false);
-    const [manualOrderForm, setManualOrderForm] = useState({
-        clubId: '',
-        customerName: '',
-        customerEmail: '',
-        customerPhone: '',
-        paymentMethod: 'transfer', // manual, bizum, cash, transfer
-        targetBatch: '', // Se rellenará automáticamente al elegir club
-        items: [], // Lista de productos añadidos
-        // Estado temporal para el producto que se está añadiendo ahora
-        tempItem: { productId: '', size: '', name: '', number: '', price: 0, quantity: 1 } 
-    });
+    const [manualOrderForm, setManualOrderForm] = useState(INITIAL_MANUAL_FORM_STATE);
 
   // --- FUNCIÓN PARA ABRIR EL MODAL ---
     const handleOpenIncident = (order, item) => {
@@ -2920,104 +2932,107 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
         }
     };
 
+// --- DENTRO DE AdminDashboard (Sustituir función existente) ---
+
     const submitManualOrder = async () => {
-    // Validaciones básicas
-    if (!manualOrderForm.clubId || !manualOrderForm.customerName || manualOrderForm.items.length === 0) {
-        showNotification('Faltan datos (Club, Cliente o Productos)', 'error');
-        return;
-    }
+        // 1. Validaciones
+        if (!manualOrderForm.clubId || !manualOrderForm.customerName || manualOrderForm.items.length === 0) {
+            showNotification('Faltan datos (Club, Cliente o Productos)', 'error');
+            return;
+        }
 
-    const selectedClub = clubs.find(c => c.id === manualOrderForm.clubId);
-    const totalOrder = manualOrderForm.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-    const batchId = manualOrderForm.targetBatch ? parseInt(manualOrderForm.targetBatch) : selectedClub.activeGlobalOrderId;
+        const selectedClub = clubs.find(c => c.id === manualOrderForm.clubId);
+        const totalOrder = manualOrderForm.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
+        const batchId = manualOrderForm.targetBatch ? parseInt(manualOrderForm.targetBatch) : selectedClub.activeGlobalOrderId;
 
-    try {
-        await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
-            createdAt: serverTimestamp(),
-            clubId: selectedClub.id,
-            clubName: selectedClub.name,
-            customer: { 
-                name: manualOrderForm.customerName, 
-                email: manualOrderForm.customerEmail || 'manual@pedido.com', 
-                phone: manualOrderForm.customerPhone || '' 
-            },
-            items: manualOrderForm.items.map(item => ({
-                ...item,
-                // Aseguramos campos mínimos para que no falle el renderizado
-                cartId: Date.now() + Math.random(),
-                image: products.find(p => p.id === item.productId)?.image || null
-            })),
-            total: totalOrder,
-            status: 'recopilando', // Estado inicial por defecto
-            visibleStatus: 'Pedido Manual (Admin)',
-            type: 'manual', // Marca especial para identificarlo
-            paymentMethod: manualOrderForm.paymentMethod, 
-            globalBatch: batchId,
-            incidents: []
-        });
+        try {
+            // 2. Guardar en Firebase
+            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
+                createdAt: serverTimestamp(),
+                clubId: selectedClub.id,
+                clubName: selectedClub.name,
+                customer: { 
+                    name: manualOrderForm.customerName, 
+                    email: manualOrderForm.customerEmail || 'manual@pedido.com', 
+                    phone: manualOrderForm.customerPhone || '' 
+                },
+                items: manualOrderForm.items.map(item => ({
+                    ...item,
+                    cartId: item.cartId || (Date.now() + Math.random()),
+                    image: item.image || null
+                })),
+                total: totalOrder,
+                status: 'recopilando', 
+                visibleStatus: 'Pedido Manual (Admin)',
+                type: 'manual', 
+                paymentMethod: manualOrderForm.paymentMethod, 
+                globalBatch: batchId,
+                incidents: []
+            });
 
-        showNotification('Pedido manual creado correctamente');
-        setManualOrderModal(false);
-        // Resetear formulario
-        setManualOrderForm({
-            clubId: '', customerName: '', customerEmail: '', customerPhone: '',
-            paymentMethod: 'transfer', targetBatch: '', items: [],
-            tempItem: { productId: '', size: '', name: '', number: '', price: 0, quantity: 1 }
-        });
+            showNotification('Pedido manual creado correctamente');
+            
+            // 3. CERRAR Y RESETEAR ABSOLUTAMENTE TODO
+            setManualOrderModal(false);
+            setManualOrderForm(INITIAL_MANUAL_FORM_STATE); // <--- Aquí usamos la constante limpia
 
-    } catch (error) {
-        console.error("Error creando pedido manual:", error);
-        showNotification('Error al crear el pedido', 'error');
-    }
-};
+        } catch (error) {
+            console.error("Error creando pedido manual:", error);
+            showNotification('Error al crear el pedido', 'error');
+        }
+    };
 
     // Función auxiliar para añadir producto a la lista temporal
     const addManualItemToOrder = () => {
-        // Extraemos todos los flags, incluyendo Talla (activeSize) y Escudo (activeShield)
         const { productId, size, name, number, quantity, activeName, activeNumber, activeSize, activeShield } = manualOrderForm.tempItem;
         if (!productId) return;
 
         const productDef = products.find(p => p.id === productId);
         
-        // Configuración completa (con defaults seguros)
+        // 1. Obtener Color del Club seleccionado
+        const selectedClub = clubs.find(c => c.id === manualOrderForm.clubId);
+        const clubColor = selectedClub ? (selectedClub.color || 'white') : 'white';
+
+        // 2. Configuración y Precio
         const defaults = productDef.defaults || { name: false, number: false, size: false, shield: true };
         const modifiable = productDef.modifiable || { name: true, number: true, size: true, shield: true };
         const fee = financialConfig.modificationFee || 0;
 
         let unitPrice = productDef.price;
 
-        // --- LÓGICA DE COBRO EXACTA ---
-        // Se cobra si:
-        // 1. Es modificable.
-        // 2. El estado actual (activo/inactivo) es DIFERENTE al estado por defecto.
-        // Ejemplo: Viene Escudo (true). Lo quito (activeShield = false). true != false -> COBRA.
-        // Ejemplo: No viene Nombre (false). Lo pongo (activeName = true). false != true -> COBRA.
-
+        // Lógica de Cobro
         if (modifiable.size && (activeSize !== defaults.size)) unitPrice += fee;
         if (modifiable.name && (activeName !== defaults.name)) unitPrice += fee;
         if (modifiable.number && (activeNumber !== defaults.number)) unitPrice += fee;
         if (modifiable.shield && (activeShield !== defaults.shield)) unitPrice += fee;
 
+        // 3. Crear Objeto Item (Formato Estandarizado Web)
         const newItem = {
             productId,
-            name: productDef.name, 
-            // Si la talla está activa guardamos la talla, si no vacio
+            name: productDef.name,
+            
+            // Datos Planos (Igual que en la web)
             size: activeSize ? (size || 'Única') : '',
-            personalization: { 
-                name: activeName ? (name || '') : '', 
-                number: activeNumber ? (number || '') : '',
-                shield: activeShield // true/false
-            },
-            price: unitPrice, 
+            playerName: activeName ? (name || '') : '',
+            playerNumber: activeNumber ? (number || '') : '',
+            color: clubColor, // Asignamos el color del club automáticamente
+            
+            // Flags para saber qué mostrar
+            includeName: activeName,
+            includeNumber: activeNumber,
+            includeShield: activeShield,
+
+            price: unitPrice,
             quantity: parseInt(quantity),
             cost: productDef.cost || 0,
-            image: productDef.image
+            image: productDef.image,
+            cartId: Date.now() + Math.random() // ID único para lista
         };
 
         setManualOrderForm({
             ...manualOrderForm,
             items: [...manualOrderForm.items, newItem],
-            // Resetear formulario temporal
+            // Resetear form temporal
             tempItem: { 
                 productId: '', size: '', name: '', number: '', price: 0, quantity: 1, 
                 activeName: false, activeNumber: false, activeSize: false, activeShield: false 
@@ -4785,30 +4800,71 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
                             {/* Lista Items (Igual que antes) */}
                             {manualOrderForm.items.length > 0 && (
-                                <div className="space-y-1">
-                                    {manualOrderForm.items.map((it, idx) => (
-                                        <div key={idx} className="flex justify-between items-center bg-white p-2 rounded border border-gray-100 text-sm">
-                                            <div className="flex gap-2">
-                                                <span className="font-bold text-emerald-700">{it.quantity}x</span>
-                                                <span className="font-bold">{it.name}</span>
-                                                <span className="text-gray-500 text-xs flex items-center gap-1">
-                                                    [{it.size}] 
-                                                    {it.personalization.name && <span className="bg-gray-100 px-1 rounded">N: {it.personalization.name}</span>}
-                                                    {it.personalization.number && <span className="bg-gray-100 px-1 rounded">#: {it.personalization.number}</span>}
-                                                </span>
+                                <div className="space-y-2 mt-4">
+                                    {manualOrderForm.items.map((it, idx) => {
+                                        // Buscamos la etiqueta del color para mostrarla bonita
+                                        const colorLabel = AVAILABLE_COLORS.find(c => c.id === it.color)?.label || it.color;
+                                        
+                                        return (
+                                            <div key={idx} className="flex justify-between items-center bg-white p-3 rounded-lg border border-gray-200 text-sm shadow-sm">
+                                                <div className="flex flex-col gap-1">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="font-bold text-emerald-700 bg-emerald-50 px-2 py-0.5 rounded text-xs">{it.quantity}x</span>
+                                                        <span className="font-bold text-gray-800">{it.name}</span>
+                                                    </div>
+                                                    
+                                                    {/* DETALLES DE PERSONALIZACIÓN */}
+                                                    <div className="text-xs text-gray-500 flex flex-wrap items-center gap-2 pl-8">
+                                                        {/* Talla */}
+                                                        {it.size && (
+                                                            <span className="bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 text-gray-600">
+                                                                T: <b>{it.size}</b>
+                                                            </span>
+                                                        )}
+                                                        
+                                                        {/* Color */}
+                                                        {it.color && (
+                                                            <span className="bg-gray-100 px-1.5 py-0.5 rounded border border-gray-200 text-gray-600 flex items-center gap-1">
+                                                                <span className="w-2 h-2 rounded-full border border-gray-300" style={{background: AVAILABLE_COLORS.find(c=>c.id===it.color)?.hex || it.color}}></span>
+                                                                {colorLabel}
+                                                            </span>
+                                                        )}
+
+                                                        {/* Nombre */}
+                                                        {it.playerName && (
+                                                            <span className="bg-blue-50 text-blue-700 px-1.5 py-0.5 rounded border border-blue-100">
+                                                                N: <b>{it.playerName}</b>
+                                                            </span>
+                                                        )}
+
+                                                        {/* Dorsal */}
+                                                        {it.playerNumber && (
+                                                            <span className="bg-orange-50 text-orange-700 px-1.5 py-0.5 rounded border border-orange-100">
+                                                                #: <b>{it.playerNumber}</b>
+                                                            </span>
+                                                        )}
+                                                    </div>
+                                                </div>
+
+                                                <div className="flex items-center gap-4">
+                                                    <span className="font-bold text-gray-900">{it.price.toFixed(2)}€</span>
+                                                    <button onClick={() => {
+                                                        const newItems = [...manualOrderForm.items];
+                                                        newItems.splice(idx, 1);
+                                                        setManualOrderForm({...manualOrderForm, items: newItems});
+                                                    }} className="text-gray-400 hover:text-red-500 transition-colors p-1 hover:bg-red-50 rounded">
+                                                        <X className="w-4 h-4"/>
+                                                    </button>
+                                                </div>
                                             </div>
-                                            <div className="flex items-center gap-3">
-                                                <span className="font-bold text-gray-800">{it.price.toFixed(2)}€/ud</span>
-                                                <button onClick={() => {
-                                                    const newItems = [...manualOrderForm.items];
-                                                    newItems.splice(idx, 1);
-                                                    setManualOrderForm({...manualOrderForm, items: newItems});
-                                                }} className="text-red-400 hover:text-red-600"><X className="w-3 h-3"/></button>
-                                            </div>
-                                        </div>
-                                    ))}
-                                    <div className="text-right font-black text-emerald-800 mt-3 text-lg border-t pt-2">
-                                        Total Pedido: {manualOrderForm.items.reduce((acc, i) => acc + (i.price*i.quantity), 0).toFixed(2)}€
+                                        );
+                                    })}
+                                    
+                                    <div className="flex justify-between items-center mt-4 pt-3 border-t border-gray-200">
+                                        <span className="text-xs font-bold text-gray-500 uppercase">Total Estimado</span>
+                                        <span className="text-xl font-black text-emerald-700">
+                                            {manualOrderForm.items.reduce((acc, i) => acc + (i.price*i.quantity), 0).toFixed(2)}€
+                                        </span>
                                     </div>
                                 </div>
                             )}
@@ -4817,7 +4873,15 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
                     {/* Footer Botones */}
                     <div className="p-5 bg-gray-50 border-t border-gray-200 flex justify-end gap-3">
-                        <button onClick={() => setManualOrderModal(false)} className="px-4 py-2 text-gray-500 hover:text-gray-800 font-bold text-sm">Cancelar</button>
+                        <button 
+                            onClick={() => {
+                                setManualOrderModal(false);
+                                setManualOrderForm(INITIAL_MANUAL_FORM_STATE); // <--- Añadir esto para limpiar al cancelar
+                            }} 
+                            className="px-4 py-2 text-gray-500 hover:text-gray-800 font-bold text-sm"
+                        >
+                            Cancelar
+                        </button>
                         <button onClick={submitManualOrder} className="px-6 py-2 bg-gray-900 text-white rounded-lg font-bold shadow-lg hover:bg-black transition-transform active:scale-95 flex items-center gap-2">
                             <Check className="w-4 h-4"/> Confirmar Pedido
                         </button>

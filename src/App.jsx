@@ -182,7 +182,11 @@ const generateBatchExcel = (batchId, orders, clubName) => {
     }
 };
 
+// --- FUNCIÓN ALBARÁN LOTE (CORREGIDA - EVITA NaN) ---
 const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
+    // 1. Validar que la comisión sea un número, si no, usar 0
+    const safeCommission = (typeof commissionPct === 'number' && !isNaN(commissionPct)) ? commissionPct : 0;
+
     const printWindow = window.open('', '_blank');
     const today = new Date().toLocaleDateString();
     
@@ -190,8 +194,8 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
     const totalAmount = orders.reduce((sum, o) => sum + o.total, 0);
     const totalItems = orders.reduce((sum, o) => sum + o.items.reduce((s, i) => s + (i.quantity || 1), 0), 0);
     
-    // Cálculos Financieros Claros
-    const commissionAmount = totalAmount * commissionPct;
+    // Cálculos Financieros Seguros
+    const commissionAmount = totalAmount * safeCommission;
     const netAmount = totalAmount - commissionAmount;
 
     const htmlContent = `
@@ -218,7 +222,6 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                 .order-sep { background-color: #f0fdf4; font-weight: bold; color: #064e3b; border-top: 2px solid #ccc; }
                 .text-right { text-align: right; }
                 
-                /* Nueva Sección de Totales Financieros Mejorada */
                 .financial-section { display: flex; justify-content: flex-end; margin-bottom: 50px; }
                 .financial-table { width: 400px; border-collapse: collapse; border: 1px solid #ddd; }
                 .financial-table td { padding: 12px; border-bottom: 1px solid #eee; }
@@ -305,7 +308,7 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                     <tr>
                         <td class="f-label" style="color: #dc2626;">
                             (-) Retención / Comisión Club
-                            <span class="f-subtext">Beneficio retenido para el club (${(commissionPct * 100).toFixed(0)}%)</span>
+                            <span class="f-subtext">Beneficio retenido para el club (${(safeCommission * 100).toFixed(0)}%)</span>
                         </td>
                         <td class="f-value" style="color: #dc2626;">-${commissionAmount.toFixed(2)}€</td>
                     </tr>
@@ -2697,7 +2700,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   const [accDetailsModal, setAccDetailsModal] = useState({ active: false, title: '', items: [], type: '' });
 
   // 2. Lógica de cálculo de totales
-  const globalAccountingStats = useMemo(() => {
+const globalAccountingStats = useMemo(() => {
       const stats = {
         cardTotal: 0,
         cardFees: 0,
@@ -2718,16 +2721,24 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
             const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
             const totalBatch = cardTotal + cashTotal;
 
+            // Coste Proveedor
             const cost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
             
-            const commComm = totalBatch * financialConfig.commercialCommissionPct;
-            const currentClubComm = club.commission !== undefined ? club.commission : 0.12; 
-            const commClub = totalBatch * currentClubComm;
-
-            // CALCULAR COMISIÓN TARJETA EN ESTE LOTE
+            // Comisiones Pasarela
             const fees = cardOrders.reduce((sum, o) => {
                 return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
             }, 0);
+
+            // --- 1. CÁLCULO PAGO CLUB ---
+            // (Total Tarjeta + Efectivo) * % Club
+            const clubCommissionRate = club.commission !== undefined ? club.commission : 0.12;
+            const commClub = totalBatch * clubCommissionRate;
+
+            // --- 2. CÁLCULO PAGO COMERCIAL ---
+            // (Total - Pasarela - Coste Prov - Pago Club) * % Comercial
+            // Base imponible para el comercial:
+            const commercialBase = totalBatch - fees - cost - commClub;
+            const commComm = commercialBase * financialConfig.commercialCommissionPct;
 
             // ACUMULADORES
             stats.cardTotal += cardTotal;
@@ -3596,7 +3607,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                     
                     {/* 1. Comisión Comercial */}
                     <div>
-                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Comisión Web Global</label>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Comisión Comercial Global</label>
                         <div className="relative">
                             <input 
                                 type="number" 
@@ -4008,7 +4019,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                             className={`px-2 py-2 text-xs rounded border transition-colors flex flex-col items-center ${incidentForm.internalOrigin === 'us' ? 'bg-white border-red-300 text-red-700 shadow-sm font-bold' : 'bg-red-100/50 border-transparent text-red-400 hover:bg-red-100'}`}
                                         >
                                             <span>Nosotros (F.Esport)</span>
-                                            <span className="text-[9px] mt-0.5 opacity-80">Pagamos coste ({incidentForm.cost}€)</span>
+                                            <span className="text-[12px] mt-0.5 opacity-80">Pagamos coste ({incidentForm.cost}€)</span>
                                         </button>
                                         <button 
                                             type="button"
@@ -4016,7 +4027,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                             className={`px-2 py-2 text-xs rounded border transition-colors flex flex-col items-center ${incidentForm.internalOrigin === 'supplier' ? 'bg-white border-red-300 text-red-700 shadow-sm font-bold' : 'bg-red-100/50 border-transparent text-red-400 hover:bg-red-100'}`}
                                         >
                                             <span>El Proveedor</span>
-                                            <span className="text-[9px] mt-0.5 opacity-80">Garantía (Coste 0€)</span>
+                                            <span className="text-[12px] mt-0.5 opacity-80">Garantía (Coste 0€)</span>
                                         </button>
                                     </div>
                                 </div>
@@ -4394,7 +4405,12 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                             <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)} disabled={batch.orders.length===0}>
                                                 <FileDown className="w-3 h-3 mr-1"/> Excel
                                             </Button>
-                                            <Button size="xs" variant="outline" onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, financialConfig.clubCommissionPct)} disabled={batch.orders.length===0}>
+                                            <Button 
+                                                size="xs" 
+                                                variant="outline" 
+                                                disabled={batch.orders.length === 0} 
+                                                onClick={() => printBatchAlbaran(batch.id, batch.orders, club.name, club.commission || 0.12)}
+                                            >
                                                 <Printer className="w-3 h-3 mr-1"/> Albarán
                                             </Button>
 
@@ -5005,8 +5021,8 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   </div>
               </div>
 
-              {accountingData.map(({ club, batches }) => {
-                  // --- CÁLCULOS DE ESTADO DE CUENTA ---
+                {accountingData.map(({ club, batches }) => {
+                  // --- CÁLCULOS DE ESTADO DE CUENTA (CORREGIDOS) ---
                   let totalPendingCash = 0;
                   let balanceProvider = 0;   
                   let balanceCommercial = 0; 
@@ -5015,14 +5031,30 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   batches.forEach(batch => {
                       const log = club.accountingLog?.[batch.id] || {};
                       
+                      const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
                       const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
-                      const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
-                      const bTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
                       
+                      const cardTotal = cardOrders.reduce((sum, o) => sum + o.total, 0);
+                      const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
+                      const bTotal = cardTotal + cashTotal;
+                      
+                      // Coste Proveedor
                       const bCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
-                      const bCommComm = bTotal * financialConfig.commercialCommissionPct;
-                      const bCommClub = bTotal * financialConfig.clubCommissionPct;
 
+                      // 1. PAGO CLUB: (Total * % del Club)
+                      const clubCommissionRate = club.commission !== undefined ? club.commission : 0.12;
+                      const bCommClub = bTotal * clubCommissionRate;
+
+                      // 2. GASTO PASARELA (Necesario para la fórmula comercial)
+                      const batchGatewayFee = cardOrders.reduce((sum, o) => {
+                          return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                      }, 0);
+
+                      // 3. PAGO COMERCIAL: (Total - Coste - Club - Pasarela) * % Comercial
+                      const commercialBase = bTotal - bCost - bCommClub - batchGatewayFee;
+                      const bCommComm = commercialBase * financialConfig.commercialCommissionPct;
+
+                      // ACUMULACIÓN DE SALDOS
                       totalPendingCash += (!log.cashCollected ? cashTotal : 0) + (log.cashUnder || 0) - (log.cashOver || 0);
                       balanceProvider += (!log.supplierPaid ? bCost : 0) + (log.supplierUnder || 0) - (log.supplierOver || 0);
                       balanceCommercial += (!log.commercialPaid ? bCommComm : 0) + (log.commercialUnder || 0) - (log.commercialOver || 0);
@@ -5030,9 +5062,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                   });
 
                   const renderBalance = (amount, labelPositive, labelNegative) => {
-                      // CAMBIO: Añadido isNaN(amount) para evitar el error "NaN€"
                       if (isNaN(amount) || Math.abs(amount) < 0.01) return <span className="text-green-600 font-bold">Al día (0.00€)</span>;
-                      
                       if (amount > 0) return <span className="text-red-600 font-bold">{labelPositive} {amount.toFixed(2)}€</span>; 
                       return <span className="text-blue-600 font-bold">{labelNegative} {Math.abs(amount).toFixed(2)}€</span>; 
                   };
@@ -5052,7 +5082,7 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                               </div>
                           </div>
 
-                          {/* PANEL DE ESTADO */}
+                          {/* PANEL DE ESTADO (Ahora muestra los saldos calculados con las nuevas fórmulas) */}
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-200 border-b border-gray-200">
                               <div className="bg-white p-4 text-center">
                                   <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Caja Efectivo</p>
@@ -5087,7 +5117,6 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                   </thead>
                                   <tbody className="divide-y divide-gray-100 bg-white">
                                       {batches.map(batch => {
-                                          // DETECTAR SI ES ESPECIAL
                                           const isSpecial = batch.id === 'SPECIAL';
                                           
                                           const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
@@ -5098,8 +5127,17 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                           const bTotal = cardTotal + cashTotal;
 
                                           const bCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
-                                          const bCommComm = bTotal * financialConfig.commercialCommissionPct;
-                                          const bCommClub = bTotal * financialConfig.clubCommissionPct;
+                                          
+                                          // --- 1. PAGO CLUB (EN FILA) ---
+                                          const clubCommissionRate = club.commission !== undefined ? club.commission : 0.12;
+                                          const bCommClub = bTotal * clubCommissionRate;
+
+                                          // --- 2. PAGO COMERCIAL (EN FILA) ---
+                                          const batchGatewayFee = cardOrders.reduce((sum, o) => {
+                                              return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                                          }, 0);
+                                          const commercialBase = bTotal - bCost - bCommClub - batchGatewayFee;
+                                          const bCommComm = commercialBase * financialConfig.commercialCommissionPct;
 
                                           const status = club.accountingLog?.[batch.id] || {};
 
@@ -5137,46 +5175,41 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
                                                       <AdjustmentInputs fieldOver="cashOver" fieldUnder="cashUnder" />
                                                   </td>
 
-                                                  {/* ... celdas anteriores ... */}
+                                                  <td className="px-4 py-4">
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="text-xs text-red-500 font-bold">
+                                                              -{(bCost || 0).toFixed(2)}€
+                                                          </span>
+                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                              {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                          </button>
+                                                      </div>
+                                                      <AdjustmentInputs fieldOver="supplierOver" fieldUnder="supplierUnder" />
+                                                  </td>
 
-                                          <td className="px-4 py-4">
-                                              {/* CORREGIDO: (bCost || 0) para evitar NaN */}
-                                              <div className="flex justify-between items-center mb-1">
-                                                  <span className="text-xs text-red-500 font-bold">
-                                                      -{(bCost || 0).toFixed(2)}€
-                                                  </span>
-                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                      {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                  </button>
-                                              </div>
-                                              <AdjustmentInputs fieldOver="supplierOver" fieldUnder="supplierUnder" />
-                                          </td>
+                                                  <td className="px-4 py-4">
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="text-xs text-blue-500 font-bold">
+                                                              +{(bCommComm || 0).toFixed(2)}€
+                                                          </span>
+                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                              {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                          </button>
+                                                      </div>
+                                                      <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
+                                                  </td>
 
-                                          <td className="px-4 py-4">
-                                              {/* CORREGIDO: (bCommComm || 0) para evitar NaN */}
-                                              <div className="flex justify-between items-center mb-1">
-                                                  <span className="text-xs text-blue-500 font-bold">
-                                                      -{(bCommComm || 0).toFixed(2)}€
-                                                  </span>
-                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                      {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                  </button>
-                                              </div>
-                                              <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
-                                          </td>
-
-                                          <td className="px-4 py-4">
-                                              {/* CORREGIDO: (bCommClub || 0) para evitar NaN */}
-                                              <div className="flex justify-between items-center mb-1">
-                                                  <span className="text-xs text-purple-500 font-bold">
-                                                      -{(bCommClub || 0).toFixed(2)}€
-                                                  </span>
-                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                      {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                  </button>
-                                              </div>
-                                              <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
-                                          </td>
+                                                  <td className="px-4 py-4">
+                                                      <div className="flex justify-between items-center mb-1">
+                                                          <span className="text-xs text-purple-500 font-bold">
+                                                              -{(bCommClub || 0).toFixed(2)}€
+                                                          </span>
+                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                              {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                          </button>
+                                                      </div>
+                                                      <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
+                                                  </td>
                                               </tr>
                                           );
                                       })}

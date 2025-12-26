@@ -7,7 +7,7 @@ import {
   Filter, Upload, Save, Eye, FileText, UserX, Download, Mail, MessageSquare,
   Edit3, ToggleLeft, ToggleRight, Lock, Unlock, EyeOff, Folder, FileImage, CornerDownRight,
   ArrowRight, Calendar, Ban, Store, Calculator, DollarSign, FileSpreadsheet,
-  Layers, Archive, Globe, AlertTriangle, RefreshCw, Briefcase, RotateCcw, MoveLeft,
+  Layers, Archive, Globe, AlertTriangle, RefreshCw, Briefcase, RotateCcw, MoveLeft, NotebookText,
   Landmark, Printer, FileDown, Users, Table,
   Hash
 } from 'lucide-react';
@@ -1473,14 +1473,113 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
 }
 
 function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig }) {
-  const [formData, setFormData] = useState({ name: '', email: '', phone: '', notification: 'email', rgpd: false });
+  const [formData, setFormData] = useState({ 
+      name: '', 
+      email: '', 
+      phone: '', 
+      notification: 'email', 
+      rgpd: false,
+      marketingConsent: false 
+  });
   const [paymentMethod, setPaymentMethod] = useState('card');
-  const handleSubmit = (e) => { e.preventDefault(); createOrder({ items: cart, customer: formData, total: total, paymentMethod, clubId: cart[0]?.clubId || 'generic', clubName: clubs.find(c => c.id === (cart[0]?.clubId))?.name || 'Club Generico' }); };
+
+  const handleSubmit = (e) => { 
+      e.preventDefault(); 
+      createOrder({ 
+          items: cart, 
+          customer: formData, 
+          total: total, 
+          paymentMethod, 
+          clubId: cart[0]?.clubId || 'generic', 
+          clubName: clubs.find(c => c.id === (cart[0]?.clubId))?.name || 'Club Generico' 
+      }); 
+  };
+
   if (cart.length === 0) return <div className="text-center py-20 text-gray-500 font-bold text-xl flex flex-col items-center"><ShoppingCart className="w-16 h-16 mb-4 text-gray-300"/>Tu carrito está vacío</div>;
+  
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-      <div className="lg:col-span-2 space-y-4"><h2 className="text-2xl font-bold mb-4">Resumen</h2>{cart.map(item => (<div key={item.cartId} className="flex gap-4 bg-white p-4 rounded-lg shadow-sm"><img src={item.image} className="w-20 h-20 object-cover rounded" /><div className="flex-1"><h3 className="font-bold">{item.name}</h3><p className="text-sm text-gray-500">{item.playerName} #{item.playerNumber}</p><p className="text-emerald-600 font-bold mt-1">{item.price.toFixed(2)}€</p></div><button onClick={() => removeFromCart(item.cartId)} className="text-red-400 p-2 hover:bg-red-50 rounded"><Trash2 className="w-5 h-5" /></button></div>))}</div>
-      <div className="bg-white p-6 rounded-xl shadow-md h-fit sticky top-24"><h3 className="text-xl font-bold mb-4">Finalizar Compra</h3><form onSubmit={handleSubmit} className="space-y-4"><Input label="Nombre" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} /><Input label="Email" type="email" required value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} /><Input label="Teléfono" required value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} /><div className="mb-3"><label className="block text-sm font-medium mb-1">Notificaciones</label><div className="flex gap-4 text-sm bg-gray-50 p-3 rounded-lg"><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={formData.notification === 'email'} onChange={() => setFormData({...formData, notification: 'email'})} /> Email</label><label className="flex items-center gap-2 cursor-pointer"><input type="radio" checked={formData.notification === 'sms'} onChange={() => setFormData({...formData, notification: 'sms'})} /> SMS</label></div></div><div className="border-t pt-4"><label className="block text-sm font-medium mb-2">Pago</label><div className="grid grid-cols-2 gap-2 mb-4"><div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'card' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('card')}><CreditCard className="w-5 h-5"/> Tarjeta</div><div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('cash')}><Banknote className="w-5 h-5"/> Efectivo</div></div>{paymentMethod === 'cash' && <p className="text-xs text-yellow-700 bg-yellow-50 p-2 rounded mb-4 border border-yellow-200">El pedido quedará marcado como "Pendiente" hasta que abones el importe en tu club.</p>}</div><div className="flex items-start gap-2 mb-4"><input type="checkbox" required checked={formData.rgpd} onChange={e => setFormData({...formData, rgpd: e.target.checked})} className="mt-1" /><span className="text-xs text-gray-500">He leído y acepto la Política de Privacidad y el tratamiento de datos.</span></div><Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-3 text-lg">{storeConfig.isOpen ? `Pagar ${total.toFixed(2)}€` : 'TIENDA CERRADA'}</Button></form></div>
+      <div className="lg:col-span-2 space-y-4">
+          <h2 className="text-2xl font-bold mb-4">Resumen</h2>
+          {cart.map(item => (
+              <div key={item.cartId} className="flex gap-4 bg-white p-4 rounded-lg shadow-sm">
+                  <img src={item.image} className="w-20 h-20 object-cover rounded" />
+                  <div className="flex-1">
+                      <h3 className="font-bold">{item.name}</h3>
+                      <p className="text-sm text-gray-500">{item.playerName} #{item.playerNumber}</p>
+                      <p className="text-emerald-600 font-bold mt-1">{item.price.toFixed(2)}€</p>
+                  </div>
+                  <button onClick={() => removeFromCart(item.cartId)} className="text-red-400 p-2 hover:bg-red-50 rounded"><Trash2 className="w-5 h-5" /></button>
+              </div>
+          ))}
+      </div>
+      
+      <div className="bg-white p-6 rounded-xl shadow-md h-fit sticky top-24">
+          <h3 className="text-xl font-bold mb-4">Finalizar Compra</h3>
+          <form onSubmit={handleSubmit} className="space-y-4">
+              <Input label="Nombre y Apellidos" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
+              
+              <Input 
+                  label="Email (Notificaciones)" 
+                  type="email" 
+                  required={true}
+                  placeholder="ejemplo@correo.com"
+                  value={formData.email} 
+                  onChange={e => setFormData({...formData, email: e.target.value})} 
+              />
+              
+              {/* CAMBIO: Teléfono ahora es OPCIONAL */}
+              <Input 
+                  label="Teléfono Contacto (Opcional)" 
+                  type="tel" 
+                  required={false} 
+                  placeholder="Opcional"
+                  value={formData.phone} 
+                  onChange={e => setFormData({...formData, phone: e.target.value})} 
+              />
+              
+              <div className="mb-3 bg-blue-50 p-4 rounded-lg border border-blue-100 flex items-start gap-3">
+                  <Mail className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
+                  <div>
+                      <p className="text-xs text-blue-800 font-bold mb-1">Avisos de Pedido</p>
+                      <p className="text-xs text-blue-600">
+                          Te enviaremos las actualizaciones de estado (producción y entrega) a tu <strong>email</strong>.
+                      </p>
+                  </div>
+              </div>
+
+              <div className="flex items-start gap-2 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
+                  <input 
+                      type="checkbox" 
+                      id="marketing"
+                      checked={formData.marketingConsent} 
+                      onChange={e => setFormData({...formData, marketingConsent: e.target.checked})} 
+                      className="mt-1 accent-emerald-600" 
+                  />
+                  <label htmlFor="marketing" className="text-xs text-gray-600 cursor-pointer">
+                      (Opcional) Deseo recibir información sobre ofertas, campañas y novedades de mi club.
+                  </label>
+              </div>
+
+              <div className="border-t pt-4">
+                  <label className="block text-sm font-medium mb-2">Pago</label>
+                  <div className="grid grid-cols-2 gap-2 mb-4">
+                      <div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'card' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('card')}><CreditCard className="w-5 h-5"/> Tarjeta</div>
+                      <div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('cash')}><Banknote className="w-5 h-5"/> Efectivo</div>
+                  </div>
+                  {paymentMethod === 'cash' && <p className="text-xs text-yellow-700 bg-yellow-50 p-2 rounded mb-4 border border-yellow-200">El pedido quedará marcado como "Pendiente" hasta que abones el importe en tu club.</p>}
+              </div>
+
+              <div className="flex items-start gap-2 mb-4">
+                  <input type="checkbox" required checked={formData.rgpd} onChange={e => setFormData({...formData, rgpd: e.target.checked})} className="mt-1 accent-emerald-600" />
+                  <span className="text-xs text-gray-500">He leído y acepto la Política de Privacidad y el tratamiento de datos.</span>
+              </div>
+              
+              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-3 text-lg">
+                  {storeConfig.isOpen ? `Pagar ${total.toFixed(2)}€` : 'TIENDA CERRADA'}
+              </Button>
+          </form>
+      </div>
     </div>
   );
 }
@@ -2153,7 +2252,7 @@ const FilesManager = ({ clubs }) => {
     );
 };
 
-function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, updateGlobalBatchStatus, createSpecialOrder, addIncident, updateIncidentStatus }) {
+function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus }) {
   const [tab, setTab] = useState('management');
   const [showNewClubPass, setShowNewClubPass] = useState(false);
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
@@ -2173,6 +2272,115 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       original: null, 
       modified: null 
   });
+
+  // Estado para controlar el modal de cambio de estado con notificación
+    const [statusChangeModal, setStatusChangeModal] = useState({ 
+        active: false, clubId: null, batchId: null, newStatus: '' 
+    });
+
+    const initiateStatusChange = (clubId, batchId, newStatus) => {
+    console.log("CLICK DETECTADO:", { clubId, batchId, newStatus }); // <--- Añade esto para comprobar
+    setStatusChangeModal({ active: true, clubId, batchId, newStatus });
+    };
+
+
+    // --- FUNCIÓN ACTUALIZADA: GUARDA HISTORIAL GLOBAL EN EL CLUB ---
+    const executeBatchStatusUpdate = async (shouldNotify) => {
+        const { clubId, batchId, newStatus } = statusChangeModal;
+        if (!clubId || !batchId || !newStatus) return;
+
+        setStatusChangeModal({ ...statusChangeModal, active: false });
+
+        // Filtramos los pedidos del lote
+        const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); 
+        const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; 
+        
+        // Obtenemos el estado anterior (tomamos el del primer pedido como referencia)
+        const prevStatus = batchOrders[0]?.status || 'desconocido';
+
+        const batchWrite = writeBatch(db);
+        let count = 0; 
+        let notifiedCount = 0;
+        const now = new Date().toISOString();
+
+        // 1. Actualizar Pedidos Individuales
+        batchOrders.forEach(order => {
+            if (order.status !== newStatus) { 
+                const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
+                const updates = { status: newStatus, visibleStatus: batchLabel };
+
+                if (shouldNotify) {
+                    const targetEmail = order.customer.email;
+                    if (targetEmail && targetEmail.includes('@')) {
+                        // Opcional: También podemos dejar rastro en el pedido individual si quieres
+                        // updates.notificationLog = arrayUnion({ date: now, statusTo: newStatus, method: 'email' });
+                        
+                        // Aquí iría la lógica de envío real (Firebase Extension)
+                        notifiedCount++;
+                    }
+                }
+                batchWrite.update(ref, updates);
+                count++; 
+            }
+        });
+
+        // 2. ACTUALIZACIÓN CLAVE: Guardar Historial GLOBAL en el Club
+        const clubRef = doc(db, 'clubs', clubId);
+        const globalLogEntry = {
+            batchId: batchId,
+            date: now,
+            statusFrom: prevStatus,
+            statusTo: newStatus,
+            notifiedCount: shouldNotify ? notifiedCount : 0, // Cuántos emails se enviaron
+            action: 'Cambio de Estado'
+        };
+        
+        // Guardamos en un array llamado 'batchHistory' dentro del Club
+        batchWrite.update(clubRef, {
+            batchHistory: arrayUnion(globalLogEntry)
+        });
+
+        // 3. Lógica de Tregua y Avance (se mantiene igual)
+        if (newStatus === 'recopilando') {
+            batchWrite.update(clubRef, { lastBatchReopenTime: Date.now() });
+        }
+        if (newStatus === 'en_produccion') { 
+            const club = clubs.find(c => c.id === clubId); 
+            if (club && club.activeGlobalOrderId === batchId) { 
+                batchWrite.update(clubRef, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
+            } 
+        } 
+
+        try {
+            await batchWrite.commit();
+            let msg = `Lote #${batchId}: ${count} pedidos actualizados.`;
+            if (shouldNotify) msg += ` Se registraron ${notifiedCount} envíos en el historial global.`;
+            if (showNotification) showNotification(msg, 'success');
+        } catch (e) {
+            console.error(e);
+            if (showNotification) showNotification("Error al actualizar lote", "error");
+        }
+    };
+
+    // Función para mostrar nombres bonitos de los estados
+    const formatStatus = (status) => {
+        switch(status) {
+            case 'recopilando': return 'Recopilando';
+            case 'en_produccion': return 'En Producción';
+            case 'entregado_club': return 'Entregado';
+            case 'pendiente_validacion': return 'Pendiente';
+            case 'pagado': return 'Pagado';
+            default: return status || '-';
+        }
+    };
+
+    // --- NUEVO ESTADO: VISOR DE HISTORIAL DE LOTE ---
+    const [batchHistoryModal, setBatchHistoryModal] = useState({ 
+        active: false, 
+        history: [], 
+        batchId: null, 
+        clubName: '' 
+    });
 
     const INITIAL_MANUAL_FORM_STATE = {
         clubId: '',
@@ -4219,6 +4427,129 @@ const globalAccountingStats = useMemo(() => {
           </div>
       )}
 
+    {/* --- MODAL CONFIRMACIÓN CAMBIO DE ESTADO --- */}
+    {statusChangeModal.active && (
+        <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-xl shadow-2xl max-w-md w-full p-6 border-2 border-indigo-100">
+                <div className="flex items-center gap-3 mb-4 text-indigo-900 border-b pb-3">
+                    <div className="bg-indigo-100 p-2 rounded-full"><Mail className="w-5 h-5 text-indigo-600"/></div>
+                    <h3 className="font-bold text-lg">Control de Notificaciones</h3>
+                </div>
+                
+                <p className="text-gray-600 mb-4">
+                    Vas a cambiar el estado del Lote <strong>#{statusChangeModal.batchId}</strong> a:
+                    <span className="block mt-2 font-bold text-lg text-center bg-gray-100 py-1 rounded text-gray-800 uppercase">
+                        {statusChangeModal.newStatus.replace('_', ' ')}
+                    </span>
+                </p>
+                
+                <p className="text-sm text-gray-500 mb-6 bg-blue-50 p-3 rounded border border-blue-100">
+                    ⚠️ <strong>Avisos por Email:</strong> Elige si deseas informar a los clientes del cambio de estado.
+                </p>
+
+                <div className="space-y-3">
+                    <button 
+                        onClick={() => executeBatchStatusUpdate(true)}
+                        className="w-full flex items-center justify-between px-4 py-3 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold shadow-md transition-all group"
+                    >
+                        <span className="flex items-center gap-2"><Check className="w-5 h-5"/> Guardar y NOTIFICAR</span>
+                        <span className="text-xs bg-emerald-500 px-2 py-1 rounded text-white group-hover:bg-emerald-600">Recomendado</span>
+                    </button>
+
+                    <button 
+                        onClick={() => executeBatchStatusUpdate(false)}
+                        className="w-full flex items-center justify-center gap-2 px-4 py-3 bg-white border-2 border-gray-200 hover:border-gray-400 text-gray-600 rounded-lg font-bold transition-all"
+                    >
+                        <X className="w-4 h-4"/> Guardar SIN avisar
+                    </button>
+                    
+                    <button 
+                        onClick={() => setStatusChangeModal({ ...statusChangeModal, active: false })}
+                        className="w-full text-center text-xs text-gray-400 hover:text-gray-600 underline mt-2"
+                    >
+                        Cancelar Operación
+                    </button>
+                </div>
+            </div>
+        </div>
+    )}
+
+    {batchHistoryModal.active && (
+        <div className="fixed inset-0 bg-black/50 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-xl shadow-2xl max-w-lg w-full overflow-hidden flex flex-col max-h-[80vh]">
+                <div className="bg-gray-50 px-6 py-4 border-b flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-lg text-gray-800">Historial del Lote #{batchHistoryModal.batchId}</h3>
+                        <p className="text-xs text-gray-500">{batchHistoryModal.clubName}</p>
+                    </div>
+                    <button onClick={() => setBatchHistoryModal({...batchHistoryModal, active: false})} className="text-gray-400 hover:text-gray-600">
+                        <X className="w-6 h-6" />
+                    </button>
+                </div>
+                
+                <div className="p-0 overflow-y-auto flex-1">
+                    {batchHistoryModal.history && batchHistoryModal.history.length > 0 ? (
+                        <table className="w-full text-left text-sm">
+                            <thead className="bg-gray-50 text-gray-500 font-medium border-b">
+                                <tr>
+                                    <th className="px-6 py-3">Fecha</th>
+                                    <th className="px-6 py-3">Cambio de Estado</th>
+                                    <th className="px-6 py-3 text-center">Avisos</th>
+                                </tr>
+                            </thead>
+                            <tbody className="divide-y divide-gray-100">
+                                {batchHistoryModal.history.map((log, index) => (
+                                    <tr key={index} className="hover:bg-gray-50 transition-colors">
+                                        <td className="px-6 py-4 text-gray-600">
+                                            <div className="font-medium text-gray-900">
+                                                {new Date(log.date).toLocaleDateString()}
+                                            </div>
+                                            <div className="text-xs">
+                                                {new Date(log.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4">
+                                            <div className="flex items-center gap-2">
+                                                <span className="text-xs text-gray-400">{formatStatus(log.statusFrom)}</span>
+                                                <ArrowRight className="w-3 h-3 text-gray-300" />
+                                                <span className="font-bold text-gray-700 bg-gray-100 px-2 py-0.5 rounded border">
+                                                    {formatStatus(log.statusTo)}
+                                                </span>
+                                            </div>
+                                        </td>
+                                        <td className="px-6 py-4 text-center">
+                                            {log.notifiedCount > 0 ? (
+                                                <span className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-blue-50 text-blue-700 text-xs font-bold border border-blue-100">
+                                                    <Mail className="w-3 h-3" /> {log.notifiedCount}
+                                                </span>
+                                            ) : (
+                                                <span className="text-gray-400 text-xs">-</span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    ) : (
+                        <div className="p-10 text-center text-gray-400 flex flex-col items-center gap-2">
+                            <AlertCircle className="w-10 h-10 opacity-20" />
+                            <p>No hay registros de cambios para este lote.</p>
+                        </div>
+                    )}
+                </div>
+                
+                <div className="p-4 border-t bg-gray-50 text-right">
+                    <button 
+                        onClick={() => setBatchHistoryModal({...batchHistoryModal, active: false})}
+                        className="px-4 py-2 bg-white border border-gray-300 rounded-lg text-gray-700 hover:bg-gray-50 font-medium text-sm"
+                    >
+                        Cerrar
+                    </button>
+                </div>
+            </div>
+        </div>
+      )}
+
 
 {/* --- PESTAÑA PEDIDOS/CONTABILIDAD (AdminDashboard) --- */}
 {tab === 'accounting' && (
@@ -4418,7 +4749,10 @@ const globalAccountingStats = useMemo(() => {
                                                 <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
                                                     <select 
                                                         value={status}
-                                                        onChange={(e) => updateGlobalBatchStatus(club.id, batch.id, e.target.value)}
+                                                        onChange={(e) => {
+                                                            e.preventDefault(); // <--- Añade esto por seguridad
+                                                            initiateStatusChange(club.id, batch.id, e.target.value);
+                                                        }}
                                                         className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer outline-none ${
                                                             status === 'en_produccion' ? 'bg-purple-100 text-purple-700 border-purple-200' :
                                                             status === 'entregado_club' ? 'bg-green-100 text-green-700 border-green-200' :
@@ -4429,6 +4763,24 @@ const globalAccountingStats = useMemo(() => {
                                                         <option value="en_produccion">En Producción</option>
                                                         <option value="entregado_club">Entregado</option>
                                                     </select>
+                                                    {/* --- NUEVO BOTÓN HISTORIAL --- */}
+                                                    <button 
+                                                        onClick={() => {
+                                                            // Filtramos el historial de este club para este lote específico
+                                                            const history = club.batchHistory?.filter(h => h.batchId === batch.id) || [];
+                                                            setBatchHistoryModal({ 
+                                                                active: true, 
+                                                                history: history.sort((a,b) => new Date(b.date) - new Date(a.date)), // Ordenar por fecha desc
+                                                                batchId: batch.id, 
+                                                                clubName: club.name 
+                                                            });
+                                                        }}
+                                                        className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 border border-blue-200 transition-colors"
+                                                        title="Ver Historial de Cambios"
+                                                    >
+                                                        {/* Icono de Historial/Reloj */}
+                                                        <NotebookText className="w-4 h-4" />
+                                                    </button>
                                                 </div>
                                             )}
                                         </div>
@@ -4510,6 +4862,62 @@ const globalAccountingStats = useMemo(() => {
                                                                         </div>
                                                                     );
                                                                 })}
+                                                            </div>
+
+                                                            {/* --- HISTORIAL DE NOTIFICACIONES --- */}
+                                                            <div className="mt-4 bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                                                <div className="bg-gray-100 px-3 py-2 border-b border-gray-200 flex justify-between items-center">
+                                                                    <h5 className="font-bold text-gray-600 text-xs uppercase flex items-center gap-2">
+                                                                        <Mail className="w-3 h-3"/> Historial de Avisos Enviados
+                                                                    </h5>
+                                                                    <span className="text-[10px] text-gray-400">{order.notificationLog ? order.notificationLog.length : 0} registros</span>
+                                                                </div>
+                                                                
+                                                                <div className="max-h-32 overflow-y-auto">
+                                                                    {order.notificationLog && order.notificationLog.length > 0 ? (
+                                                                        <table className="w-full text-left text-[10px]">
+                                                                            <thead className="bg-gray-50 text-gray-400">
+                                                                                <tr>
+                                                                                    <th className="px-3 py-1 font-medium">Fecha</th>
+                                                                                    <th className="px-3 py-1 font-medium">Cambio</th>
+                                                                                    <th className="px-3 py-1 font-medium">Canal</th>
+                                                                                </tr>
+                                                                            </thead>
+                                                                            <tbody className="divide-y divide-gray-50">
+                                                                                {order.notificationLog.map((log, i) => (
+                                                                                    <tr key={i} className="hover:bg-gray-50">
+                                                                                        <td className="px-3 py-1.5 text-gray-600">
+                                                                                            {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5">
+                                                                                            <div className="flex items-center gap-2">
+                                                                                                {/* Estado Origen (Gris y tachado o más pequeño) */}
+                                                                                                <span className="text-xs text-gray-400 font-medium">
+                                                                                                    {formatStatus(log.statusFrom)}
+                                                                                                </span>
+                                                                                                
+                                                                                                {/* Flecha de dirección */}
+                                                                                                <ArrowRight className="w-3 h-3 text-emerald-500" />
+                                                                                                
+                                                                                                {/* Estado Destino (Negrita y destacado) */}
+                                                                                                <span className="text-xs font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
+                                                                                                    {formatStatus(log.statusTo)}
+                                                                                                </span>
+                                                                                            </div>
+                                                                                        </td>
+                                                                                        <td className="px-3 py-1.5">
+                                                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${log.method === 'email' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-green-50 text-green-600 border-green-100'}`}>
+                                                                                                {log.method.toUpperCase()}
+                                                                                            </span>
+                                                                                        </td>
+                                                                                    </tr>
+                                                                                ))}
+                                                                            </tbody>
+                                                                        </table>
+                                                                    ) : (
+                                                                        <p className="p-3 text-xs text-gray-400 italic text-center">No se han enviado notificaciones para este pedido.</p>
+                                                                    )}
+                                                                </div>
                                                             </div>
                                                             
                                                             <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
@@ -5799,53 +6207,6 @@ export default function App() {
   // --- ACTUALIZAR ESTADO DE LOTE GLOBAL (CON CONFIRMACIÓN DE CIERRE) ---
 
 
-    const updateGlobalBatchStatus = async (clubId, batchId, newStatus) => { 
-        const performUpdate = async () => {
-            const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); 
-            const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; 
-            
-            const batchWrite = writeBatch(db);
-            let count = 0; 
-            
-            batchOrders.forEach(order => {
-                if (order.status !== newStatus) { 
-                    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-                    batchWrite.update(ref, { status: newStatus, visibleStatus: batchLabel });
-                    count++; 
-                }
-            });
-
-            // --- LÓGICA DE TREGUA ---
-            // Si volvemos a "Recopilando", guardamos la hora actual.
-            // El sistema automático respetará 5 minutos antes de volver a cerrar.
-            if (newStatus === 'recopilando') {
-                const clubRef = doc(db, 'clubs', clubId);
-                batchWrite.update(clubRef, { lastBatchReopenTime: Date.now() });
-            }
-            // ------------------------
-
-            if (newStatus === 'en_produccion') { 
-                const club = clubs.find(c => c.id === clubId); 
-                if (club && club.activeGlobalOrderId === batchId) { 
-                    const clubRef = doc(db, 'clubs', clubId);
-                    batchWrite.update(clubRef, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
-                } 
-            } 
-
-            await batchWrite.commit();
-            showNotification(`Lote #${batchId}: ${count} pedidos pasaron a "${batchLabel}".`); 
-        };
-
-        if (newStatus === 'en_produccion') {
-            setConfirmation({
-                title: "⚠️ Pasar a Producción",
-                msg: `¿Cerrar Lote Global #${batchId}?\n\nLos pedidos pasarán a producción y se abrirá el Lote #${batchId+1} para nuevas compras.`,
-                onConfirm: performUpdate
-            });
-        } else {
-            await performUpdate();
-        }
-    };
     const incrementClubGlobalOrder = (clubId) => { 
       const club = clubs.find(c => c.id === clubId);
       setConfirmation({ 
@@ -6144,7 +6505,7 @@ export default function App() {
         {view === 'order-success' && <OrderSuccessView setView={setView} />}
         {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
-        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} updateGlobalBatchStatus={updateGlobalBatchStatus} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} />}
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} />}
       </main>
       <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-40" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
     </div>

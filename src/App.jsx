@@ -337,6 +337,129 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
     printWindow.document.close();
 };
 
+// --- HELPER: PLANTILLA DE EMAIL (CORREGIDA CANTIDAD) ---
+const generateEmailHTML = (order, newStatus, clubName) => {
+    // Definir textos según estado
+    const statusMessages = {
+        'recopilando': 'Tu pedido ha sido validado y está en fase de recopilación.',
+        'en_produccion': '¡Buenas noticias! Tu pedido ha entrado en fábrica para su producción.',
+        'entregado_club': '¡Ya está aquí! Tu pedido ha llegado al club y está listo para ser recogido.',
+        'pendiente_validacion': 'Tu pedido está registrado pendiente de pago/validación.'
+    };
+
+    const statusColor = {
+        'recopilando': '#3b82f6', // Azul
+        'en_produccion': '#9333ea', // Morado
+        'entregado_club': '#10b981', // Verde
+        'pendiente_validacion': '#f59e0b' // Naranja
+    }[newStatus] || '#333';
+
+    // URL DEL LOGO
+    const LOGO_FULL_URL = "https://raw.githubusercontent.com/Rubenglzg/FotoEsportMerchWEB2/b740c87f99da10c1044474dbfdc8993c413347ff/public/logo.png"; 
+
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
+            .container { max-width: 600px; margin: 20px auto; border: 1px solid #e1e4e8; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
+            
+            /* Cabecera negra compacta */
+            .header { background-color: #000000; padding: 10px 0; text-align: center; border-bottom: 4px solid #10b981; }
+            
+            /* Logo grande */
+            .logo-img { height: 150px; width: auto; display: block; margin: 0 auto; }
+            
+            .content { padding: 40px 30px; background-color: #ffffff; }
+            .status-badge { 
+                background-color: ${statusColor}; color: white; padding: 12px 24px; 
+                border-radius: 50px; display: inline-block; font-weight: bold; margin: 25px 0;
+                font-size: 16px; letter-spacing: 0.5px; text-transform: uppercase;
+            }
+            .order-details { width: 100%; border-collapse: collapse; margin-top: 25px; background-color: #f9fafb; border-radius: 8px; overflow: hidden; }
+            .order-details th { text-align: left; background-color: #f3f4f6; padding: 12px 15px; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
+            .order-details td { border-bottom: 1px solid #e5e7eb; padding: 12px 15px; font-size: 14px; vertical-align: top; }
+            .item-meta { display: block; color: #555; font-size: 13px; margin-top: 4px; line-height: 1.4; }
+            .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <img src="${LOGO_FULL_URL}" alt="FotoEsport Merch" class="logo-img" />
+            </div>
+            <div class="content">
+                <h2 style="color: #111827; margin-top: 0;">Hola, ${order.customer.name}</h2>
+                <p style="color: #4b5563;">Te informamos que el estado de tu pedido para el club <strong>${clubName}</strong> ha cambiado.</p>
+                
+                <div style="text-align: center;">
+                    <div class="status-badge">
+                        ${newStatus.replace(/_/g, ' ')}
+                    </div>
+                </div>
+                
+                <p style="text-align: center; color: #374151; font-weight: 500;">${statusMessages[newStatus] || 'Estado actualizado.'}</p>
+
+                <h3 style="margin-top: 30px; font-size: 16px; color: #111827;">Resumen del Pedido #${order.id.slice(0, 6)}</h3>
+                <table class="order-details">
+                    <thead>
+                        <tr>
+                            <th width="40%">Producto</th>
+                            <th width="45%">Detalles</th>
+                            <th width="15%" style="text-align:right;">Cant.</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${order.items.map(item => {
+                            // Obtener nombre del color
+                            const colorObj = AVAILABLE_COLORS.find(c => c.id === item.color);
+                            const colorName = colorObj ? colorObj.label : item.color;
+                            
+                            // Lista de detalles
+                            const detailsList = [
+                                item.playerName ? `Nombre: <strong>${item.playerName}</strong>` : null,
+                                item.playerNumber ? `Dorsal: <strong>${item.playerNumber}</strong>` : null,
+                                item.size ? `Talla: <strong>${item.size}</strong>` : null,
+                                item.color ? `Color: <strong>${colorName}</strong>` : null
+                            ].filter(Boolean).join(', ');
+
+                            return `
+                            <tr>
+                                <td style="font-weight: 600; color: #111;">${item.name}</td>
+                                <td>
+                                    <span class="item-meta">
+                                        ${detailsList || '-'}
+                                    </span>
+                                </td>
+                                <td style="text-align:right; font-weight: bold;">${item.quantity || 1}</td>
+                            </tr>
+                        `}).join('')}
+                    </tbody>
+                </table>
+                
+                <div style="margin-top: 20px; text-align: right; padding-right: 15px;">
+                    <p style="font-size: 18px; color: #10b981; font-weight: bold; margin: 0;">Total: ${order.total.toFixed(2)}€</p>
+                    <p style="font-size: 15px; color: #4b5563; font-weight: bold; margin: 8px 0 0;">
+                        Lote Global: #${order.globalBatch || 1}
+                    </p>
+                </div>
+
+                <div style="margin-top: 30px; padding: 15px; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; color: #065f46; font-size: 13px; display: flex; align-items: start; gap: 10px;">
+                    <span>ℹ️</span>
+                    <span>Si tienes alguna duda sobre la entrega o los plazos, por favor contacta directamente con los responsables de <strong>${clubName}</strong>.</span>
+                </div>
+            </div>
+            <div class="footer">
+                <p>© ${new Date().getFullYear()} FotoEsport Merch - Gestión Integral de Clubes</p>
+                <p>Mensaje automático. Por favor, no respondas a este correo.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+};
+
 // --- COMPONENTES AUXILIARES Y VISTAS (Definidos ANTES de App) ---
 
 // --- COMPONENTE LOGO ACTUALIZADO ---
@@ -1268,72 +1391,98 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               )}
           </div>
 
-            {customization.clubId && (() => {
-                const selectedClub = clubs.find(c => c.id === customization.clubId);
-                if (selectedClub && selectedClub.nextBatchDate) {
-                    const closeDate = new Date(selectedClub.nextBatchDate);
-                    const today = new Date();
-                    const daysLeft = Math.ceil((closeDate - today) / (1000 * 60 * 60 * 24));
-                    
-                    // FUNCIÓN: Sumar días hábiles (Lunes a Viernes)
-                    const addBusinessDays = (startDate, daysToAdd) => {
-                        let currentDate = new Date(startDate);
-                        let businessDaysAdded = 0;
-                        
-                        while (businessDaysAdded < daysToAdd) {
-                            currentDate.setDate(currentDate.getDate() + 1);
-                            const dayOfWeek = currentDate.getDay();
-                            // 0 = Domingo, 6 = Sábado
-                            if (dayOfWeek !== 0 && dayOfWeek !== 6) {
-                                businessDaysAdded++;
-                            }
-                        }
-                        return currentDate;
-                    };
+        {/* --- INFORMACIÓN DE COLOR Y ENTREGA (LIMPIO) --- */}
+          {customization.clubId && (() => {
+              const selectedClub = clubs.find(c => c.id === customization.clubId);
 
-                    // Cálculo EXACTO de 7 y 10 días hábiles
-                    const deliveryEstStart = addBusinessDays(closeDate, 7);
-                    const deliveryEstEnd = addBusinessDays(closeDate, 10);
+              // 1. Obtener información del Color
+              const clubColorInfo = selectedClub 
+                  ? AVAILABLE_COLORS.find(c => c.id === (selectedClub.color || 'white')) 
+                  : AVAILABLE_COLORS[0];
 
-                    return (
-                        <div className="mt-4 bg-emerald-50 border border-emerald-100 rounded-xl p-4 animate-fade-in shadow-sm">
-                            <div className="flex items-start gap-3">
-                                <div className="bg-white p-2 rounded-lg text-emerald-600 border border-emerald-100 shadow-sm">
-                                    <Calendar className="w-5 h-5"/>
-                                </div>
-                                <div>
-                                    <h4 className="font-bold text-emerald-900 text-sm uppercase mb-1">Información de Pedido</h4>
-                                    <div className="text-sm text-emerald-800 space-y-1.5">
-                                        <p>
-                                            <span className="font-bold">Cierre de Lote:</span> {closeDate.toLocaleDateString()} 
-                                            {daysLeft > 0 ? (
-                                                <span className="text-xs ml-2 bg-emerald-200/60 text-emerald-800 px-2 py-0.5 rounded-md font-bold">
-                                                    Quedan {daysLeft} días
-                                                </span>
-                                            ) : (
-                                                <span className="text-xs ml-2 bg-red-100 text-red-600 px-2 py-0.5 rounded-md font-bold">
-                                                    Cierra hoy
-                                                </span>
-                                            )}
-                                        </p>
-                                        <p>
-                                            <span className="font-bold">Entrega Estimada:</span> Del {deliveryEstStart.toLocaleDateString()} al {deliveryEstEnd.toLocaleDateString()}
-                                        </p>
-                                    </div>
-                                    
-                                    <div className="mt-3 pt-2 border-t border-emerald-200/50">
-                                        <p className="text-xs font-semibold text-emerald-700 italic flex items-start gap-1">
-                                            <span>*</span>
-                                            Plazo de entrega de 7 a 10 días hábiles a contar desde la fecha de cierre indicada arriba.
-                                        </p>
-                                    </div>
-                                </div>
-                            </div>
-                        </div>
-                    );
-                }
-                return null;
-            })()}
+              // 2. Calcular Fechas de Entrega
+              let deliveryInfo = null;
+              if (selectedClub && selectedClub.nextBatchDate) {
+                  const closeDate = new Date(selectedClub.nextBatchDate);
+                  const today = new Date();
+                  const daysLeft = Math.ceil((closeDate - today) / (1000 * 60 * 60 * 24));
+                  
+                  const addBusinessDays = (startDate, daysToAdd) => {
+                      let currentDate = new Date(startDate);
+                      let businessDaysAdded = 0;
+                      while (businessDaysAdded < daysToAdd) {
+                          currentDate.setDate(currentDate.getDate() + 1);
+                          const dayOfWeek = currentDate.getDay();
+                          if (dayOfWeek !== 0 && dayOfWeek !== 6) businessDaysAdded++;
+                      }
+                      return currentDate;
+                  };
+
+                  const deliveryEstStart = addBusinessDays(closeDate, 7);
+                  const deliveryEstEnd = addBusinessDays(closeDate, 10);
+
+                  deliveryInfo = (
+                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 animate-fade-in shadow-sm">
+                          <div className="flex items-start gap-3">
+                              <div className="bg-white p-2 rounded-lg text-emerald-600 border border-emerald-100 shadow-sm">
+                                  <Calendar className="w-5 h-5"/>
+                              </div>
+                              <div>
+                                  <h4 className="font-bold text-emerald-900 text-sm uppercase mb-1">Información de Pedido</h4>
+                                  <div className="text-sm text-emerald-800 space-y-1.5">
+                                      <p>
+                                          <span className="font-bold">Cierre de Lote:</span> {closeDate.toLocaleDateString()} 
+                                          {daysLeft > 0 ? (
+                                              <span className="text-xs ml-2 bg-emerald-200/60 text-emerald-800 px-2 py-0.5 rounded-md font-bold">Quedan {daysLeft} días</span>
+                                          ) : (
+                                              <span className="text-xs ml-2 bg-red-100 text-red-600 px-2 py-0.5 rounded-md font-bold">Cierra hoy</span>
+                                          )}
+                                      </p>
+                                      <p><span className="font-bold">Entrega Estimada:</span> Del {deliveryEstStart.toLocaleDateString()} al {deliveryEstEnd.toLocaleDateString()}</p>
+                                  </div>
+                                  <div className="mt-3 pt-2 border-t border-emerald-200/50">
+                                      <p className="text-xs font-semibold text-emerald-700 italic flex items-start gap-1">
+                                          <span>*</span> Plazo de entrega de 7 a 10 días hábiles a contar desde la fecha de cierre.
+                                      </p>
+                                  </div>
+                              </div>
+                          </div>
+                      </div>
+                  );
+              }
+
+              // 3. RENDERIZADO FINAL
+              return (
+                  <div className="mb-6 animate-fade-in-up space-y-3">
+                      
+                      {/* Tarjeta de Estilo/Color (Informativa) */}
+                      {clubColorInfo && (
+                          <div className="flex items-center gap-4 p-3 bg-white border border-gray-200 rounded-xl shadow-sm">
+                              <div className="relative shrink-0">
+                                  <div 
+                                      className={`w-12 h-12 rounded-full shadow-inner border-2 border-white ring-1 ring-gray-200 ${clubColorInfo.id === 'white' ? 'bg-gray-50' : ''}`} 
+                                      style={{ backgroundColor: clubColorInfo.hex }}
+                                  ></div>
+                                  <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border border-gray-200 shadow-sm">
+                                      <div className="w-3 h-3 bg-gray-400 rounded-full opacity-20"></div>
+                                  </div>
+                              </div>
+                              
+                              <div className="flex-1">
+                                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Estilo del Producto</p>
+                                  <p className="text-sm text-gray-700 leading-tight">
+                                      Se aplicará el color <span className="font-bold" style={{ color: clubColorInfo.id === 'white' ? '#333' : clubColorInfo.hex }}>{clubColorInfo.label}</span> configurado por el club <strong>{selectedClub?.name}</strong>.
+                                  </p>
+                              </div>
+                          </div>
+                      )}
+
+                      {/* Información de Fechas */}
+                      {deliveryInfo}
+
+                  </div>
+              );
+          })()}
           
 
           {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
@@ -1459,8 +1608,8 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 text-xs text-yellow-800 flex gap-2 items-start animate-fade-in">
                   <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
                   <p>
-                      El nombre y dorsal que se indique en el pedido será el que aparezca en el producto final. 
-                      Por favor comprueba escribir correctamente indicando mayúsculas, acentos, etc.
+                      Los datos que indicados en el pedido será el que aparezca en el producto final. 
+                      Por favor comprueba haber escrito todo correctamente. Indicando mayúsculas, acentos, etc.
                   </p>
               </div>
           )}
@@ -1519,16 +1668,16 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
           <form onSubmit={handleSubmit} className="space-y-4">
               <Input label="Nombre y Apellidos" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
               
+              {/* CAMBIO REALIZADO AQUÍ: Email ahora es opcional y required={false} */}
               <Input 
-                  label="Email (Notificaciones)" 
+                  label="Email (Opcional)" 
                   type="email" 
-                  required={true}
+                  required={false}
                   placeholder="ejemplo@correo.com"
                   value={formData.email} 
                   onChange={e => setFormData({...formData, email: e.target.value})} 
               />
               
-              {/* CAMBIO: Teléfono ahora es OPCIONAL */}
               <Input 
                   label="Teléfono Contacto (Opcional)" 
                   type="tel" 
@@ -1543,7 +1692,7 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                   <div>
                       <p className="text-xs text-blue-800 font-bold mb-1">Avisos de Pedido</p>
                       <p className="text-xs text-blue-600">
-                          Te enviaremos las actualizaciones de estado (producción y entrega) a tu <strong>email</strong>.
+                          Si indicas tu email, te enviaremos las actualizaciones de estado (producción y entrega).
                       </p>
                   </div>
               </div>
@@ -2293,72 +2442,108 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
 
         // Filtramos los pedidos del lote
         const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); 
-        const batchLabel = newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'; 
         
-        // Obtenemos el estado anterior (tomamos el del primer pedido como referencia)
-        const prevStatus = batchOrders[0]?.status || 'desconocido';
+        // Obtenemos el nombre del club para el email
+        const club = clubs.find(c => c.id === clubId);
+        const clubName = club ? club.name : 'Tu Club';
 
         const batchWrite = writeBatch(db);
         let count = 0; 
         let notifiedCount = 0;
         const now = new Date().toISOString();
+        
+        // Estado anterior para el log
+        const prevStatus = batchOrders[0]?.status || 'desconocido';
 
-        // 1. Actualizar Pedidos Individuales
+        // 1. Actualizar Pedidos Individuales y PREPARAR EMAILS
         batchOrders.forEach(order => {
+            // Solo actualizamos si el estado es diferente
             if (order.status !== newStatus) { 
                 const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-                const updates = { status: newStatus, visibleStatus: batchLabel };
-
+                
+                // Actualización del pedido
+                const updates = { 
+                    status: newStatus, 
+                    visibleStatus: newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'
+                };
+                
+                // LOGICA DE EMAIL (NUEVA)
                 if (shouldNotify) {
                     const targetEmail = order.customer.email;
-                    if (targetEmail && targetEmail.includes('@')) {
-                        // Opcional: También podemos dejar rastro en el pedido individual si quieres
-                        // updates.notificationLog = arrayUnion({ date: now, statusTo: newStatus, method: 'email' });
+                    
+                    // Validar que sea un email real
+                    if (targetEmail && targetEmail.includes('@') && targetEmail.length > 5) {
                         
-                        // Aquí iría la lógica de envío real (Firebase Extension)
+                        // Crear referencia para un nuevo documento en la colección 'mail'
+                        // La extensión de Firebase escuchará esta colección
+                        const mailRef = doc(collection(db, 'mail'));
+                        
+                        batchWrite.set(mailRef, {
+                            to: [targetEmail], // Array de destinatarios
+                            message: {
+                                subject: `📢 Estado Actualizado: Pedido ${clubName} (#${order.id.slice(0,6)})`,
+                                html: generateEmailHTML(order, newStatus, clubName), // Usamos el helper
+                                text: `Tu pedido ha cambiado al estado: ${newStatus}. Contacta con tu club para más detalles.` // Fallback texto plano
+                            },
+                            // Metadatos opcionales
+                            metadata: {
+                                orderId: order.id,
+                                clubId: clubId,
+                                batchId: batchId,
+                                timestamp: serverTimestamp()
+                            }
+                        });
+
+                        // Guardamos log en el propio pedido de que se intentó notificar
+                        updates.notificationLog = arrayUnion({ 
+                            date: now, 
+                            statusFrom: order.status,
+                            statusTo: newStatus, 
+                            method: 'email' 
+                        });
+                        
                         notifiedCount++;
                     }
                 }
+
                 batchWrite.update(ref, updates);
                 count++; 
             }
         });
 
-        // 2. ACTUALIZACIÓN CLAVE: Guardar Historial GLOBAL en el Club
-        const clubRef = doc(db, 'clubs', clubId);
+        // 2. Guardar Historial GLOBAL en el Club (Sin cambios, se mantiene igual)
+        const clubRefDoc = doc(db, 'clubs', clubId); // Renombrado para evitar conflicto
         const globalLogEntry = {
             batchId: batchId,
             date: now,
             statusFrom: prevStatus,
             statusTo: newStatus,
-            notifiedCount: shouldNotify ? notifiedCount : 0, // Cuántos emails se enviaron
+            notifiedCount: shouldNotify ? notifiedCount : 0,
             action: 'Cambio de Estado'
         };
         
-        // Guardamos en un array llamado 'batchHistory' dentro del Club
-        batchWrite.update(clubRef, {
+        batchWrite.update(clubRefDoc, {
             batchHistory: arrayUnion(globalLogEntry)
         });
 
-        // 3. Lógica de Tregua y Avance (se mantiene igual)
+        // 3. Lógica de Tregua y Avance (Sin cambios)
         if (newStatus === 'recopilando') {
-            batchWrite.update(clubRef, { lastBatchReopenTime: Date.now() });
+            batchWrite.update(clubRefDoc, { lastBatchReopenTime: Date.now() });
         }
         if (newStatus === 'en_produccion') { 
-            const club = clubs.find(c => c.id === clubId); 
             if (club && club.activeGlobalOrderId === batchId) { 
-                batchWrite.update(clubRef, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
+                batchWrite.update(clubRefDoc, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
             } 
         } 
 
         try {
             await batchWrite.commit();
             let msg = `Lote #${batchId}: ${count} pedidos actualizados.`;
-            if (shouldNotify) msg += ` Se registraron ${notifiedCount} envíos en el historial global.`;
+            if (shouldNotify) msg += ` Se han puesto en cola ${notifiedCount} correos electrónicos.`;
             if (showNotification) showNotification(msg, 'success');
         } catch (e) {
             console.error(e);
-            if (showNotification) showNotification("Error al actualizar lote", "error");
+            if (showNotification) showNotification("Error al actualizar lote y enviar correos", "error");
         }
     };
 

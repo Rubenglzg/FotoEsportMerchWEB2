@@ -9,7 +9,7 @@ import {
   ArrowRight, Calendar, Ban, Store, Calculator, DollarSign, FileSpreadsheet,
   Layers, Archive, Globe, AlertTriangle, RefreshCw, Briefcase, RotateCcw, MoveLeft, NotebookText,
   Landmark, Printer, FileDown, Users, Table,
-  Hash
+  Hash, Factory, MapPin, Contact, Phone
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -337,6 +337,53 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
     printWindow.document.close();
 };
 
+// --- HELPER: PLANTILLA EMAIL PREVISIÓN STOCK ---
+const generateStockEmailHTML = (supplierName, batchId, clubName, productsList) => {
+    const rows = productsList.map(p => `
+        <tr>
+            <td style="padding: 8px; border-bottom: 1px solid #eee;">${p.name}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${p.size || 'Única'}</td>
+            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">${p.qty}</td>
+        </tr>
+    `).join('');
+
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: sans-serif; color: #333; }
+            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
+            th { background: #f3f4f6; padding: 10px; text-align: left; font-size: 12px; text-transform: uppercase; }
+        </style>
+    </head>
+    <body>
+        <h2 style="color: #059669;">Previsión de Stock - ${clubName}</h2>
+        <p>Buenas <strong>${supplierName}</strong>,</p>
+        <p>Adjuntamos la previsión de productos necesarios para el <strong>Pedido Global #${batchId}</strong> del club <strong>${clubName}</strong>.</p>
+        <p>Por favor, revisad si disponéis de stock mientras preparamos los diseños.</p>
+        
+        <table border="0" cellpadding="0" cellspacing="0">
+            <thead>
+                <tr>
+                    <th width="50%">Producto</th>
+                    <th width="25%" style="text-align: center;">Talla / Detalle</th>
+                    <th width="25%" style="text-align: center;">Cantidad</th>
+                </tr>
+            </thead>
+            <tbody>
+                ${rows}
+            </tbody>
+        </table>
+        
+        <p style="margin-top: 30px; font-size: 12px; color: #666;">
+            Este es un correo automático de previsión generado por FotoEsport Merch.
+        </p>
+    </body>
+    </html>
+    `;
+};
+
 // --- HELPER: PLANTILLA DE EMAIL (CORREGIDA CANTIDAD) ---
 const generateEmailHTML = (order, newStatus, clubName) => {
     // Definir textos según estado
@@ -459,6 +506,8 @@ const generateEmailHTML = (order, newStatus, clubName) => {
     </html>
     `;
 };
+
+
 
 // --- COMPONENTES AUXILIARES Y VISTAS (Definidos ANTES de App) ---
 
@@ -709,7 +758,7 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
 };
 
 // --- SUSTITUIR COMPONENTE ProductEditorRow COMPLETO ---
-const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
+const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     
     // Valores por defecto
@@ -721,13 +770,15 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
     const toggleDefault = (key) => updateProduct({ ...product, defaults: { ...defaults, [key]: !defaults[key] } });
     const toggleModifiable = (key) => updateProduct({ ...product, modifiable: { ...modifiable, [key]: !modifiable[key] } });
 
+    // Encontrar proveedor actual si existe
+    const currentSupplier = suppliers ? suppliers.find(s => s.id === product.supplierId) : null;
+
     return (
         <div className={`bg-white rounded-xl transition-all duration-300 overflow-hidden group mb-3 ${isExpanded ? 'border-2 border-emerald-500 shadow-xl ring-4 ring-emerald-50/50 z-10 transform scale-[1.01]' : 'border border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
             
             {/* 1. CABECERA (Siempre visible) */}
             <div className="p-4 flex items-center gap-5 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
                 
-                {/* Miniatura */}
                 <div className="relative w-14 h-14 shrink-0 bg-gray-50 rounded-lg overflow-hidden border border-gray-100">
                     {product.image ? (
                         <img src={product.image} className="w-full h-full object-cover" alt="" />
@@ -736,7 +787,6 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                     )}
                 </div>
                 
-                {/* Info Texto */}
                 <div className="flex-1 min-w-0">
                     <h4 className="font-bold text-gray-800 text-base truncate mb-1 group-hover:text-emerald-700 transition-colors">
                         {product.name}
@@ -745,15 +795,14 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                         <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100 font-bold">
                             PVP: {product.price.toFixed(2)}€
                         </span>
-                        <span className="text-gray-400">
-                            Coste: {product.cost.toFixed(2)}€
+                        <span className="text-gray-400 flex items-center gap-1">
+                            Coste: {product.cost ? product.cost.toFixed(2) : '0.00'}€
+                            {currentSupplier && <Truck className="w-3 h-3 text-indigo-400" title={`Provisto por ${currentSupplier.name}`}/>}
                         </span>
                     </div>
                 </div>
 
-                {/* BOTONES ACCIÓN (A la derecha) */}
                 <div className="flex items-center gap-2 pl-3 border-l border-gray-100">
-                    {/* Botón Configurar */}
                     <button 
                         className={`p-2 rounded-lg transition-all ${isExpanded ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-50 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600'}`}
                         title="Configurar"
@@ -761,7 +810,6 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                         {isExpanded ? <ChevronRight className="w-5 h-5 rotate-90"/> : <Settings className="w-5 h-5"/>}
                     </button>
                     
-                    {/* Botón Eliminar (Visible siempre, con stopPropagation) */}
                     <button 
                         onClick={(e) => { e.stopPropagation(); deleteProduct(product.id); }} 
                         className="p-2 rounded-lg bg-white border border-transparent text-gray-300 hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-colors"
@@ -776,10 +824,8 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
             {isExpanded && (
                 <div className="bg-gray-50/80 border-t border-gray-100 p-6 animate-fade-in-down">
                     
-                    {/* SECCIÓN SUPERIOR: IMAGEN Y DATOS BÁSICOS */}
                     <div className="flex flex-col md:flex-row gap-8 mb-8">
                         
-                        {/* A. IMAGEN GRANDE */}
                         <div className="w-full md:w-56 shrink-0 flex flex-col gap-3">
                             <div className="w-full h-56 bg-white rounded-xl border border-gray-200 shadow-sm p-2 flex items-center justify-center relative overflow-hidden group/img">
                                 {product.image ? (
@@ -804,7 +850,6 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                             </label>
                         </div>
 
-                        {/* B. INPUTS DE TEXTO (Al lado de la imagen) */}
                         <div className="flex-1 space-y-5">
                             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
                                 <div>
@@ -825,24 +870,57 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                                             <span className="absolute right-3 top-2 text-emerald-600 text-xs font-bold">€</span>
                                         </div>
                                     </div>
+                                    
+                                    {/* SECCIÓN COSTE Y PROVEEDOR ACTUALIZADA */}
                                     <div>
                                         <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Coste Producción</label>
                                         <div className="relative">
-                                            <input type="number" step="0.5" className="w-full bg-gray-50 border border-gray-200 rounded-lg py-2 pl-3 pr-8 text-sm font-bold text-gray-600 focus:ring-2 focus:ring-gray-200 outline-none" value={product.cost} onChange={e => updateProduct({...product, cost: parseFloat(e.target.value)})} />
+                                            <input 
+                                                type="number" 
+                                                step="0.01" 
+                                                className={`w-full border rounded-lg py-2 pl-3 pr-8 text-sm font-bold outline-none ${currentSupplier ? 'bg-indigo-50 border-indigo-200 text-indigo-700 cursor-not-allowed' : 'bg-gray-50 border-gray-200 text-gray-600 focus:ring-2 focus:ring-gray-200'}`}
+                                                value={product.cost} 
+                                                onChange={e => !currentSupplier && updateProduct({...product, cost: parseFloat(e.target.value)})}
+                                                readOnly={!!currentSupplier}
+                                            />
                                             <span className="absolute right-3 top-2 text-gray-400 text-xs font-bold">€</span>
                                         </div>
+                                        {currentSupplier && <p className="text-[9px] text-indigo-500 mt-1 flex items-center gap-1"><Lock className="w-3 h-3"/> Gestionado por proveedor</p>}
                                     </div>
                                 </div>
-                            </div>
-                            
-                            <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 text-blue-800 text-xs flex items-start gap-3">
-                                <AlertCircle className="w-5 h-5 shrink-0 text-blue-500"/>
-                                <p>Recuerda: Los cambios en el nombre o precio se aplicarán inmediatamente a los nuevos pedidos. La configuración de abajo determina qué puede personalizar el cliente.</p>
+
+                                {/* SELECTOR PROVEEDOR AÑADIDO */}
+                                <div className="pt-2 border-t border-gray-100">
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Proveedor Asignado</label>
+                                    <div className="relative">
+                                        <select 
+                                            className="w-full border border-gray-200 rounded-lg py-2 pl-8 pr-3 text-sm bg-white focus:ring-2 focus:ring-indigo-100 outline-none appearance-none"
+                                            value={product.supplierId || ''}
+                                            onChange={(e) => {
+                                                const supId = e.target.value;
+                                                let newCost = product.cost;
+                                                if (supId) {
+                                                    const s = suppliers.find(su => su.id === supId);
+                                                    if (s && s.priceList && s.priceList[product.id]) {
+                                                        newCost = s.priceList[product.id];
+                                                    }
+                                                }
+                                                updateProduct({...product, supplierId: supId, cost: newCost});
+                                            }}
+                                        >
+                                            <option value="">-- Sin asignar (Coste manual) --</option>
+                                            {suppliers && suppliers.map(s => (
+                                                <option key={s.id} value={s.id}>{s.name}</option>
+                                            ))}
+                                        </select>
+                                        <Truck className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400"/>
+                                        <ChevronRight className="absolute right-3 top-3 w-3 h-3 text-gray-400 rotate-90 pointer-events-none"/>
+                                    </div>
+                                </div>
                             </div>
                         </div>
                     </div>
 
-                    {/* --- BLOQUE 1: TABLA DE PERSONALIZACIÓN (TALLA Y FOTO ESTRICTOS) --- */}
                     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm mt-6">
                         <div className="bg-gray-100 px-6 py-3 border-b border-gray-200 flex justify-between items-center">
                             <h4 className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
@@ -857,7 +935,7 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
 
                         <div className="divide-y divide-gray-50 p-4">
                             
-                            {/* 1. TALLA (MODIFICADO: Estricto como Foto) */}
+                            {/* 1. TALLA */}
                             <div className="flex flex-col gap-2 py-2">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
@@ -866,9 +944,7 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                                         </div>
                                         <span className="text-sm font-bold text-gray-700">Talla</span>
                                     </div>
-                                    
                                     <div className="flex gap-8 pr-2">
-                                        {/* Activo: Al activar, forzamos defaults=true y modifiable=false */}
                                         <div className="flex justify-center w-12">
                                             <input 
                                                 type="checkbox" 
@@ -878,15 +954,13 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                                                     updateProduct({ 
                                                         ...product, 
                                                         features: { ...features, size: newState },
-                                                        defaults: { ...defaults, size: newState ? true : defaults.size }, // Si activo, force default true
-                                                        modifiable: { ...modifiable, size: newState ? false : modifiable.size } // Si activo, force edit false
+                                                        defaults: { ...defaults, size: newState ? true : defaults.size },
+                                                        modifiable: { ...modifiable, size: newState ? false : modifiable.size }
                                                     });
                                                 }} 
                                                 className="rounded text-emerald-600 cursor-pointer"
                                             />
                                         </div>
-                                        
-                                        {/* Defecto: SIEMPRE CHECKED Y DISABLED si está activo */}
                                         <div className="flex justify-center w-12">
                                             <input 
                                                 type="checkbox" 
@@ -895,8 +969,6 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                                                 className="rounded text-blue-600 opacity-50 cursor-not-allowed"
                                             />
                                         </div>
-
-                                        {/* Edit: SIEMPRE CANDADO ROJO Y DISABLED si está activo */}
                                         <div className="flex justify-center w-12">
                                             <button disabled={true} className="opacity-50 cursor-not-allowed">
                                                 <Lock className="w-5 h-5 text-red-400"/>
@@ -905,14 +977,13 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                                     </div>
                                 </div>
                                 
-                                {/* Input opciones talla */}
                                 {features.size && (
                                     <div className="ml-12 bg-gray-50 p-2 rounded border border-gray-200 animate-fade-in">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Opciones de Talla (Separadas por comas)</label>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Opciones de Talla</label>
                                         <input 
                                             type="text" 
                                             className="w-full border rounded p-1.5 text-xs bg-white focus:ring-1 focus:ring-emerald-500 outline-none" 
-                                            placeholder="Ej: S, M, L, XL, XXL (Dejar vacío para texto libre)"
+                                            placeholder="Ej: S, M, L, XL, XXL"
                                             value={product.sizes ? product.sizes.join(', ') : ''}
                                             onChange={(e) => updateProduct({
                                                 ...product, 
@@ -968,7 +1039,7 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                                 </div>
                             </div>
 
-                            {/* 5. FOTO (Lógica Estricta) */}
+                            {/* 5. FOTO */}
                             <div className="flex items-center justify-between py-2 border-t border-gray-50">
                                 <div className="flex items-center gap-3">
                                     <div className={`p-2 rounded-lg ${features.photo ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
@@ -1008,7 +1079,6 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct }) => {
                                     </div>
                                 </div>
                             </div>
-
                         </div>
                     </div>
                 </div>
@@ -2401,7 +2471,510 @@ const FilesManager = ({ clubs }) => {
     );
 };
 
-function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus }) {
+// --- GESTOR DE PROVEEDORES ---
+const SupplierManager = ({ suppliers, products, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch }) => {
+    const [isEditing, setIsEditing] = useState(false);
+    const [currentSupplier, setCurrentSupplier] = useState(null);
+    const [activeTab, setActiveTab] = useState('info'); // info | contacts | products
+
+    const INITIAL_SUPPLIER = {
+        name: '',
+        taxId: '',
+        address: '',
+        email: '',
+        phone: '',
+        contacts: [], 
+        priceList: {} 
+    };
+
+    const handleEdit = (supplier) => {
+        setCurrentSupplier({ ...supplier });
+        setIsEditing(true);
+        setActiveTab('info');
+    };
+
+    const handleCreate = () => {
+        setCurrentSupplier(INITIAL_SUPPLIER);
+        setIsEditing(true);
+        setActiveTab('info');
+    };
+
+    const handleSave = async () => {
+        if (!currentSupplier.name) return alert("El nombre es obligatorio");
+        if (currentSupplier.id) {
+            await updateSupplier(currentSupplier);
+        } else {
+            await createSupplier(currentSupplier);
+        }
+        setIsEditing(false);
+        setCurrentSupplier(null);
+    };
+
+    const addContact = () => {
+        setCurrentSupplier({
+            ...currentSupplier,
+            contacts: [...(currentSupplier.contacts || []), { name: '', role: '', phone: '', email: '' }]
+        });
+    };
+
+    const updateContact = (idx, field, val) => {
+        const newContacts = [...currentSupplier.contacts];
+        newContacts[idx][field] = val;
+        setCurrentSupplier({ ...currentSupplier, contacts: newContacts });
+    };
+
+    const removeContact = (idx) => {
+        const newContacts = currentSupplier.contacts.filter((_, i) => i !== idx);
+        setCurrentSupplier({ ...currentSupplier, contacts: newContacts });
+    };
+
+    const updateProductCost = (productId, newCost) => {
+        const cost = parseFloat(newCost) || 0;
+        const newPriceList = { ...currentSupplier.priceList, [productId]: cost };
+        setCurrentSupplier({ ...currentSupplier, priceList: newPriceList });
+    };
+
+    const toggleProductLink = (productId) => {
+        const newPriceList = { ...currentSupplier.priceList };
+        if (newPriceList[productId] !== undefined) {
+            delete newPriceList[productId];
+        } else {
+            const prod = products.find(p => p.id === productId);
+            newPriceList[productId] = prod ? prod.cost : 0;
+        }
+        setCurrentSupplier({ ...currentSupplier, priceList: newPriceList });
+    };
+
+    const savePricesAndSync = async () => {
+        if (!currentSupplier.id) return alert("Guarda primero el proveedor antes de asignar precios.");
+        await updateSupplier(currentSupplier);
+        await updateProductCostBatch(currentSupplier.id, currentSupplier.priceList);
+        setIsEditing(false);
+    };
+
+    if (isEditing) {
+        return (
+            <div className="bg-white p-6 rounded-xl shadow-lg border border-gray-200 animate-fade-in">
+                <div className="flex justify-between items-center mb-6 border-b pb-4">
+                    <h3 className="text-xl font-bold text-gray-800 flex items-center gap-2">
+                        {currentSupplier.id ? <Edit3 className="w-5 h-5"/> : <Plus className="w-5 h-5"/>}
+                        {currentSupplier.id ? 'Editar Proveedor' : 'Nuevo Proveedor'}
+                    </h3>
+                    <div className="flex gap-2">
+                        <Button variant="secondary" onClick={() => setIsEditing(false)}>Cancelar</Button>
+                        <Button onClick={activeTab === 'products' ? savePricesAndSync : handleSave}>
+                            {activeTab === 'products' ? 'Guardar y Sincronizar Costes' : 'Guardar Datos'}
+                        </Button>
+                    </div>
+                </div>
+
+                <div className="flex gap-4 mb-6">
+                    <button onClick={() => setActiveTab('info')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'info' ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-gray-100 text-gray-600'}`}>Datos Generales</button>
+                    <button onClick={() => setActiveTab('contacts')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'contacts' ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-gray-100 text-gray-600'}`}>Personas de Contacto</button>
+                    <button onClick={() => setActiveTab('products')} className={`px-4 py-2 rounded-lg text-sm font-bold transition-colors ${activeTab === 'products' ? 'bg-indigo-100 text-indigo-700' : 'hover:bg-gray-100 text-gray-600'}`}>Catálogo y Costes</button>
+                </div>
+
+                {activeTab === 'info' && (
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                        <Input label="Nombre Fiscal / Comercial" value={currentSupplier.name} onChange={e => setCurrentSupplier({...currentSupplier, name: e.target.value})} />
+                        <Input label="CIF / NIF" value={currentSupplier.taxId || ''} onChange={e => setCurrentSupplier({...currentSupplier, taxId: e.target.value})} />
+                        <div className="md:col-span-2">
+                            <Input label="Dirección Completa" value={currentSupplier.address || ''} onChange={e => setCurrentSupplier({...currentSupplier, address: e.target.value})} />
+                        </div>
+                        <Input label="Email Central" value={currentSupplier.email || ''} onChange={e => setCurrentSupplier({...currentSupplier, email: e.target.value})} />
+                        <Input label="Teléfono Central" value={currentSupplier.phone || ''} onChange={e => setCurrentSupplier({...currentSupplier, phone: e.target.value})} />
+                    </div>
+                )}
+
+                {activeTab === 'contacts' && (
+                    <div className="space-y-4">
+                        <div className="flex justify-between items-center">
+                            <h4 className="font-bold text-gray-700">Agenda de Contactos</h4>
+                            <Button size="sm" onClick={addContact}><Plus className="w-4 h-4"/> Añadir Persona</Button>
+                        </div>
+                        {currentSupplier.contacts?.map((c, i) => (
+                            <div key={i} className="flex gap-2 items-end bg-gray-50 p-3 rounded border">
+                                <div className="flex-1">
+                                    <label className="text-[10px] uppercase font-bold text-gray-400">Nombre</label>
+                                    <input className="w-full border rounded p-1 text-sm" value={c.name} onChange={e => updateContact(i, 'name', e.target.value)} />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-[10px] uppercase font-bold text-gray-400">Cargo</label>
+                                    <input className="w-full border rounded p-1 text-sm" value={c.role} onChange={e => updateContact(i, 'role', e.target.value)} />
+                                </div>
+                                <div className="flex-1">
+                                    <label className="text-[10px] uppercase font-bold text-gray-400">Email</label>
+                                    <input className="w-full border rounded p-1 text-sm" value={c.email} onChange={e => updateContact(i, 'email', e.target.value)} />
+                                </div>
+                                <div className="w-32">
+                                    <label className="text-[10px] uppercase font-bold text-gray-400">Teléfono</label>
+                                    <input className="w-full border rounded p-1 text-sm" value={c.phone} onChange={e => updateContact(i, 'phone', e.target.value)} />
+                                </div>
+                                
+                                {/* --- NUEVO CHECKBOX CC --- */}
+                                <div className="w-10 flex flex-col items-center justify-center pb-2">
+                                    <label className="text-[8px] uppercase font-bold text-gray-400 mb-1" title="Poner en Copia por defecto">CC</label>
+                                    <input 
+                                        type="checkbox" 
+                                        className="w-4 h-4 rounded text-indigo-600 focus:ring-indigo-500 cursor-pointer"
+                                        checked={c.ccDefault || false} 
+                                        onChange={e => updateContact(i, 'ccDefault', e.target.checked)} 
+                                    />
+                                </div>
+                                {/* ------------------------- */}
+
+                                <button onClick={() => removeContact(i)} className="p-2 text-red-500 hover:bg-red-50 rounded mb-0.5"><Trash2 className="w-4 h-4"/></button>
+                            </div>
+                        ))}
+                        {(!currentSupplier.contacts || currentSupplier.contacts.length === 0) && <p className="text-gray-400 text-sm italic">Sin contactos registrados.</p>}
+                    </div>
+                )}
+
+                {activeTab === 'products' && (
+                    <div className="space-y-4">
+                         <div className="bg-yellow-50 p-3 rounded border border-yellow-200 text-sm text-yellow-800 flex gap-2">
+                            <AlertCircle className="w-5 h-5"/>
+                            <p>Marca los productos que suministra este proveedor. El <strong>coste</strong> que definas aquí se aplicará automáticamente al producto al guardar.</p>
+                        </div>
+                        <div className="grid grid-cols-1 gap-2 max-h-[400px] overflow-y-auto border rounded-lg p-2 bg-gray-50">
+                            {products.map(prod => {
+                                const isLinked = currentSupplier.priceList && currentSupplier.priceList[prod.id] !== undefined;
+                                const cost = isLinked ? currentSupplier.priceList[prod.id] : (prod.cost || 0);
+                                
+                                return (
+                                    <div key={prod.id} className={`flex items-center justify-between p-3 rounded border transition-colors ${isLinked ? 'bg-white border-emerald-300 shadow-sm' : 'bg-gray-100 opacity-70 border-gray-200'}`}>
+                                        <div className="flex items-center gap-3">
+                                            <input 
+                                                type="checkbox" 
+                                                checked={isLinked} 
+                                                onChange={() => toggleProductLink(prod.id)}
+                                                className="w-5 h-5 rounded text-emerald-600 focus:ring-emerald-500 cursor-pointer"
+                                            />
+                                            {prod.image && <img src={prod.image} className="w-8 h-8 rounded object-cover" />}
+                                            <span className={`font-bold text-sm ${isLinked ? 'text-gray-800' : 'text-gray-500'}`}>{prod.name}</span>
+                                        </div>
+                                        
+                                        {isLinked && (
+                                            <div className="flex items-center gap-2 animate-fade-in">
+                                                <label className="text-xs font-bold text-gray-500 uppercase">Coste:</label>
+                                                <div className="relative w-24">
+                                                    <input 
+                                                        type="number" 
+                                                        step="0.01" 
+                                                        className="w-full border border-gray-300 rounded p-1 text-right font-bold text-gray-800 pr-5 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                        value={cost}
+                                                        onChange={(e) => updateProductCost(prod.id, e.target.value)}
+                                                    />
+                                                    <span className="absolute right-1 top-1 text-gray-400 text-xs">€</span>
+                                                </div>
+                                            </div>
+                                        )}
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </div>
+                )}
+            </div>
+        );
+    }
+
+    return (
+        <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden min-h-[600px] flex flex-col">
+            <div className="p-6 border-b border-gray-200 bg-gray-50 flex justify-between items-center">
+                <div>
+                    <h3 className="font-bold text-lg text-gray-800 flex items-center gap-2">
+                        <Factory className="w-6 h-6 text-indigo-600"/> Gestión de Proveedores
+                    </h3>
+                    <p className="text-sm text-gray-500">Administra tus proveedores, contactos y costes de compra.</p>
+                </div>
+                <Button onClick={handleCreate} className="bg-indigo-600 hover:bg-indigo-700 text-white shadow-md">
+                    <Plus className="w-4 h-4 mr-2"/> Nuevo Proveedor
+                </Button>
+            </div>
+            
+            <div className="p-6 grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6 overflow-y-auto">
+                {suppliers.length === 0 ? (
+                    <div className="col-span-full text-center py-10 text-gray-400">
+                        <Truck className="w-16 h-16 mx-auto mb-2 opacity-20"/>
+                        <p>No hay proveedores registrados.</p>
+                    </div>
+                ) : (
+                    suppliers.map(sup => (
+                        <div key={sup.id} className="border border-gray-200 rounded-xl p-5 hover:shadow-md transition-shadow bg-white group relative">
+                            <div className="flex justify-between items-start mb-3">
+                                <div className="flex items-center gap-3">
+                                    <div className="w-10 h-10 rounded-full bg-indigo-50 flex items-center justify-center text-indigo-600 font-bold">
+                                        {sup.name.charAt(0)}
+                                    </div>
+                                    <div>
+                                        <h4 className="font-bold text-gray-800">{sup.name}</h4>
+                                        <p className="text-xs text-gray-500">{sup.email || 'Sin email'}</p>
+                                    </div>
+                                </div>
+                                <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <button onClick={() => handleEdit(sup)} className="p-1.5 text-gray-400 hover:text-indigo-600 hover:bg-indigo-50 rounded"><Edit3 className="w-4 h-4"/></button>
+                                    <button onClick={() => { if(window.confirm('¿Borrar proveedor?')) deleteSupplier(sup.id); }} className="p-1.5 text-gray-400 hover:text-red-600 hover:bg-red-50 rounded"><Trash2 className="w-4 h-4"/></button>
+                                </div>
+                            </div>
+                            
+                            <div className="space-y-2 text-xs text-gray-600 mt-4">
+                                {sup.phone && <div className="flex items-center gap-2"><Phone className="w-3 h-3 text-gray-400"/> {sup.phone}</div>}
+                                {sup.address && <div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-gray-400"/> <span className="truncate">{sup.address}</span></div>}
+                                <div className="flex items-center gap-2 pt-2 border-t border-gray-100 mt-2">
+                                    <Package className="w-3 h-3 text-gray-400"/> 
+                                    <span className="font-bold text-indigo-700">{sup.priceList ? Object.keys(sup.priceList).length : 0} productos suministrados</span>
+                                </div>
+                                {sup.contacts?.length > 0 && (
+                                    <div className="flex items-center gap-2">
+                                        <Contact className="w-3 h-3 text-gray-400"/> 
+                                        <span>{sup.contacts.length} personas de contacto</span>
+                                    </div>
+                                )}
+                            </div>
+                        </div>
+                    ))
+                )}
+            </div>
+        </div>
+    );
+};
+
+// --- MODAL DE PREVISIÓN DE STOCK (CON COMPARATIVA DE CANTIDADES) ---
+const SupplierStockModal = ({ active, onClose, batchId, orders, suppliers, products, club, onSend }) => {
+    const [selectedSuppliers, setSelectedSuppliers] = useState([]);
+    const [supplierData, setSupplierData] = useState([]);
+
+    // Calcular datos al abrir
+    useEffect(() => {
+        if (!active || !orders || !products) return;
+
+        const dataMap = {}; 
+
+        orders.forEach(order => {
+            if (!order.items || !Array.isArray(order.items)) return;
+
+            order.items.forEach(item => {
+                const realProductId = item.productId || item.id;
+                const productDef = products.find(p => p.id === realProductId);
+                const supplierId = productDef?.supplierId;
+
+                if (supplierId) {
+                    const supplier = suppliers.find(s => s.id === supplierId);
+                    if (supplier) {
+                        if (!dataMap[supplierId]) {
+                            dataMap[supplierId] = { supplier, items: {}, totalQty: 0 };
+                        }
+                        const pName = productDef?.name || item.name;
+                        const pSize = item.size || 'Única';
+                        const key = `${pName}-${pSize}`;
+                        
+                        if (!dataMap[supplierId].items[key]) {
+                            dataMap[supplierId].items[key] = { name: pName, size: pSize, qty: 0 };
+                        }
+                        const qty = parseInt(item.quantity || 1);
+                        dataMap[supplierId].items[key].qty += qty;
+                        dataMap[supplierId].totalQty += qty;
+                    }
+                }
+            });
+        });
+
+        const result = Object.values(dataMap).map(d => ({
+            ...d.supplier,
+            stockItems: Object.values(d.items),
+            totalUnits: d.totalQty
+        }));
+
+        setSupplierData(result);
+        setSelectedSuppliers(result.filter(s => s.email).map(s => s.id));
+
+    }, [active, orders, products, suppliers]);
+
+    const handleSend = () => {
+        const toSend = supplierData.filter(s => selectedSuppliers.includes(s.id));
+        onSend(toSend, batchId, club);
+        onClose();
+    };
+
+    const toggleSelect = (id) => {
+        if (selectedSuppliers.includes(id)) setSelectedSuppliers(selectedSuppliers.filter(sid => sid !== id));
+        else setSelectedSuppliers([...selectedSuppliers, id]);
+    };
+
+    // Obtener historial global del lote
+    const batchLog = (club?.accountingLog && club.accountingLog[batchId]) || {};
+    const emailHistoryMap = batchLog.supplierEmails || {}; 
+
+    if (!active) return null;
+
+    return (
+        <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+            <div className="bg-white rounded-xl shadow-2xl w-full max-w-5xl overflow-hidden flex flex-col max-h-[90vh]">
+                <div className="bg-gray-800 text-white px-6 py-4 flex justify-between items-center">
+                    <div>
+                        <h3 className="font-bold text-lg flex items-center gap-2">
+                            <Factory className="w-5 h-5 text-emerald-400"/> Gestión de Stock y Avisos
+                        </h3>
+                        <p className="text-xs text-gray-400">Lote Global #{batchId} - {club?.name}</p>
+                    </div>
+                    <button onClick={onClose}><X className="w-5 h-5"/></button>
+                </div>
+
+                <div className="flex-1 overflow-y-auto custom-scrollbar bg-gray-50 p-6">
+                    {supplierData.length === 0 ? (
+                        <div className="text-center py-10 text-gray-500">
+                            <p>No se han encontrado productos asociados a proveedores en este lote.</p>
+                        </div>
+                    ) : (
+                        <div className="space-y-6">
+                            <div className="bg-white p-4 rounded-lg border border-indigo-100 shadow-sm flex gap-3 text-sm text-indigo-900">
+                                <Mail className="w-5 h-5 text-indigo-500 shrink-0"/>
+                                <p>Selecciona proveedores para enviar previsión. El historial muestra cuántas unidades había cuando enviaste el aviso anterior frente a las actuales.</p>
+                            </div>
+
+                            <div className="grid grid-cols-1 gap-4">
+                                {supplierData.map(data => {
+                                    // Procesar historial (soporte para string antiguo o array nuevo)
+                                    let history = emailHistoryMap[data.id];
+                                    if (history && !Array.isArray(history)) history = [{ sentAt: history, qty: '?', refs: '?' }];
+                                    if (!history) history = [];
+                                    
+                                    // Ordenar: el último primero
+                                    history = [...history].reverse();
+
+                                    const hasEmail = !!data.email;
+                                    const isSelected = selectedSuppliers.includes(data.id);
+                                    
+                                    return (
+                                        <div key={data.id} className={`bg-white border rounded-xl overflow-hidden transition-all ${isSelected ? 'border-emerald-500 shadow-md ring-1 ring-emerald-500' : 'border-gray-200'}`}>
+                                            {/* CABECERA */}
+                                            <div className="p-4 flex flex-col md:flex-row md:items-start gap-4 bg-gray-50/50">
+                                                <div className="flex items-center gap-3 min-w-[220px]">
+                                                    <input 
+                                                        type="checkbox" 
+                                                        checked={isSelected}
+                                                        onChange={() => hasEmail && toggleSelect(data.id)}
+                                                        disabled={!hasEmail}
+                                                        className="w-5 h-5 accent-emerald-600 cursor-pointer mt-1"
+                                                    />
+                                                    <div>
+                                                        <h4 className="font-bold text-gray-800 text-sm">{data.name}</h4>
+                                                        <p className="text-xs text-gray-500 mb-1">{data.email || <span className="text-red-500">Sin Email</span>}</p>
+                                                        <span className="bg-indigo-100 text-indigo-700 px-2 py-0.5 rounded text-[10px] font-bold border border-indigo-200">
+                                                            ACTUAL: {data.totalUnits} uds
+                                                        </span>
+                                                    </div>
+                                                </div>
+
+                                                {/* ZONA DE HISTORIAL */}
+                                                <div className="flex-1 border-l border-gray-200 pl-4 md:pl-6">
+                                                    <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-2 flex items-center gap-2">
+                                                        <Check className="w-3 h-3"/> Historial de envíos
+                                                    </h5>
+                                                    
+                                                    {history.length === 0 ? (
+                                                        <p className="text-xs text-gray-400 italic">Nunca enviado</p>
+                                                    ) : (
+                                                        <div className="space-y-2 max-h-32 overflow-y-auto custom-scrollbar pr-2">
+                                                            {history.map((entry, idx) => {
+                                                                const date = new Date(entry.sentAt);
+                                                                // Calcular diferencia: Actual - Lo que había en ese envío
+                                                                const diff = typeof entry.qty === 'number' ? data.totalUnits - entry.qty : 0;
+                                                                
+                                                                return (
+                                                                    <div key={idx} className="flex items-center justify-between text-xs bg-white border border-gray-100 p-2 rounded shadow-sm">
+                                                                        <div className="text-gray-600">
+                                                                            <span className="font-bold">{date.toLocaleDateString()}</span> {date.toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'})}
+                                                                        </div>
+                                                                        
+                                                                        <div className="flex items-center gap-3">
+                                                                            <div className="text-right">
+                                                                                <span className="block text-[9px] text-gray-400 uppercase">En el aviso</span>
+                                                                                <span className="font-bold text-gray-700">{entry.qty} uds</span>
+                                                                            </div>
+                                                                            
+                                                                            {/* Indicador de Diferencia */}
+                                                                            {diff > 0 && (
+                                                                                <span className="bg-red-50 text-red-600 px-1.5 py-0.5 rounded font-bold text-[10px] border border-red-100" title="Han aumentado las unidades desde este correo">
+                                                                                    +{diff} nuevos
+                                                                                </span>
+                                                                            )}
+                                                                            {diff === 0 && typeof entry.qty === 'number' && (
+                                                                                 <span className="text-emerald-500 font-bold text-[10px]">
+                                                                                    = Igual
+                                                                                </span>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                );
+                                                            })}
+                                                        </div>
+                                                    )}
+                                                </div>
+                                            </div>
+
+                                            {/* DETALLES DE PRODUCTOS (Solo si seleccionado) */}
+                                            {isSelected && (
+                                                <div className="border-t border-gray-100 p-4 bg-white animate-fade-in grid grid-cols-1 md:grid-cols-2 gap-6">
+                                                    <div>
+                                                        <h5 className="text-[10px] font-bold text-gray-400 uppercase mb-2">Contenido a enviar ahora ({data.totalUnits} uds)</h5>
+                                                        <div className="max-h-32 overflow-y-auto border rounded bg-gray-50 text-xs">
+                                                            <table className="w-full text-left">
+                                                                <thead className="bg-gray-100 text-gray-500 sticky top-0"><tr><th className="p-1">Prod</th><th className="p-1">Talla</th><th className="p-1 text-right">Cant</th></tr></thead>
+                                                                <tbody className="divide-y divide-gray-200">
+                                                                    {data.stockItems.map((item, i) => (
+                                                                        <tr key={i}><td className="p-1">{item.name}</td><td className="p-1">{item.size || '-'}</td><td className="p-1 text-right font-bold">{item.qty}</td></tr>
+                                                                    ))}
+                                                                </tbody>
+                                                            </table>
+                                                        </div>
+                                                    </div>
+                                                    <div className="text-xs text-gray-500 space-y-2">
+                                                        <p className="font-bold text-gray-700">Destinatario:</p>
+                                                        <div className="flex items-center gap-2"><Mail className="w-3 h-3"/> {data.email}</div>
+                                                        {data.contacts?.filter(c => c.ccDefault).length > 0 && (
+                                                            <>
+                                                                <p className="font-bold text-gray-700 mt-2">En Copia (CC):</p>
+                                                                <ul className="list-disc pl-4 text-gray-400">
+                                                                    {data.contacts.filter(c => c.ccDefault).map((c, i) => (
+                                                                        <li key={i}>{c.email} ({c.name})</li>
+                                                                    ))}
+                                                                </ul>
+                                                            </>
+                                                        )}
+                                                    </div>
+                                                </div>
+                                            )}
+                                        </div>
+                                    );
+                                })}
+                            </div>
+                        </div>
+                    )}
+                </div>
+
+                <div className="p-4 bg-white border-t flex justify-between items-center shadow-lg z-10">
+                    <div className="text-xs text-gray-500">
+                        Se enviarán <strong>{selectedSuppliers.length}</strong> correos de previsión.
+                    </div>
+                    <div className="flex gap-3">
+                        <Button variant="secondary" onClick={onClose}>Cancelar</Button>
+                        <Button 
+                            onClick={handleSend} 
+                            disabled={selectedSuppliers.length === 0} 
+                            className="bg-gray-900 text-white hover:bg-black"
+                        >
+                            <Mail className="w-4 h-4 mr-2"/> Enviar Avisos
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        </div>
+    );
+};
+
+function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch}) {
   const [tab, setTab] = useState('management');
   const [showNewClubPass, setShowNewClubPass] = useState(false);
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
@@ -2427,9 +3000,99 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
         active: false, clubId: null, batchId: null, newStatus: '' 
     });
 
+    const [supplierStockModal, setSupplierStockModal] = useState({ 
+        active: false, batchId: null, orders: [], club: null
+    });
+
     const initiateStatusChange = (clubId, batchId, newStatus) => {
     console.log("CLICK DETECTADO:", { clubId, batchId, newStatus }); // <--- Añade esto para comprobar
     setStatusChangeModal({ active: true, clubId, batchId, newStatus });
+    };
+
+    // --- FUNCIÓN PARA ENVIAR CORREOS DE PREVISIÓN (CON HISTORIAL DETALLADO) ---
+    const handleSendSupplierEmails = async (targetSuppliers, batchId, club) => {
+        if (!targetSuppliers.length) return;
+        
+        const batchWrite = writeBatch(db);
+        let sentCount = 0;
+        const nowStr = new Date().toISOString();
+        
+        // Obtenemos el historial actual del club para no perder datos al escribir
+        // (Nota: club ya viene actualizado en las props si se usa onSnapshot en App)
+        const currentBatchLog = (club.accountingLog && club.accountingLog[batchId]) ? club.accountingLog[batchId] : {};
+        const currentEmailHistory = currentBatchLog.supplierEmails || {};
+
+        const clubRef = doc(db, 'clubs', club.id);
+        const updates = {};
+
+        targetSuppliers.forEach(data => {
+            if (!data.email) return;
+
+            // 1. Preparar destinatarios y CC
+            const ccEmails = (data.contacts || [])
+                .filter(c => c.ccDefault === true && c.email)
+                .map(c => c.email);
+
+            const emailSubject = `FotoEsport Merch // ${club.name} // Pedido Global ${batchId}`;
+
+            // 2. Crear documento de Email
+            const mailRef = doc(collection(db, 'mail'));
+            batchWrite.set(mailRef, {
+                to: [data.email],
+                cc: ccEmails, 
+                message: {
+                    subject: emailSubject,
+                    html: generateStockEmailHTML(data.name, batchId, club.name, data.stockItems),
+                    text: `Previsión de stock para ${club.name}. Lote ${batchId}.`
+                },
+                metadata: {
+                    type: 'stock_forecast',
+                    supplierId: data.id,
+                    clubId: club.id,
+                    batchId: batchId,
+                    sentAt: nowStr,
+                    snapshotQty: data.totalUnits // Guardamos cuántos había al enviar
+                }
+            });
+
+            // 3. Preparar el nuevo objeto de historial
+            const newHistoryEntry = {
+                sentAt: nowStr,
+                qty: data.totalUnits,     // Cantidad total en este momento
+                refs: data.stockItems.length // Cantidad de productos distintos
+            };
+
+            // 4. Obtener historial previo de este proveedor
+            let supplierHistory = currentEmailHistory[data.id];
+
+            // Gestión de compatibilidad: si antes era un string (código antiguo), lo convertimos a array
+            if (typeof supplierHistory === 'string') {
+                supplierHistory = [{ sentAt: supplierHistory, qty: '?', refs: '?' }];
+            } else if (!Array.isArray(supplierHistory)) {
+                supplierHistory = [];
+            }
+
+            // Añadimos la nueva entrada
+            const newHistoryList = [...supplierHistory, newHistoryEntry];
+            
+            // Preparamos el update usando notación de punto para este proveedor específico
+            updates[`accountingLog.${batchId}.supplierEmails.${data.id}`] = newHistoryList;
+
+            sentCount++;
+        });
+
+        if (sentCount > 0) {
+            // Ejecutamos todos los updates del club en el batch
+            batchWrite.update(clubRef, updates);
+
+            try {
+                await batchWrite.commit();
+                showNotification(`✅ Enviados ${sentCount} correos y actualizado historial.`);
+            } catch (e) {
+                console.error("Error envío:", e);
+                showNotification("Error al enviar correos.", "error");
+            }
+        }
     };
 
 
@@ -3940,6 +4603,7 @@ const globalAccountingStats = useMemo(() => {
             {id: 'accounting', label: 'Pedidos', icon: Package},
             {id: 'special-orders', label: 'Pedidos Especiales', icon: Briefcase},
             {id: 'accounting-control', label: 'Contabilidad', icon: Banknote},
+            {id: 'suppliers', label: 'Proveedores', icon: Factory}, // <--- NUEVO
             {id: 'seasons', label: 'Temporadas', icon: Calendar}, 
             {id: 'files', label: 'Archivos', icon: Folder},
             {id: 'finances', label: 'Estadísticas', icon: BarChart3},
@@ -4091,7 +4755,13 @@ const globalAccountingStats = useMemo(() => {
                         </div>
                     ) : (
                         products.map(p => (
-                            <ProductEditorRow key={p.id} product={p} updateProduct={updateProduct} deleteProduct={deleteProduct} />
+                            <ProductEditorRow 
+                                key={p.id} 
+                                product={p} 
+                                updateProduct={updateProduct} 
+                                deleteProduct={deleteProduct} 
+                                suppliers={suppliers} // <--- AÑADE ESTA LÍNEA
+                            />
                         ))
                     )}
                 </div>
@@ -4243,6 +4913,20 @@ const globalAccountingStats = useMemo(() => {
         </div>
     </div>
 )}
+
+{tab === 'suppliers' && (
+                <div className="animate-fade-in-up">
+                    <SupplierManager 
+                        suppliers={suppliers}
+                        products={products}
+                        createSupplier={createSupplier}
+                        updateSupplier={updateSupplier}
+                        deleteSupplier={deleteSupplier}
+                        updateProductCostBatch={updateProductCostBatch}
+                    />
+                </div>
+            )}
+
 
       {/* --- REVERT MODAL --- */}
       {revertModal.active && (
@@ -4612,6 +5296,19 @@ const globalAccountingStats = useMemo(() => {
           </div>
       )}
 
+
+    {/* MODAL DE STOCK PROVEEDORES */}
+    <SupplierStockModal 
+        active={supplierStockModal.active}
+        onClose={() => setSupplierStockModal({ ...supplierStockModal, active: false })}
+        batchId={supplierStockModal.batchId}
+        orders={supplierStockModal.orders}
+        club={supplierStockModal.club}
+        suppliers={suppliers}
+        products={products}
+        onSend={handleSendSupplierEmails}
+    />
+
     {/* --- MODAL CONFIRMACIÓN CAMBIO DE ESTADO --- */}
     {statusChangeModal.active && (
         <div className="fixed inset-0 bg-black/60 z-[9999] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
@@ -4929,6 +5626,23 @@ const globalAccountingStats = useMemo(() => {
                                             >
                                                 <Printer className="w-3 h-3 mr-1"/> Albarán
                                             </Button>
+
+                                            {isStandard && (
+                                                <Button 
+                                                    size="xs" 
+                                                    variant="outline"
+                                                    className="ml-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                                    disabled={batch.orders.length === 0}
+                                                    onClick={() => setSupplierStockModal({ 
+                                                        active: true, 
+                                                        batchId: batch.id, 
+                                                        orders: batch.orders, 
+                                                        club: club 
+                                                    })}
+                                                >
+                                                    <Factory className="w-3 h-3 mr-1"/> Stock Prov.
+                                                </Button>
+                                            )}
 
                                             {isStandard && (
                                                 <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
@@ -6281,6 +6995,7 @@ export default function App() {
   const [currentClub, setCurrentClub] = useState(null); 
   const [notification, setNotification] = useState(null); 
   const [confirmation, setConfirmation] = useState(null); 
+  const [suppliers, setSuppliers] = useState([]); 
   
   const [orders, setOrders] = useState([]);
   const [products, setProducts] = useState([]);
@@ -6299,6 +7014,16 @@ export default function App() {
 
   useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } }; initAuth(); const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); return () => unsubscribe(); }, []);
   useEffect(() => { if (!user) return; const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); setOrders(ordersData); }, (err) => console.error("Error fetching orders:", err)); return () => unsubOrders(); }, [user]);
+
+    // --- NUEVO: Cargar PROVEEDORES ---
+    useEffect(() => {
+        const q = query(collection(db, 'suppliers'));
+        const unsubscribe = onSnapshot(q, (snapshot) => {
+            const supData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            setSuppliers(supData);
+        });
+        return () => unsubscribe();
+    }, []);
 
   // Cargar Configuración Financiera Global
     useEffect(() => {
@@ -6464,6 +7189,50 @@ export default function App() {
           await addDoc(collection(db, 'products'), newProduct);
           showNotification('Producto creado en BD');
       } catch (e) { console.error(e); showNotification('Error al crear', 'error'); }
+  };
+
+  // --- FUNCIONES DE PROVEEDORES ---
+  const createSupplier = async (data) => {
+      try {
+          await addDoc(collection(db, 'suppliers'), { ...data, createdAt: serverTimestamp() });
+          showNotification('Proveedor creado');
+      } catch (e) { showNotification('Error creando proveedor', 'error'); }
+  };
+
+  const updateSupplier = async (data) => {
+      try {
+          const ref = doc(db, 'suppliers', data.id);
+          await updateDoc(ref, data);
+          showNotification('Proveedor actualizado');
+      } catch (e) { showNotification('Error actualizando proveedor', 'error'); }
+  };
+
+  const deleteSupplier = (id) => {
+      setConfirmation({
+          msg: '¿Eliminar proveedor? Los productos vinculados conservarán su coste actual pero quedarán sin asignar.',
+          onConfirm: async () => {
+              try {
+                  await deleteDoc(doc(db, 'suppliers', id));
+                  showNotification('Proveedor eliminado');
+              } catch (e) { showNotification('Error al eliminar', 'error'); }
+          }
+      });
+  };
+
+  const updateProductCostBatch = async (supplierId, priceList) => {
+      try {
+          const batch = writeBatch(db);
+          let count = 0;
+          for (const [prodId, newCost] of Object.entries(priceList)) {
+              const prodRef = doc(db, 'products', prodId);
+              batch.update(prodRef, { supplierId: supplierId, cost: parseFloat(newCost) });
+              count++;
+          }
+          if(count > 0) {
+              await batch.commit();
+              showNotification(`${count} productos actualizados.`);
+          }
+      } catch (e) { showNotification('Error sincronizando costes', 'error'); }
   };
 
   const deleteProduct = (id) => { 
@@ -6690,7 +7459,7 @@ export default function App() {
         {view === 'order-success' && <OrderSuccessView setView={setView} />}
         {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
-        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} />}
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} /> }
       </main>
       <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-40" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
     </div>

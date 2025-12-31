@@ -2723,7 +2723,9 @@ const SupplierManager = ({ suppliers, products, createSupplier, updateSupplier, 
                                 {sup.address && <div className="flex items-center gap-2"><MapPin className="w-3 h-3 text-gray-400"/> <span className="truncate">{sup.address}</span></div>}
                                 <div className="flex items-center gap-2 pt-2 border-t border-gray-100 mt-2">
                                     <Package className="w-3 h-3 text-gray-400"/> 
-                                    <span className="font-bold text-indigo-700">{sup.priceList ? Object.keys(sup.priceList).length : 0} productos suministrados</span>
+                                    <span className="font-bold text-indigo-700">
+                                        {sup.priceList ? Object.keys(sup.priceList).filter(pid => products.some(p => p.id === pid)).length : 0} productos suministrados
+                                    </span>
                                 </div>
                                 {sup.contacts?.length > 0 && (
                                     <div className="flex items-center gap-2">

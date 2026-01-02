@@ -3266,15 +3266,28 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
             batchHistory: arrayUnion(globalLogEntry)
         });
 
-        // 3. Lógica de Tregua y Avance (Sin cambios)
+        // 3. Lógica de Tregua y Avance
         if (newStatus === 'recopilando') {
             batchWrite.update(clubRefDoc, { lastBatchReopenTime: Date.now() });
         }
+        
         if (newStatus === 'en_produccion') { 
+            // A) Lógica existente para Lotes Globales Numéricos (1, 2, 3...)
             if (club && club.activeGlobalOrderId === batchId) { 
                 batchWrite.update(clubRefDoc, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
             } 
-        } 
+
+            // B) NUEVA LÓGICA: Lotes de Errores (ERR-1, ERR-2...)
+            if (typeof batchId === 'string' && batchId.startsWith('ERR-')) {
+                const currentErrNum = parseInt(batchId.split('-')[1]);
+                const activeErrNum = parseInt(club.activeErrorBatchId || 1);
+                
+                // Si el lote de errores que pasamos a producción es el activo, avanzamos el contador
+                if (!isNaN(currentErrNum) && currentErrNum === activeErrNum) {
+                     batchWrite.update(clubRefDoc, { activeErrorBatchId: activeErrNum + 1 });
+                }
+            }
+        }
 
         try {
             await batchWrite.commit();

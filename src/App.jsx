@@ -1229,7 +1229,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const defaults = product.defaults || {};
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
-  const variants = product.variants || []; // Nuevas variantes
+  const variants = product.variants || []; 
 
   // Estados Inputs
   const [clubInput, setClubInput] = useState('');
@@ -1242,44 +1242,33 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const [customization, setCustomization] = useState({ 
       clubId: '', 
       category: '', 
-      
-      // Jugador 1
       playerName: '', 
       playerNumber: '', 
-      
-      // Jugador 2 (Para dobles)
       playerName2: '',
       playerNumber2: '',
-
-      // Jugador 3 (Para triples)
       playerName3: '',
       playerNumber3: '',
-
       color: 'white', 
       selectedPhoto: '',
-      
-      // Flags
       includeName: defaults.name ?? true, 
       includeNumber: defaults.number ?? true, 
       includePhoto: defaults.photo ?? false, 
       includeShield: defaults.shield ?? true,
-
-      // Variante seleccionada
       selectedVariantId: null 
   });
 
-  // Lógica de detección de tipos especiales
+  // --- NUEVO: Estado para la cantidad ---
+  const [quantity, setQuantity] = useState(1);
+
   const isPhotoProduct = product.name.toLowerCase().includes('foto');
   const isCalendarProduct = product.name.toLowerCase().includes('calendario');
-
-  // Determinar variante activa
   const activeVariant = variants.find(v => v.id === customization.selectedVariantId);
   const isDouble = activeVariant && activeVariant.name.toLowerCase().includes('doble');
   const isTriple = activeVariant && activeVariant.name.toLowerCase().includes('triple');
   const isTeamPhoto = isPhotoProduct && activeVariant && activeVariant.name.toLowerCase().includes('equipo');
 
-  // Efecto para cargar categorías
-    useEffect(() => {
+  // Efecto para cargar categorías (Sin cambios)
+  useEffect(() => {
         const fetchCategories = async () => {
             if (customization.clubId) {
                 try {
@@ -1332,15 +1321,17 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
         if (checkDiff('name')) count++;
         if (checkDiff('number')) count++;
         if (checkDiff('shield')) count++;
-        // No contamos foto ni tamaño en lógica simple por ahora
         return count;
     }, [customization, defaults, features, modifiable]);
 
     const isModified = modificationCount > 0;
     
-    // CALCULO PRECIO FINAL (Base + Variante + Modificaciones)
+    // PRECIO UNITARIO
     const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
-    const finalPrice = product.price + variantPrice + (modificationCount * modificationFee);
+    const unitPrice = product.price + variantPrice + (modificationCount * modificationFee);
+    
+    // PRECIO TOTAL (Unitario * Cantidad)
+    const totalPrice = unitPrice * quantity;
   
   const handleSubmit = (e) => { 
       e.preventDefault(); 
@@ -1348,55 +1339,52 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       
       if (!customization.clubId) { alert("Debes seleccionar un club."); return; }
       
-      // Validaciones específicas
       if (!isTeamPhoto) {
           if (customization.includeName && !customization.playerName) { alert("El nombre del jugador 1 es obligatorio."); return; }
           if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal del jugador 1 es obligatorio."); return; }
       }
       
       if (isDouble || isTriple) {
-           if (!customization.playerName2 || !customization.playerNumber2) { alert("Datos del 2º jugador obligatorios para productos dobles/triples."); return; }
+           if (!customization.playerName2 || !customization.playerNumber2) { alert("Datos del 2º jugador obligatorios."); return; }
       }
       if (isTriple) {
            if (!customization.playerName3 || !customization.playerNumber3) { alert("Datos del 3er jugador obligatorios."); return; }
       }
 
-      // Preparar descripción extendida para el carrito
       let extendedName = product.name;
       if (activeVariant) extendedName += ` (${activeVariant.name})`;
       
-      // Consolidar nombres para el resumen
       let fullDetails = `Jugador 1: ${customization.playerName} #${customization.playerNumber}`;
       if(isDouble || isTriple) fullDetails += ` | J2: ${customization.playerName2} #${customization.playerNumber2}`;
       if(isTriple) fullDetails += ` | J3: ${customization.playerName3} #${customization.playerNumber3}`;
       if(isTeamPhoto) fullDetails = "Foto de Equipo (Solo Categoría)";
 
-      let confirmMsg = `Confirma tu pedido:\n\n• Producto: ${extendedName}\n• Club: ${clubInput}\n• Categoría: ${customization.category}\n\n${fullDetails}`;
+      // Mensaje de confirmación incluyendo la cantidad
+      let confirmMsg = `Confirma tu pedido:\n\n• Producto: ${extendedName}\n• Cantidad: ${quantity}\n• Club: ${clubInput}\n• Categoría: ${customization.category}\n\n${fullDetails}`;
 
       setConfirmation({
           msg: confirmMsg,
           onConfirm: () => {
-              // Creamos un objeto con todos los datos combinados
               const finalItem = {
                   ...product,
                   name: extendedName,
-                  // Si es foto de equipo, limpiamos nombre/dorsal para que no salgan en el pedido
                   playerName: isTeamPhoto ? '' : customization.playerName,
                   playerNumber: isTeamPhoto ? '' : customization.playerNumber,
-                  // Guardamos datos extra en campos personalizados que no molesten al resto de la app
+                  // --- AÑADIMOS LA CANTIDAD AL OBJETO ---
+                  quantity: quantity, 
                   details: {
                       player2: (isDouble || isTriple) ? { name: customization.playerName2, number: customization.playerNumber2 } : null,
                       player3: (isTriple) ? { name: customization.playerName3, number: customization.playerNumber3 } : null,
                       variant: activeVariant ? activeVariant.name : 'Standard'
                   }
               };
-              onAdd(finalItem, customization, finalPrice); 
+              // Pasamos el precio UNITARIO a onAdd, ya que el carrito multiplica por quantity
+              onAdd(finalItem, customization, unitPrice); 
               onBack(); 
           }
       });
   };
 
-  // Imagen dinámica: Si hay variante seleccionada y tiene imagen, úsala. Si no, la del producto.
   const displayImage = (activeVariant && activeVariant.image) ? activeVariant.image : product.image;
 
   return (
@@ -1408,29 +1396,24 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
         <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1"><ChevronLeft className="rotate-180 w-4 h-4" /> Volver</button>
         <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
         
-        {/* PRECIO */}
+        {/* PRECIO UNITARIO */}
         <div className="flex items-end gap-2 mb-6">
-            <p className="text-emerald-600 font-bold text-3xl">{finalPrice.toFixed(2)}€</p>
+            <p className="text-emerald-600 font-bold text-3xl">{unitPrice.toFixed(2)}€</p>
+            <span className="text-gray-400 text-sm mb-1">/ unidad</span>
             {activeVariant && (
                 <span className="text-xs text-blue-600 font-bold bg-blue-100 px-2 py-1 rounded mb-1 border border-blue-200">
-                   Opción: {activeVariant.name} {activeVariant.priceMod > 0 && `(+${activeVariant.priceMod}€)`}
-                </span>
-            )}
-            {isModified && (
-                <span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-1 rounded mb-1 border border-orange-200">
-                    Modificaciones: +{(modificationCount * modificationFee).toFixed(2)}€
+                   {activeVariant.name}
                 </span>
             )}
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
           
-          {/* SELECCIÓN DE VARIANTE (TIPO) */}
+          {/* SELECCIÓN DE VARIANTE */}
           {(variants.length > 0 || isPhotoProduct || isCalendarProduct) && (
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
                   <label className="block text-sm font-bold text-blue-800 mb-2 uppercase">Selecciona Tipo</label>
                   <div className="flex flex-wrap gap-2">
-                      {/* Opción Individual / Estándar */}
                       <button
                           type="button"
                           onClick={() => setCustomization({...customization, selectedVariantId: null})}
@@ -1438,8 +1421,6 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                       >
                           Individual / Estándar
                       </button>
-
-                      {/* Variantes Dinámicas */}
                       {variants.map(v => (
                           <button
                               key={v.id}
@@ -1454,7 +1435,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               </div>
           )}
 
-          {/* BUSCADOR DE CLUB */}
+          {/* BUSCADOR CLUB */}
           <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona tu Club <span className="text-red-500">*</span></label>
               <Input 
@@ -1476,7 +1457,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               )}
           </div>
 
-          {/* BUSCADOR DE CATEGORÍA */}
+          {/* BUSCADOR CATEGORÍA */}
           {customization.clubId && (
                 <div className="relative animate-fade-in">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona Categoría <span className="text-red-500">*</span></label>
@@ -1500,26 +1481,20 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                 </div>
             )}
 
-          {/* DATOS JUGADOR 1 (Ocultar si es Foto Equipo) */}
+          {/* DATOS JUGADOR 1 */}
           {!isTeamPhoto && (
               <div className="space-y-4 border-t pt-4 border-gray-100">
                   <h4 className="font-bold text-gray-600 text-xs uppercase">Datos Jugador 1</h4>
                   <div className="grid grid-cols-2 gap-4">
                     {features.name && (
                         <div className={`${!customization.includeName ? 'opacity-50' : ''}`}>
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Nombre <span className="text-red-500">*</span></label>
-                                <input type="checkbox" disabled={!modifiable.name} checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
-                            </div>
+                            <label className="text-sm font-medium text-gray-700 block mb-1">Nombre <span className="text-red-500">*</span></label>
                             <Input disabled={!customization.includeName} required={customization.includeName} placeholder="Ej. García" value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/>
                         </div>
                     )}
                     {features.number && (
                         <div className={`${!customization.includeNumber ? 'opacity-50' : ''}`}>
-                            <div className="flex justify-between items-center mb-1">
-                                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Dorsal <span className="text-red-500">*</span></label>
-                                <input type="checkbox" disabled={!modifiable.number} checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
-                            </div>
+                            <label className="text-sm font-medium text-gray-700 block mb-1">Dorsal <span className="text-red-500">*</span></label>
                             <Input disabled={!customization.includeNumber} required={customization.includeNumber} type="number" placeholder="10" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/>
                         </div>
                     )}
@@ -1527,7 +1502,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               </div>
           )}
 
-          {/* DATOS JUGADOR 2 (Solo si es Doble o Triple) */}
+          {/* DATOS JUGADOR 2 */}
           {(isDouble || isTriple) && (
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 animate-fade-in">
                   <h4 className="font-bold text-blue-800 text-xs uppercase mb-3 flex items-center gap-2">
@@ -1540,7 +1515,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               </div>
           )}
 
-          {/* DATOS JUGADOR 3 (Solo si es Triple) */}
+          {/* DATOS JUGADOR 3 */}
           {isTriple && (
               <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 animate-fade-in">
                    <h4 className="font-bold text-purple-800 text-xs uppercase mb-3 flex items-center gap-2">
@@ -1553,7 +1528,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               </div>
           )}
           
-          {/* SECCIÓN DE COLOR AUTOMÁTICO */}
+          {/* SECCIÓN DE COLOR */}
           {features.color && (
               <div className="animate-fade-in">
                   <label className="block text-sm font-medium text-gray-700 mb-2">Color Oficial del Club</label>
@@ -1571,7 +1546,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                       ) : (
                           <>
                               <div className="w-10 h-10 rounded-full border-2 border-gray-300 bg-gray-100 flex items-center justify-center shadow-inner"><span className="text-gray-400 font-bold text-lg">?</span></div>
-                              <div><p className="text-sm font-bold text-gray-600">Pendiente de Club</p><p className="text-xs text-gray-500 font-medium">Selecciona tu club para visualizar</p></div>
+                              <div><p className="text-sm font-bold text-gray-600">Pendiente de Club</p><p className="text-xs text-gray-500 font-medium">Selecciona tu club</p></div>
                           </>
                       )}
                       <Lock className="w-4 h-4 text-gray-400 ml-auto" />
@@ -1579,7 +1554,25 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               </div>
           )}
 
-          <div className="pt-2 border-t"><Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg shadow-lg shadow-emerald-200">{storeConfig.isOpen ? `Añadir al Carrito (${finalPrice.toFixed(2)}€)` : 'TIENDA CERRADA'}</Button></div>
+            {/* --- SECCIÓN CANTIDAD (ESTILOS ACTUALIZADOS) --- */}
+          <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border border-gray-200 mt-6">
+              <label className="font-bold text-gray-700 text-sm uppercase">Cantidad:</label>
+              <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-10 h-10 rounded-full bg-white border border-gray-300 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 shadow-sm transition-colors active:scale-95 text-lg">-</button>
+                  <span className="text-xl font-bold text-gray-800 w-12 text-center">{quantity}</span>
+                  <button type="button" onClick={() => setQuantity(quantity + 1)} className="w-10 h-10 rounded-full bg-white border border-gray-300 flex items-center justify-center font-bold text-emerald-600 hover:bg-emerald-50 shadow-sm transition-colors active:scale-95 text-lg">+</button>
+              </div>
+          </div>
+
+          <div className="pt-2 border-t">
+              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg shadow-lg shadow-emerald-200">
+                  {storeConfig.isOpen ? (
+                      <span className="flex items-center justify-center gap-2">
+                          Añadir al Carrito <span className="bg-white/20 px-2 py-0.5 rounded text-sm">({totalPrice.toFixed(2)}€)</span>
+                      </span>
+                  ) : 'TIENDA CERRADA'}
+              </Button>
+          </div>
         </form>
       </div>
     </div>
@@ -1615,17 +1608,74 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-4">
           <h2 className="text-2xl font-bold mb-4">Resumen</h2>
-          {cart.map(item => (
-              <div key={item.cartId} className="flex gap-4 bg-white p-4 rounded-lg shadow-sm">
-                  <img src={item.image} className="w-20 h-20 object-cover rounded" />
-                  <div className="flex-1">
-                      <h3 className="font-bold">{item.name}</h3>
-                      <p className="text-sm text-gray-500">{item.playerName} #{item.playerNumber}</p>
-                      <p className="text-emerald-600 font-bold mt-1">{item.price.toFixed(2)}€</p>
-                  </div>
-                  <button onClick={() => removeFromCart(item.cartId)} className="text-red-400 p-2 hover:bg-red-50 rounded"><Trash2 className="w-5 h-5" /></button>
-              </div>
-          ))}
+            {cart.map((item, index) => (
+                <div key={item.cartId || index} className="flex gap-4 mb-4 border-b border-gray-100 pb-4 last:border-0 last:pb-0">
+                    {/* Imagen Producto */}
+                    <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shrink-0 relative">
+                        <img src={item.image} className="w-full h-full object-cover" alt="" />
+                        {item.quantity > 1 && (
+                            <div className="absolute bottom-0 right-0 bg-emerald-600 text-white text-[10px] font-bold px-1.5 py-0.5 rounded-tl-lg">
+                                x{item.quantity}
+                            </div>
+                        )}
+                    </div>
+
+                    {/* Info del Producto */}
+                    <div className="flex-1 min-w-0">
+                        <div className="flex justify-between items-start mb-1">
+                            <h4 className="font-bold text-gray-800 text-sm truncate pr-2" title={item.name}>
+                                {item.name}
+                            </h4>
+                            <p className="font-bold text-emerald-600 text-sm whitespace-nowrap">
+                                {(item.price * (item.quantity || 1)).toFixed(2)}€
+                            </p>
+                        </div>
+
+                        {/* Datos Principales (J1) */}
+                        <div className="text-xs text-gray-600 mb-1">
+                            <span className="font-semibold">{item.clubName || 'Club'}</span>
+                            {item.category && <span className="opacity-75"> | {item.category}</span>}
+                            {item.playerName && <div className="text-gray-500">J1: {item.playerName} <strong className="text-gray-700">#{item.playerNumber}</strong></div>}
+                        </div>
+
+                        {/* Datos Extra (J2, J3, Variante) */}
+                        {item.details && (item.details.player2 || item.details.player3 || item.details.variant !== 'Standard') && (
+                            <div className="bg-slate-50 border border-slate-100 rounded p-2 text-[10px] space-y-1 mt-1.5">
+                                {/* Variante */}
+                                {item.details.variant && item.details.variant !== 'Standard' && (
+                                    <div className="font-bold text-blue-600 uppercase tracking-wide mb-1 border-b border-slate-200 pb-0.5">
+                                        Opción: {item.details.variant}
+                                    </div>
+                                )}
+                                
+                                {/* Jugador 2 */}
+                                {item.details.player2 && (
+                                    <div className="flex items-center gap-1 text-slate-600">
+                                        <span className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[8px]">J2</span>
+                                        <span>{item.details.player2.name} <strong>#{item.details.player2.number}</strong></span>
+                                    </div>
+                                )}
+
+                                {/* Jugador 3 */}
+                                {item.details.player3 && (
+                                    <div className="flex items-center gap-1 text-slate-600">
+                                        <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-[8px]">J3</span>
+                                        <span>{item.details.player3.name} <strong>#{item.details.player3.number}</strong></span>
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        <button 
+                            /* CORRECCIÓN AQUÍ: Usar item.cartId en lugar de index */
+                            onClick={() => removeFromCart(item.cartId)} 
+                            className="text-[10px] text-red-400 hover:text-red-600 underline mt-2 flex items-center gap-1"
+                        >
+                            <Trash2 className="w-3 h-3"/> Eliminar producto
+                        </button>
+                    </div>
+                </div>
+            ))}
       </div>
       
       <div className="bg-white p-6 rounded-xl shadow-md h-fit sticky top-24">
@@ -5155,7 +5205,21 @@ const globalAccountingStats = useMemo(() => {
                                       <div className="col-span-3"><label className="text-[10px] block font-bold text-gray-400">Nombre</label><input className="w-full text-sm border rounded p-1" value={item.playerName || ''} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].playerName = e.target.value; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
                                       
                                       {/* AQUÍ ESTÁ EL CAMBIO DE COLOR: Se quitó 'text-blue-600' y se puso 'text-gray-900' */}
-                                      <div className="col-span-1"><label className="text-[10px] block font-bold text-gray-400">Cant.</label><input type="number" className="w-full text-sm border rounded p-1 text-gray-900" value={item.quantity} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].quantity = parseInt(e.target.value) || 1; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
+                                      <div className="col-span-1">
+                                            <label className="text-[10px] block font-bold text-gray-400">Cant.</label>
+                                            <input 
+                                                type="number" 
+                                                min="1"
+                                                className="w-full text-sm border rounded p-1 text-gray-900" 
+                                                /* AQUÍ ESTÁ EL CAMBIO: Añadir "|| 1" para que nunca salga vacío */
+                                                value={item.quantity || 1} 
+                                                onChange={(e) => { 
+                                                    const newItems = [...editOrderModal.modified.items]; 
+                                                    newItems[idx].quantity = parseInt(e.target.value) || 1; 
+                                                    setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); 
+                                                }} 
+                                            />
+                                        </div>
                                       
                                       <div className="col-span-2"><label className="text-[10px] block font-bold text-gray-400">Precio</label><input type="number" className="w-full text-sm border rounded p-1" value={item.price} onChange={(e) => { const newItems = [...editOrderModal.modified.items]; newItems[idx].price = parseFloat(e.target.value) || 0; setEditOrderModal({...editOrderModal, modified: {...editOrderModal.modified, items: newItems}}); }} /></div>
                                   </div>
@@ -7358,7 +7422,15 @@ export default function App() {
         {notification && <div className={`fixed top-20 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white flex items-center gap-3 ${notification.type === 'error' ? 'bg-red-500' : 'bg-gray-800'} transition-all animate-fade-in-down`}>{notification.type === 'success' && <Check className="w-5 h-5 text-emerald-400" />}{notification.type === 'error' && <AlertCircle className="w-5 h-5 text-white" />}<span className="font-medium">{notification.msg}</span></div>}
         {view === 'home' && <HomeView setView={setView} />}
         {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={financialConfig.modificationFee} storeConfig={storeConfig} setConfirmation={setConfirmation} />}
-        {view === 'cart' && <CartView cart={cart} removeFromCart={removeFromCart} createOrder={createOrder} total={cart.reduce((sum, item) => sum + item.price, 0)} clubs={clubs} storeConfig={storeConfig} />}
+        {view === 'cart' && <CartView 
+            cart={cart} 
+            removeFromCart={removeFromCart} 
+            createOrder={createOrder} 
+            // AQUÍ ESTÁ EL CAMBIO: Multiplicamos precio por cantidad
+            total={cart.reduce((total, item) => total + (item.price * (item.quantity || 1)), 0)} 
+            clubs={clubs} 
+            storeConfig={storeConfig} 
+        />}
         {view === 'photo-search' && <PhotoSearchView clubs={clubs} />}
         {view === 'tracking' && <TrackingView orders={orders} />}
         {view === 'login' && <LoginView handleLogin={handleLogin} clubs={clubs} />}

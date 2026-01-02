@@ -124,8 +124,8 @@ const generateBatchExcel = (batchId, orders, clubName) => {
         csvBody += `FECHA EMISION:;${today}\n`;
         csvBody += `TOTAL PEDIDOS:;${orders ? orders.length : 0}\n\n`;
 
-        // Columnas (Usamos punto y coma ; que es el estándar de Excel en español/europeo para CSV)
-        csvBody += "ID Pedido;Fecha Pedido;Cliente;Tipo Pedido;Producto;Cantidad;Precio Unit.;Subtotal;Pers. Nombre;Pers. Dorsal;Talla;Color;Estado Actual\n";
+        // Columnas (Añadida "Detalles Extra")
+        csvBody += "ID Pedido;Fecha Pedido;Cliente;Tipo Pedido;Producto;Cantidad;Precio Unit.;Subtotal;Pers. Nombre;Pers. Dorsal;Talla;Color;Detalles Extra;Estado Actual\n";
 
         let grandTotal = 0;
 
@@ -139,8 +139,17 @@ const generateBatchExcel = (batchId, orders, clubName) => {
                     const lineTotal = quantity * price;
                     grandTotal += lineTotal;
 
-                    // Limpieza de datos: quitar puntos y comas para no romper el CSV, y comillas
+                    // Limpieza de datos
                     const clean = (txt) => `"${(txt || '').toString().replace(/"/g, '""')}"`;
+
+                    // --- LÓGICA DE EXTRAS ---
+                    let extras = [];
+                    if (item.details) {
+                         if (item.details.variant) extras.push(`[${item.details.variant}]`);
+                         if (item.details.player2) extras.push(`J2: ${item.details.player2.name} #${item.details.player2.number}`);
+                         if (item.details.player3) extras.push(`J3: ${item.details.player3.name} #${item.details.player3.number}`);
+                    }
+                    const extrasStr = extras.join(' | ');
 
                     const row = [
                         clean(order.id ? order.id.slice(0,8) : 'ID-ERROR'),
@@ -149,12 +158,13 @@ const generateBatchExcel = (batchId, orders, clubName) => {
                         clean(order.type === 'special' ? 'ESPECIAL' : 'WEB'),
                         clean(item.name),
                         quantity,
-                        price.toFixed(2).replace('.', ','), // Formato europeo 10,00
+                        price.toFixed(2).replace('.', ','), 
                         lineTotal.toFixed(2).replace('.', ','),
                         clean(item.playerName),
                         clean(item.playerNumber),
                         clean(item.size),
                         clean(item.color),
+                        clean(extrasStr), // <--- Nueva columna
                         clean(order.status)
                     ].join(";");
                     csvBody += row + "\n";
@@ -164,17 +174,15 @@ const generateBatchExcel = (batchId, orders, clubName) => {
 
         csvBody += `\n;;;;;;;TOTAL LOTE:;${grandTotal.toFixed(2).replace('.', ',')} €\n`;
 
-        // CREAR BLOB (Solución robusta para descarga)
         const blob = new Blob([csvBody], { type: 'text/csv;charset=utf-8;' });
         const url = URL.createObjectURL(blob);
-        
         const link = document.createElement("a");
         link.setAttribute("href", url);
         link.setAttribute("download", `Lote_Global_${batchId}_${clubName ? clubName.replace(/\s+/g, '_') : 'Club'}.csv`);
         document.body.appendChild(link);
         link.click();
         document.body.removeChild(link);
-        URL.revokeObjectURL(url); // Limpiar memoria
+        URL.revokeObjectURL(url); 
 
     } catch (e) {
         console.error("Error generando Excel:", e);
@@ -184,17 +192,13 @@ const generateBatchExcel = (batchId, orders, clubName) => {
 
 // --- FUNCIÓN ALBARÁN LOTE (CORREGIDA - EVITA NaN) ---
 const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
-    // 1. Validar que la comisión sea un número, si no, usar 0
     const safeCommission = (typeof commissionPct === 'number' && !isNaN(commissionPct)) ? commissionPct : 0;
-
     const printWindow = window.open('', '_blank');
     const today = new Date().toLocaleDateString();
     
-    // Totales
     const totalAmount = orders.reduce((sum, o) => sum + o.total, 0);
     const totalItems = orders.reduce((sum, o) => sum + o.items.reduce((s, i) => s + (i.quantity || 1), 0), 0);
     
-    // Cálculos Financieros Seguros
     const commissionAmount = totalAmount * safeCommission;
     const netAmount = totalAmount - commissionAmount;
 
@@ -211,17 +215,14 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                 .batch-title { text-align: right; }
                 .batch-title h1 { margin: 0; font-size: 22px; color: #111; text-transform: uppercase; }
                 .batch-title p { margin: 5px 0 0; font-size: 14px; color: #666; }
-                
                 .summary-box { background: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 30px; display: flex; justify-content: space-between; border: 1px solid #e5e7eb; }
                 .summary-item strong { display: block; font-size: 11px; text-transform: uppercase; color: #6b7280; margin-bottom: 2px; }
                 .summary-item span { font-size: 16px; font-weight: bold; color: #111; }
-
                 table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 30px; }
                 th { background: #10b981; color: white; padding: 10px; text-align: left; text-transform: uppercase; font-size: 11px; }
                 td { padding: 8px 10px; border-bottom: 1px solid #eee; }
                 .order-sep { background-color: #f0fdf4; font-weight: bold; color: #064e3b; border-top: 2px solid #ccc; }
                 .text-right { text-align: right; }
-                
                 .financial-section { display: flex; justify-content: flex-end; margin-bottom: 50px; }
                 .financial-table { width: 400px; border-collapse: collapse; border: 1px solid #ddd; }
                 .financial-table td { padding: 12px; border-bottom: 1px solid #eee; }
@@ -229,15 +230,11 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                 .f-value { text-align: right; font-weight: bold; font-family: monospace; font-size: 14px; }
                 .f-row-total td { border-top: 2px solid #333; font-weight: 900; font-size: 18px; background: #ecfdf5; color: #047857; }
                 .f-subtext { display: block; font-size: 10px; color: #999; font-weight: normal; margin-top: 2px;}
-
                 .signature-section { margin-top: 20px; page-break-inside: avoid; border: 2px dashed #9ca3af; border-radius: 8px; padding: 30px; height: 100px; position: relative; }
                 .signature-label { font-weight: bold; text-transform: uppercase; font-size: 12px; color: #6b7280; position: absolute; top: 10px; left: 10px; }
                 .signature-line { position: absolute; bottom: 30px; left: 30px; right: 30px; border-bottom: 1px solid #333; }
                 .signature-text { position: absolute; bottom: 10px; width: 100%; text-align: center; font-size: 11px; color: #6b7280; }
-
-                @media print {
-                    body { -webkit-print-color-adjust: exact; padding: 0; }
-                }
+                @media print { body { -webkit-print-color-adjust: exact; padding: 0; } }
             </style>
         </head>
         <body>
@@ -263,9 +260,9 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
             <table>
                 <thead>
                     <tr>
-                        <th width="45%">Producto</th>
-                        <th width="30%">Detalle / Personalización</th>
-                        <th width="10%" class="text-right">Cant.</th>
+                        <th width="40%">Producto</th>
+                        <th width="40%">Detalle / Personalización</th>
+                        <th width="5%" class="text-right">Cant.</th>
                         <th width="15%" class="text-right">Subtotal</th>
                     </tr>
                 </thead>
@@ -277,21 +274,35 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                                 <span style="font-size:10px; color:#666; margin-left:10px;">(${order.type === 'special' ? 'Especial' : 'Web'})</span>
                             </td>
                         </tr>
-                        ${order.items.map(item => `
+                        ${order.items.map(item => {
+                            // EXTRAER DATOS EXTRA PARA IMPRESIÓN
+                            let extraInfo = '';
+                            if (item.details) {
+                                 const parts = [];
+                                 if (item.details.player2) parts.push(`J2: ${item.details.player2.name} #${item.details.player2.number}`);
+                                 if (item.details.player3) parts.push(`J3: ${item.details.player3.name} #${item.details.player3.number}`);
+                                 if (parts.length > 0) extraInfo = parts.join(' | ');
+                            }
+
+                            return `
                             <tr>
-                                <td style="padding-left: 20px;">${item.name}</td>
+                                <td style="padding-left: 20px;">
+                                    ${item.name}
+                                    ${item.details?.variant ? `<br><span style="font-size:10px;color:#059669;font-weight:bold;">[${item.details.variant}]</span>` : ''}
+                                </td>
                                 <td style="color: #555; font-size: 11px;">
                                     ${[
                                         item.playerName ? `Nom: ${item.playerName}` : '',
                                         item.playerNumber ? `Num: ${item.playerNumber}` : '',
                                         item.size ? `Talla: ${item.size}` : '',
-                                        item.color ? `Color: ${item.color}` : ''
+                                        item.color ? `Color: ${item.color}` : '',
+                                        extraInfo ? `<strong style="color:#000;">${extraInfo}</strong>` : ''
                                     ].filter(Boolean).join(' | ')}
                                 </td>
                                 <td class="text-right">${item.quantity || 1}</td>
                                 <td class="text-right">${((item.quantity || 1) * item.price).toFixed(2)}€</td>
                             </tr>
-                        `).join('')}
+                        `}).join('')}
                     `).join('')}
                 </tbody>
             </table>
@@ -299,24 +310,15 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
             <div class="financial-section">
                 <table class="financial-table">
                     <tr>
-                        <td class="f-label">
-                            Importe Total Pedido
-                            <span class="f-subtext">(Suma valor venta de todos los productos)</span>
-                        </td>
+                        <td class="f-label">Importe Total Pedido</td>
                         <td class="f-value">${totalAmount.toFixed(2)}€</td>
                     </tr>
                     <tr>
-                        <td class="f-label" style="color: #dc2626;">
-                            (-) Retención / Comisión Club
-                            <span class="f-subtext">Beneficio retenido para el club (${(safeCommission * 100).toFixed(0)}%)</span>
-                        </td>
+                        <td class="f-label" style="color: #dc2626;">(-) Retención / Comisión Club (${(safeCommission * 100).toFixed(0)}%)</td>
                         <td class="f-value" style="color: #dc2626;">-${commissionAmount.toFixed(2)}€</td>
                     </tr>
                     <tr class="f-row-total">
-                        <td class="f-label" style="color: #065f46;">
-                            IMPORTE A COBRAR
-                            <span class="f-subtext">(Neto a pagar a FotoEsport Merch)</span>
-                        </td>
+                        <td class="f-label" style="color: #065f46;">IMPORTE A COBRAR</td>
                         <td class="f-value">${netAmount.toFixed(2)}€</td>
                     </tr>
                 </table>
@@ -327,12 +329,10 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                 <div class="signature-line"></div>
                 <div class="signature-text">Recibido por: _____________________________ Fecha: ___/___/_____</div>
             </div>
-
             <script>window.onload = () => window.print();</script>
         </body>
         </html>
     `;
-    
     printWindow.document.write(htmlContent);
     printWindow.document.close();
 };
@@ -757,7 +757,6 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     );
 };
 
-// --- SUSTITUIR COMPONENTE ProductEditorRow COMPLETO ---
 const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     
@@ -765,10 +764,28 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
     const features = product.features || { name: true, number: true, photo: true, shield: true, color: true };
     const defaults = product.defaults || { name: true, number: true, photo: false, shield: true };
     const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
+    // Variantes (Para Calendarios y Fotos)
+    const variants = product.variants || [];
 
     const toggleFeature = (key) => updateProduct({ ...product, features: { ...features, [key]: !features[key] } });
     const toggleDefault = (key) => updateProduct({ ...product, defaults: { ...defaults, [key]: !defaults[key] } });
     const toggleModifiable = (key) => updateProduct({ ...product, modifiable: { ...modifiable, [key]: !modifiable[key] } });
+
+    // Manejo de Variantes
+    const addVariant = () => {
+        const newVariants = [...variants, { id: Date.now(), name: '', priceMod: 0, image: '' }];
+        updateProduct({ ...product, variants: newVariants });
+    };
+
+    const updateVariant = (id, field, value) => {
+        const newVariants = variants.map(v => v.id === id ? { ...v, [field]: value } : v);
+        updateProduct({ ...product, variants: newVariants });
+    };
+
+    const deleteVariant = (id) => {
+        const newVariants = variants.filter(v => v.id !== id);
+        updateProduct({ ...product, variants: newVariants });
+    };
 
     // Encontrar proveedor actual si existe
     const currentSupplier = suppliers ? suppliers.find(s => s.id === product.supplierId) : null;
@@ -795,6 +812,11 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                         <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100 font-bold">
                             PVP: {product.price.toFixed(2)}€
                         </span>
+                        {variants.length > 0 && (
+                            <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100 font-bold">
+                                {variants.length} Opciones
+                            </span>
+                        )}
                         <span className="text-gray-400 flex items-center gap-1">
                             Coste: {product.cost ? product.cost.toFixed(2) : '0.00'}€
                             {currentSupplier && <Truck className="w-3 h-3 text-indigo-400" title={`Provisto por ${currentSupplier.name}`}/>}
@@ -871,7 +893,6 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                                         </div>
                                     </div>
                                     
-                                    {/* SECCIÓN COSTE Y PROVEEDOR ACTUALIZADA */}
                                     <div>
                                         <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Coste Producción</label>
                                         <div className="relative">
@@ -889,7 +910,7 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                                     </div>
                                 </div>
 
-                                {/* SELECTOR PROVEEDOR AÑADIDO */}
+                                {/* SELECTOR PROVEEDOR */}
                                 <div className="pt-2 border-t border-gray-100">
                                     <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Proveedor Asignado</label>
                                     <div className="relative">
@@ -914,10 +935,71 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                                             ))}
                                         </select>
                                         <Truck className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400"/>
-                                        <ChevronRight className="absolute right-3 top-3 w-3 h-3 text-gray-400 rotate-90 pointer-events-none"/>
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+
+                    {/* --- SECCIÓN NUEVA: VARIANTES / TIPOS --- */}
+                    <div className="bg-blue-50/50 rounded-xl border border-blue-100 overflow-hidden shadow-sm mt-6 mb-6">
+                        <div className="bg-blue-100 px-6 py-3 border-b border-blue-200 flex justify-between items-center">
+                            <h4 className="text-xs font-bold text-blue-800 uppercase flex items-center gap-2">
+                                <Layers className="w-4 h-4"/> Variantes Visuales (Calendarios / Fotos)
+                            </h4>
+                            <button onClick={addVariant} className="text-[10px] bg-blue-600 text-white px-2 py-1 rounded hover:bg-blue-700 font-bold flex items-center gap-1">
+                                <Plus className="w-3 h-3"/> Añadir Opción
+                            </button>
+                        </div>
+                        <div className="p-4 space-y-3">
+                            {variants.length === 0 && <p className="text-xs text-gray-400 italic text-center">Sin variantes (Producto único). Añade "Doble", "Triple" o "Equipo" aquí.</p>}
+                            {variants.map((variant, idx) => (
+                                <div key={variant.id} className="flex gap-3 items-center bg-white p-3 rounded border border-blue-100">
+                                    <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center shrink-0 overflow-hidden border">
+                                        {variant.image ? <img src={variant.image} className="w-full h-full object-cover"/> : <ImageIcon className="w-4 h-4 text-gray-300"/>}
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="text-[9px] font-bold text-gray-400 uppercase">Nombre Opción</label>
+                                        <input 
+                                            placeholder="Ej. Calendario Doble"
+                                            className="w-full text-sm font-bold border-b border-gray-200 outline-none focus:border-blue-500 bg-transparent"
+                                            value={variant.name}
+                                            onChange={(e) => updateVariant(variant.id, 'name', e.target.value)}
+                                        />
+                                    </div>
+                                    <div className="w-24">
+                                        <label className="text-[9px] font-bold text-gray-400 uppercase">Extra Precio</label>
+                                        <div className="relative">
+                                            <input 
+                                                type="number" step="0.50"
+                                                className="w-full text-sm font-bold border rounded p-1 text-right pr-4 outline-none focus:border-blue-500"
+                                                value={variant.priceMod}
+                                                onChange={(e) => updateVariant(variant.id, 'priceMod', parseFloat(e.target.value))}
+                                            />
+                                            <span className="absolute right-1 top-1 text-xs text-gray-400">€</span>
+                                        </div>
+                                    </div>
+                                    
+                                    <label className="cursor-pointer p-2 bg-gray-50 rounded hover:bg-gray-100 text-gray-500" title="Subir foto para esta opción">
+                                        <Upload className="w-4 h-4"/>
+                                        <input type="file" className="hidden" accept="image/*" onChange={(e) => {
+                                             /* Nota: Idealmente subir a Firebase aquí, por simplicidad usamos URL local temporal para preview 
+                                                En producción real: subir fichero y guardar URL igual que product.image */
+                                             const file = e.target.files[0];
+                                             if(file) {
+                                                // Simulación subida rápida (En real pasar callback para subir)
+                                                 const reader = new FileReader();
+                                                 reader.onload = (ev) => updateVariant(variant.id, 'image', ev.target.result); // Base64 temp
+                                                 reader.readAsDataURL(file);
+                                             }
+                                        }}/>
+                                    </label>
+
+                                    <button onClick={() => deleteVariant(variant.id)} className="p-2 text-red-400 hover:bg-red-50 rounded">
+                                        <Trash2 className="w-4 h-4"/>
+                                    </button>
+                                </div>
+                            ))}
                         </div>
                     </div>
 
@@ -926,15 +1008,9 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                             <h4 className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
                                 <Settings className="w-4 h-4"/> Reglas de Personalización
                             </h4>
-                            <div className="flex gap-8 pr-4 opacity-60">
-                                <span className="text-[9px] font-bold uppercase w-12 text-center">Activo</span>
-                                <span className="text-[9px] font-bold uppercase w-12 text-center">Defecto</span>
-                                <span className="text-[9px] font-bold uppercase w-12 text-center">Edit</span>
-                            </div>
                         </div>
 
                         <div className="divide-y divide-gray-50 p-4">
-                            
                             {/* 1. TALLA */}
                             <div className="flex flex-col gap-2 py-2">
                                 <div className="flex items-center justify-between">
@@ -945,51 +1021,15 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                                         <span className="text-sm font-bold text-gray-700">Talla</span>
                                     </div>
                                     <div className="flex gap-8 pr-2">
-                                        <div className="flex justify-center w-12">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={features.size} 
-                                                onChange={() => {
-                                                    const newState = !features.size;
-                                                    updateProduct({ 
-                                                        ...product, 
-                                                        features: { ...features, size: newState },
-                                                        defaults: { ...defaults, size: newState ? true : defaults.size },
-                                                        modifiable: { ...modifiable, size: newState ? false : modifiable.size }
-                                                    });
-                                                }} 
-                                                className="rounded text-emerald-600 cursor-pointer"
-                                            />
-                                        </div>
-                                        <div className="flex justify-center w-12">
-                                            <input 
-                                                type="checkbox" 
-                                                checked={features.size ? true : defaults.size} 
-                                                disabled={true} 
-                                                className="rounded text-blue-600 opacity-50 cursor-not-allowed"
-                                            />
-                                        </div>
-                                        <div className="flex justify-center w-12">
-                                            <button disabled={true} className="opacity-50 cursor-not-allowed">
-                                                <Lock className="w-5 h-5 text-red-400"/>
-                                            </button>
-                                        </div>
+                                        <div className="flex justify-center w-12"><input type="checkbox" checked={features.size} onChange={() => toggleFeature('size')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                        <div className="flex justify-center w-12"><input type="checkbox" checked={features.size ? true : defaults.size} disabled className="rounded text-blue-600 opacity-50"/></div>
+                                        <div className="flex justify-center w-12"><button disabled className="opacity-50"><Lock className="w-5 h-5 text-red-400"/></button></div>
                                     </div>
                                 </div>
-                                
                                 {features.size && (
                                     <div className="ml-12 bg-gray-50 p-2 rounded border border-gray-200 animate-fade-in">
                                         <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Opciones de Talla</label>
-                                        <input 
-                                            type="text" 
-                                            className="w-full border rounded p-1.5 text-xs bg-white focus:ring-1 focus:ring-emerald-500 outline-none" 
-                                            placeholder="Ej: S, M, L, XL, XXL"
-                                            value={product.sizes ? product.sizes.join(', ') : ''}
-                                            onChange={(e) => updateProduct({
-                                                ...product, 
-                                                sizes: e.target.value.split(',').map(s => s.trim())
-                                            })}
-                                        />
+                                        <input type="text" className="w-full border rounded p-1.5 text-xs bg-white focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Ej: S, M, L, XL, XXL" value={product.sizes ? product.sizes.join(', ') : ''} onChange={(e) => updateProduct({...product, sizes: e.target.value.split(',').map(s => s.trim())})}/>
                                     </div>
                                 )}
                             </div>
@@ -997,9 +1037,7 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                             {/* 2. NOMBRE */}
                             <div className="flex items-center justify-between py-2 border-t border-gray-50">
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${features.name ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
-                                        <FileText className="w-5 h-5"/>
-                                    </div>
+                                    <div className={`p-2 rounded-lg ${features.name ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><FileText className="w-5 h-5"/></div>
                                     <span className="text-sm font-bold text-gray-700">Nombre</span>
                                 </div>
                                 <div className="flex gap-8 pr-2">
@@ -1012,9 +1050,7 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                             {/* 3. DORSAL */}
                             <div className="flex items-center justify-between py-2 border-t border-gray-50">
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${features.number ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
-                                        <Hash className="w-5 h-5"/>
-                                    </div>
+                                    <div className={`p-2 rounded-lg ${features.number ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><Hash className="w-5 h-5"/></div>
                                     <span className="text-sm font-bold text-gray-700">Dorsal</span>
                                 </div>
                                 <div className="flex gap-8 pr-2">
@@ -1027,9 +1063,7 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                             {/* 4. ESCUDO */}
                             <div className="flex items-center justify-between py-2 border-t border-gray-50">
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${features.shield ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
-                                        <ShieldCheck className="w-5 h-5"/>
-                                    </div>
+                                    <div className={`p-2 rounded-lg ${features.shield ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><ShieldCheck className="w-5 h-5"/></div>
                                     <span className="text-sm font-bold text-gray-700">Escudo</span>
                                 </div>
                                 <div className="flex gap-8 pr-2">
@@ -1042,41 +1076,13 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                             {/* 5. FOTO */}
                             <div className="flex items-center justify-between py-2 border-t border-gray-50">
                                 <div className="flex items-center gap-3">
-                                    <div className={`p-2 rounded-lg ${features.photo ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
-                                        <ImageIcon className="w-5 h-5"/>
-                                    </div>
+                                    <div className={`p-2 rounded-lg ${features.photo ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><ImageIcon className="w-5 h-5"/></div>
                                     <span className="text-sm font-bold text-gray-700">Foto</span>
                                 </div>
                                 <div className="flex gap-8 pr-2">
-                                    <div className="flex justify-center w-12">
-                                        <input 
-                                            type="checkbox" 
-                                            checked={features.photo} 
-                                            onChange={() => {
-                                                const newState = !features.photo;
-                                                updateProduct({ 
-                                                    ...product, 
-                                                    features: { ...features, photo: newState },
-                                                    defaults: { ...defaults, photo: newState ? true : defaults.photo },
-                                                    modifiable: { ...modifiable, photo: newState ? false : modifiable.photo }
-                                                });
-                                            }} 
-                                            className="rounded text-emerald-600 cursor-pointer"
-                                        />
-                                    </div>
-                                    <div className="flex justify-center w-12">
-                                        <input 
-                                            type="checkbox" 
-                                            checked={features.photo ? true : defaults.photo} 
-                                            disabled={true} 
-                                            className="rounded text-blue-600 opacity-50 cursor-not-allowed"
-                                        />
-                                    </div>
-                                    <div className="flex justify-center w-12">
-                                        <button disabled={true} className="opacity-50 cursor-not-allowed">
-                                            <Lock className="w-5 h-5 text-red-400"/>
-                                        </button>
-                                    </div>
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.photo} onChange={() => toggleFeature('photo')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="flex justify-center w-12"><input type="checkbox" checked={true} disabled className="rounded text-blue-600 opacity-50"/></div>
+                                    <div className="flex justify-center w-12"><button disabled className="opacity-50"><Lock className="w-5 h-5 text-red-400"/></button></div>
                                 </div>
                             </div>
                         </div>
@@ -1223,113 +1229,63 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const defaults = product.defaults || {};
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
-  
-  // Estados para los inputs del buscador
+  const variants = product.variants || []; // Nuevas variantes
+
+  // Estados Inputs
   const [clubInput, setClubInput] = useState('');
   const [categoryInput, setCategoryInput] = useState('');
   const [showClubSuggestions, setShowClubSuggestions] = useState(false);
   const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
+  const [availableCategories, setAvailableCategories] = useState([]);
 
+  // Estado principal de personalización
   const [customization, setCustomization] = useState({ 
       clubId: '', 
       category: '', 
+      
+      // Jugador 1
       playerName: '', 
       playerNumber: '', 
+      
+      // Jugador 2 (Para dobles)
+      playerName2: '',
+      playerNumber2: '',
+
+      // Jugador 3 (Para triples)
+      playerName3: '',
+      playerNumber3: '',
+
       color: 'white', 
       selectedPhoto: '',
+      
+      // Flags
       includeName: defaults.name ?? true, 
       includeNumber: defaults.number ?? true, 
       includePhoto: defaults.photo ?? false, 
-      includeShield: defaults.shield ?? true 
+      includeShield: defaults.shield ?? true,
+
+      // Variante seleccionada
+      selectedVariantId: null 
   });
 
-// --- ESTADOS Y LÓGICA DE BÚSQUEDA DE FOTOS ---
-  const [searchName, setSearchName] = useState('');
-  const [searchDorsal, setSearchDorsal] = useState('');
-  const [isSearching, setIsSearching] = useState(false);
-  const [searchResults, setSearchResults] = useState([]);
-  const [searchError, setSearchError] = useState('');
+  // Lógica de detección de tipos especiales
+  const isPhotoProduct = product.name.toLowerCase().includes('foto');
+  const isCalendarProduct = product.name.toLowerCase().includes('calendario');
 
-  useEffect(() => {
-      if (features.photo && !customization.includePhoto) {
-          setCustomization(prev => ({ ...prev, includePhoto: true }));
-      }
-  }, [features.photo, customization.includePhoto]);
+  // Determinar variante activa
+  const activeVariant = variants.find(v => v.id === customization.selectedVariantId);
+  const isDouble = activeVariant && activeVariant.name.toLowerCase().includes('doble');
+  const isTriple = activeVariant && activeVariant.name.toLowerCase().includes('triple');
+  const isTeamPhoto = isPhotoProduct && activeVariant && activeVariant.name.toLowerCase().includes('equipo');
 
-  const handleSearchPhoto = async () => {
-      if (!customization.clubId) { setSearchError("Primero selecciona un club arriba."); return; }
-      if (!searchName && !searchDorsal) { setSearchError("Escribe nombre o dorsal."); return; }
-
-      setIsSearching(true); setSearchError(''); setSearchResults([]);
-
-      try {
-          const clubId = customization.clubId;
-          const normalizedSearchName = normalizeText(searchName);
-          const normalizedSearchDorsal = normalizeText(searchDorsal);
-
-          // 1. Obtener carpetas del club
-          const clubRef = ref(storage, clubId);
-          const categoriesRes = await listAll(clubRef);
-          let foundPhotos = [];
-
-          // 2. Buscar en paralelo
-          await Promise.all(categoriesRes.prefixes.map(async (categoryRef) => {
-              const filesRes = await listAll(categoryRef);
-              for (const item of filesRes.items) {
-                  const fileName = item.name;
-                  const normalizedFileName = normalizeText(fileName);
-                  
-                  let nameMatch = true;
-                  let dorsalMatch = true;
-
-                  if (normalizedSearchName) {
-                      const cleanName = normalizedFileName.replace(/_/g, ' ');
-                      nameMatch = cleanName.includes(normalizedSearchName) || normalizedFileName.includes(normalizedSearchName);
-                  }
-
-                  if (normalizedSearchDorsal) {
-                      // Regex para asegurar que el número está aislado (ej: _12_ o _12.)
-                      const dorsalRegex = new RegExp(`[a-z0-9]_${normalizedSearchDorsal}\\.|_${normalizedSearchDorsal}$|_${normalizedSearchDorsal}_`);
-                      dorsalMatch = dorsalRegex.test(normalizedFileName) || normalizedFileName.includes(`_${normalizedSearchDorsal}`);
-                  }
-
-                  if (nameMatch && dorsalMatch) {
-                      const url = await getDownloadURL(item);
-                      foundPhotos.push({ name: fileName, url: url, fullPath: item.fullPath });
-                  }
-              }
-          }));
-
-          setSearchResults(foundPhotos);
-          if (foundPhotos.length === 0) setSearchError("No se encontraron fotos.");
-
-      } catch (error) {
-          console.error("Error:", error);
-          setSearchError("Error al buscar.");
-      }
-      setIsSearching(false);
-  };
-
-  // Sugerencias de Clubes
-  const clubSuggestions = useMemo(() => {
-      if (clubInput.length < 2) return [];
-      return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase()));
-  }, [clubInput, clubs]);
-
-  // --- NUEVO: Estado para guardar las categorías reales ---
-  const [availableCategories, setAvailableCategories] = useState([]);
-
-  // --- NUEVO: Cargar categorías desde Storage cuando cambia el club ---
+  // Efecto para cargar categorías
     useEffect(() => {
         const fetchCategories = async () => {
             if (customization.clubId) {
                 try {
-                    // BUSCAMOS EL OBJETO CLUB COMPLETO
                     const club = clubs.find(c => c.id === customization.clubId);
-                    const rootFolder = club ? club.name : customization.clubId;
                     if (club) {
-                        // Usamos club.name
-                        const clubRef = ref(storage, club.name); // <--- CAMBIO
+                        const clubRef = ref(storage, club.name);
                         const res = await listAll(clubRef);
                         setAvailableCategories(res.prefixes.map(p => p.name));
                     }
@@ -1342,104 +1298,163 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
             }
         };
         fetchCategories();
-    }, [customization.clubId, clubs]); // Añadir clubs a dependencias
+    }, [customization.clubId, clubs]);
 
-  // Sugerencias de Categorías
+  const clubSuggestions = useMemo(() => {
+      if (clubInput.length < 2) return [];
+      return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase()));
+  }, [clubInput, clubs]);
+
   const categorySuggestions = useMemo(() => {
       if (categoryInput.length < 2) return [];
       return availableCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase()));
   }, [categoryInput, availableCategories]);
 
-    // Selección de Club
   const handleSelectClub = (club) => {
       setCustomization({ 
           ...customization, 
           clubId: club.id, 
           category: '',
-          color: club.color || 'white' // <--- AHORA SE ASIGNA EL COLOR DEL CLUB AUTOMÁTICAMENTE
+          color: club.color || 'white'
       });
       setClubInput(club.name);
       setCategoryInput(''); 
       setShowClubSuggestions(false);
   };
 
-  // Selección de Categoría
-  const handleSelectCategory = (cat) => {
-      setCustomization({ ...customization, category: cat });
-      setCategoryInput(cat);
-      setShowCategorySuggestions(false);
-  };
-
-    // --- CAMBIO: Contar modificaciones en lugar de solo detectar si existen ---
     const modificationCount = useMemo(() => {
         let count = 0;
         const checkDiff = (key) => {
-            // Si la característica no está activa o no es modificable, no la contamos
             if (!features[key]) return false; 
             if (!modifiable[key]) return false; 
-            // Comparamos el valor actual con el valor por defecto
             return customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`] !== defaults[key];
         };
-
         if (checkDiff('name')) count++;
         if (checkDiff('number')) count++;
-        if (checkDiff('photo')) count++;
         if (checkDiff('shield')) count++;
-
+        // No contamos foto ni tamaño en lógica simple por ahora
         return count;
     }, [customization, defaults, features, modifiable]);
 
     const isModified = modificationCount > 0;
-    // Multiplicamos el coste de modificación por la cantidad de cambios
-    const finalPrice = product.price + (modificationCount * modificationFee);
+    
+    // CALCULO PRECIO FINAL (Base + Variante + Modificaciones)
+    const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
+    const finalPrice = product.price + variantPrice + (modificationCount * modificationFee);
   
   const handleSubmit = (e) => { 
       e.preventDefault(); 
       if (!storeConfig.isOpen) return; 
       
-      // Validaciones
-      if (!customization.clubId) { alert("Debes seleccionar un club válido de la lista."); return; }
-      // if (!customization.category) { alert("Debes seleccionar una categoría (archivo) de la lista."); return; }
-      if (customization.includeName && !customization.playerName) { alert("El nombre es obligatorio."); return; }
-      if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal es obligatorio."); return; }
-
-      // --- MENSAJE PARA EL MODAL ---
-      let confirmMsg = "Por favor, verifica los datos de tu pedido:\n\n";
-      confirmMsg += `• Club: ${clubInput}\n`;
-      confirmMsg += `• Categoría: ${customization.category}\n`;
-      if (customization.includeName) confirmMsg += `• Nombre: ${customization.playerName}\n`;
-      if (customization.includeNumber) confirmMsg += `• Dorsal: ${customization.playerNumber}\n`;
+      if (!customization.clubId) { alert("Debes seleccionar un club."); return; }
       
-      confirmMsg += "\nIMPORTANTE: El nombre y dorsal indicados serán los que aparezcan en el producto final (revisar mayúsculas y acentos).\n\n¿Son correctos estos datos?";
+      // Validaciones específicas
+      if (!isTeamPhoto) {
+          if (customization.includeName && !customization.playerName) { alert("El nombre del jugador 1 es obligatorio."); return; }
+          if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal del jugador 1 es obligatorio."); return; }
+      }
+      
+      if (isDouble || isTriple) {
+           if (!customization.playerName2 || !customization.playerNumber2) { alert("Datos del 2º jugador obligatorios para productos dobles/triples."); return; }
+      }
+      if (isTriple) {
+           if (!customization.playerName3 || !customization.playerNumber3) { alert("Datos del 3er jugador obligatorios."); return; }
+      }
 
-      // USAR MODAL VISUAL
+      // Preparar descripción extendida para el carrito
+      let extendedName = product.name;
+      if (activeVariant) extendedName += ` (${activeVariant.name})`;
+      
+      // Consolidar nombres para el resumen
+      let fullDetails = `Jugador 1: ${customization.playerName} #${customization.playerNumber}`;
+      if(isDouble || isTriple) fullDetails += ` | J2: ${customization.playerName2} #${customization.playerNumber2}`;
+      if(isTriple) fullDetails += ` | J3: ${customization.playerName3} #${customization.playerNumber3}`;
+      if(isTeamPhoto) fullDetails = "Foto de Equipo (Solo Categoría)";
+
+      let confirmMsg = `Confirma tu pedido:\n\n• Producto: ${extendedName}\n• Club: ${clubInput}\n• Categoría: ${customization.category}\n\n${fullDetails}`;
+
       setConfirmation({
           msg: confirmMsg,
           onConfirm: () => {
-              onAdd(product, customization, finalPrice); 
+              // Creamos un objeto con todos los datos combinados
+              const finalItem = {
+                  ...product,
+                  name: extendedName,
+                  // Si es foto de equipo, limpiamos nombre/dorsal para que no salgan en el pedido
+                  playerName: isTeamPhoto ? '' : customization.playerName,
+                  playerNumber: isTeamPhoto ? '' : customization.playerNumber,
+                  // Guardamos datos extra en campos personalizados que no molesten al resto de la app
+                  details: {
+                      player2: (isDouble || isTriple) ? { name: customization.playerName2, number: customization.playerNumber2 } : null,
+                      player3: (isTriple) ? { name: customization.playerName3, number: customization.playerNumber3 } : null,
+                      variant: activeVariant ? activeVariant.name : 'Standard'
+                  }
+              };
+              onAdd(finalItem, customization, finalPrice); 
               onBack(); 
           }
       });
   };
 
+  // Imagen dinámica: Si hay variante seleccionada y tiene imagen, úsala. Si no, la del producto.
+  const displayImage = (activeVariant && activeVariant.image) ? activeVariant.image : product.image;
+
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col md:flex-row">
-      <div className="md:w-1/2 bg-gray-100 p-8 flex items-center justify-center relative"><img src={product.image} className="max-w-full h-auto rounded-lg shadow-md" /></div>
+      <div className="md:w-1/2 bg-gray-100 p-8 flex items-center justify-center relative">
+          <img src={displayImage} className="max-w-full h-auto rounded-lg shadow-md transition-all duration-300" />
+      </div>
       <div className="md:w-1/2 p-8 overflow-y-auto max-h-[90vh]">
         <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1"><ChevronLeft className="rotate-180 w-4 h-4" /> Volver</button>
         <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
+        
+        {/* PRECIO */}
         <div className="flex items-end gap-2 mb-6">
             <p className="text-emerald-600 font-bold text-3xl">{finalPrice.toFixed(2)}€</p>
+            {activeVariant && (
+                <span className="text-xs text-blue-600 font-bold bg-blue-100 px-2 py-1 rounded mb-1 border border-blue-200">
+                   Opción: {activeVariant.name} {activeVariant.priceMod > 0 && `(+${activeVariant.priceMod}€)`}
+                </span>
+            )}
             {isModified && (
                 <span className="text-xs text-orange-600 font-bold bg-orange-100 px-2 py-1 rounded mb-1 border border-orange-200">
-                    +{ (modificationCount * modificationFee).toFixed(2) }€ ({modificationCount} modif.)
+                    Modificaciones: +{(modificationCount * modificationFee).toFixed(2)}€
                 </span>
             )}
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
           
-          {/* BUSCADOR DE CLUB (Estilo Autocomplete) */}
+          {/* SELECCIÓN DE VARIANTE (TIPO) */}
+          {(variants.length > 0 || isPhotoProduct || isCalendarProduct) && (
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                  <label className="block text-sm font-bold text-blue-800 mb-2 uppercase">Selecciona Tipo</label>
+                  <div className="flex flex-wrap gap-2">
+                      {/* Opción Individual / Estándar */}
+                      <button
+                          type="button"
+                          onClick={() => setCustomization({...customization, selectedVariantId: null})}
+                          className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${!customization.selectedVariantId ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}`}
+                      >
+                          Individual / Estándar
+                      </button>
+
+                      {/* Variantes Dinámicas */}
+                      {variants.map(v => (
+                          <button
+                              key={v.id}
+                              type="button"
+                              onClick={() => setCustomization({...customization, selectedVariantId: v.id})}
+                              className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${customization.selectedVariantId === v.id ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}`}
+                          >
+                              {v.name}
+                          </button>
+                      ))}
+                  </div>
+              </div>
+          )}
+
+          {/* BUSCADOR DE CLUB */}
           <div className="relative">
               <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona tu Club <span className="text-red-500">*</span></label>
               <Input 
@@ -1461,102 +1476,8 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               )}
           </div>
 
-        {/* --- INFORMACIÓN DE COLOR Y ENTREGA (LIMPIO) --- */}
-          {customization.clubId && (() => {
-              const selectedClub = clubs.find(c => c.id === customization.clubId);
-
-              // 1. Obtener información del Color
-              const clubColorInfo = selectedClub 
-                  ? AVAILABLE_COLORS.find(c => c.id === (selectedClub.color || 'white')) 
-                  : AVAILABLE_COLORS[0];
-
-              // 2. Calcular Fechas de Entrega
-              let deliveryInfo = null;
-              if (selectedClub && selectedClub.nextBatchDate) {
-                  const closeDate = new Date(selectedClub.nextBatchDate);
-                  const today = new Date();
-                  const daysLeft = Math.ceil((closeDate - today) / (1000 * 60 * 60 * 24));
-                  
-                  const addBusinessDays = (startDate, daysToAdd) => {
-                      let currentDate = new Date(startDate);
-                      let businessDaysAdded = 0;
-                      while (businessDaysAdded < daysToAdd) {
-                          currentDate.setDate(currentDate.getDate() + 1);
-                          const dayOfWeek = currentDate.getDay();
-                          if (dayOfWeek !== 0 && dayOfWeek !== 6) businessDaysAdded++;
-                      }
-                      return currentDate;
-                  };
-
-                  const deliveryEstStart = addBusinessDays(closeDate, 7);
-                  const deliveryEstEnd = addBusinessDays(closeDate, 10);
-
-                  deliveryInfo = (
-                      <div className="bg-emerald-50 border border-emerald-100 rounded-xl p-4 animate-fade-in shadow-sm">
-                          <div className="flex items-start gap-3">
-                              <div className="bg-white p-2 rounded-lg text-emerald-600 border border-emerald-100 shadow-sm">
-                                  <Calendar className="w-5 h-5"/>
-                              </div>
-                              <div>
-                                  <h4 className="font-bold text-emerald-900 text-sm uppercase mb-1">Información de Pedido</h4>
-                                  <div className="text-sm text-emerald-800 space-y-1.5">
-                                      <p>
-                                          <span className="font-bold">Cierre de Lote:</span> {closeDate.toLocaleDateString()} 
-                                          {daysLeft > 0 ? (
-                                              <span className="text-xs ml-2 bg-emerald-200/60 text-emerald-800 px-2 py-0.5 rounded-md font-bold">Quedan {daysLeft} días</span>
-                                          ) : (
-                                              <span className="text-xs ml-2 bg-red-100 text-red-600 px-2 py-0.5 rounded-md font-bold">Cierra hoy</span>
-                                          )}
-                                      </p>
-                                      <p><span className="font-bold">Entrega Estimada:</span> Del {deliveryEstStart.toLocaleDateString()} al {deliveryEstEnd.toLocaleDateString()}</p>
-                                  </div>
-                                  <div className="mt-3 pt-2 border-t border-emerald-200/50">
-                                      <p className="text-xs font-semibold text-emerald-700 italic flex items-start gap-1">
-                                          <span>*</span> Plazo de entrega de 7 a 10 días hábiles a contar desde la fecha de cierre.
-                                      </p>
-                                  </div>
-                              </div>
-                          </div>
-                      </div>
-                  );
-              }
-
-              // 3. RENDERIZADO FINAL
-              return (
-                  <div className="mb-6 animate-fade-in-up space-y-3">
-                      
-                      {/* Tarjeta de Estilo/Color (Informativa) */}
-                      {clubColorInfo && (
-                          <div className="flex items-center gap-4 p-3 bg-white border border-gray-200 rounded-xl shadow-sm">
-                              <div className="relative shrink-0">
-                                  <div 
-                                      className={`w-12 h-12 rounded-full shadow-inner border-2 border-white ring-1 ring-gray-200 ${clubColorInfo.id === 'white' ? 'bg-gray-50' : ''}`} 
-                                      style={{ backgroundColor: clubColorInfo.hex }}
-                                  ></div>
-                                  <div className="absolute -bottom-1 -right-1 bg-white rounded-full p-0.5 border border-gray-200 shadow-sm">
-                                      <div className="w-3 h-3 bg-gray-400 rounded-full opacity-20"></div>
-                                  </div>
-                              </div>
-                              
-                              <div className="flex-1">
-                                  <p className="text-[10px] text-gray-400 font-bold uppercase tracking-wider mb-0.5">Estilo del Producto</p>
-                                  <p className="text-sm text-gray-700 leading-tight">
-                                      Se aplicará el color <span className="font-bold" style={{ color: clubColorInfo.id === 'white' ? '#333' : clubColorInfo.hex }}>{clubColorInfo.label}</span> configurado por el club <strong>{selectedClub?.name}</strong>.
-                                  </p>
-                              </div>
-                          </div>
-                      )}
-
-                      {/* Información de Fechas */}
-                      {deliveryInfo}
-
-                  </div>
-              );
-          })()}
-          
-
-            {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
-            {customization.clubId && (
+          {/* BUSCADOR DE CATEGORÍA */}
+          {customization.clubId && (
                 <div className="relative animate-fade-in">
                     <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona Categoría <span className="text-red-500">*</span></label>
                     <Input 
@@ -1569,7 +1490,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                     {showCategorySuggestions && categorySuggestions.length > 0 && (
                         <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
                             {categorySuggestions.map(cat => (
-                                <div key={cat} onClick={() => handleSelectCategory(cat)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
+                                <div key={cat} onClick={() => { setCustomization({ ...customization, category: cat }); setCategoryInput(cat); setShowCategorySuggestions(false); }} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
                                     <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
                                     <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
                                 </div>
@@ -1579,108 +1500,82 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                 </div>
             )}
 
-          <div className="grid grid-cols-2 gap-4">
-            {features.name && (
-                <div className={`${!customization.includeName ? 'opacity-50' : ''}`}>
-                    <div className="flex justify-between items-center mb-1">
-                        <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Nombre <span className="text-red-500">*</span></label>
-                        <input type="checkbox" disabled={!modifiable.name} checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
-                    </div>
-                    <Input disabled={!customization.includeName} required={customization.includeName} placeholder="Ej. García" value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/>
-                </div>
-            )}
-            {features.number && (
-                <div className={`${!customization.includeNumber ? 'opacity-50' : ''}`}>
-                    <div className="flex justify-between items-center mb-1">
-                        <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Dorsal <span className="text-red-500">*</span></label>
-                        <input type="checkbox" disabled={!modifiable.number} checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
-                    </div>
-                    <Input disabled={!customization.includeNumber} required={customization.includeNumber} type="number" placeholder="10" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/>
-                </div>
-            )}
-          </div>
-          
-          {/* SECCIÓN DE COLOR AUTOMÁTICO (CORREGIDO: Sin parpadeo y en gris) */}
-          {features.color && (
-              <div className="animate-fade-in">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Color Oficial del Club</label>
-                  <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
-                      
-                      {customization.clubId ? (
-                          // CASO A: HAY CLUB SELECCIONADO -> MUESTRA EL COLOR
-                          (() => {
-                              const colorInfo = AVAILABLE_COLORS.find(c => c.id === customization.color) || { label: customization.color, hex: customization.color, border: 'border-gray-300' };
-                              return (
-                                  <>
-                                      <div 
-                                          className={`w-10 h-10 rounded-full border-2 ${colorInfo.border} shadow-sm`} 
-                                          style={{ backgroundColor: colorInfo.hex }} 
-                                      />
-                                      <div>
-                                          <p className="text-sm font-bold text-gray-800 capitalize">
-                                              {colorInfo.label}
-                                          </p>
-                                          <p className="text-xs text-gray-500">Asignado automáticamente</p>
-                                      </div>
-                                  </>
-                              );
-                          })()
-                      ) : (
-                          // CASO B: NO HAY CLUB -> MUESTRA AVISO (GRIS Y ESTÁTICO)
-                          <>
-                              <div className="w-10 h-10 rounded-full border-2 border-gray-300 bg-gray-100 flex items-center justify-center shadow-inner">
-                                  <span className="text-gray-400 font-bold text-lg">?</span>
-                              </div>
-                              <div>
-                                  <p className="text-sm font-bold text-gray-600">
-                                      Pendiente de Club
-                                  </p>
-                                  <p className="text-xs text-gray-500 font-medium">
-                                      Selecciona tu club para visualizar
-                                  </p>
-                              </div>
-                          </>
-                      )}
-                      
-                      <Lock className="w-4 h-4 text-gray-400 ml-auto" />
+          {/* DATOS JUGADOR 1 (Ocultar si es Foto Equipo) */}
+          {!isTeamPhoto && (
+              <div className="space-y-4 border-t pt-4 border-gray-100">
+                  <h4 className="font-bold text-gray-600 text-xs uppercase">Datos Jugador 1</h4>
+                  <div className="grid grid-cols-2 gap-4">
+                    {features.name && (
+                        <div className={`${!customization.includeName ? 'opacity-50' : ''}`}>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Nombre <span className="text-red-500">*</span></label>
+                                <input type="checkbox" disabled={!modifiable.name} checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
+                            </div>
+                            <Input disabled={!customization.includeName} required={customization.includeName} placeholder="Ej. García" value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/>
+                        </div>
+                    )}
+                    {features.number && (
+                        <div className={`${!customization.includeNumber ? 'opacity-50' : ''}`}>
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-sm font-medium text-gray-700 flex items-center gap-1">Dorsal <span className="text-red-500">*</span></label>
+                                <input type="checkbox" disabled={!modifiable.number} checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})} className="accent-emerald-600 disabled:opacity-50" />
+                            </div>
+                            <Input disabled={!customization.includeNumber} required={customization.includeNumber} type="number" placeholder="10" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/>
+                        </div>
+                    )}
                   </div>
               </div>
           )}
 
-          {/* --- SECCIÓN DE BÚSQUEDA DE FOTO (INTEGRADA) --- */}
-          {/* --- SECCIÓN DE FOTO (SIMPLIFICADA - SOLO CHECKBOX) --- */}
-          {features.photo && (
-              <div className="bg-slate-50 p-4 rounded-xl border border-slate-200 mt-4 animate-fade-in">
-                  <div className="flex justify-between items-center">
-                      <label className="block text-sm font-bold text-slate-700 flex items-center gap-2">
-                          <ImageIcon className="w-4 h-4 text-emerald-600"/> Tu Foto
-                      </label>
-                      
-                      {/* Casilla marcada por defecto y deshabilitada (Visualmente activa) */}
-                      <div className="flex items-center gap-2">
-                          <span className="text-xs text-emerald-700 font-bold uppercase">Incluida</span>
-                          <input 
-                              type="checkbox" 
-                              checked={true} 
-                              disabled={true} 
-                              className="accent-emerald-600 w-5 h-5 cursor-not-allowed opacity-80"
-                          />
-                      </div>
+          {/* DATOS JUGADOR 2 (Solo si es Doble o Triple) */}
+          {(isDouble || isTriple) && (
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 animate-fade-in">
+                  <h4 className="font-bold text-blue-800 text-xs uppercase mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4"/> Datos Jugador 2
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4">
+                      <Input label="Nombre J2" required placeholder="Nombre 2º Jugador" value={customization.playerName2} onChange={e => setCustomization({...customization, playerName2: e.target.value})}/>
+                      <Input label="Dorsal J2" required type="number" placeholder="#" value={customization.playerNumber2} onChange={e => setCustomization({...customization, playerNumber2: e.target.value})}/>
                   </div>
-                  <p className="text-[10px] text-gray-500 mt-2 italic border-t border-slate-200 pt-2">
-                      * La selección de la foto se realizará internamente por el club/organización.
-                  </p>
+              </div>
+          )}
+
+          {/* DATOS JUGADOR 3 (Solo si es Triple) */}
+          {isTriple && (
+              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 animate-fade-in">
+                   <h4 className="font-bold text-purple-800 text-xs uppercase mb-3 flex items-center gap-2">
+                      <Users className="w-4 h-4"/> Datos Jugador 3
+                  </h4>
+                  <div className="grid grid-cols-2 gap-4">
+                      <Input label="Nombre J3" required placeholder="Nombre 3er Jugador" value={customization.playerName3} onChange={e => setCustomization({...customization, playerName3: e.target.value})}/>
+                      <Input label="Dorsal J3" required type="number" placeholder="#" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/>
+                  </div>
               </div>
           )}
           
-          {/* AVISO LEGAL VISUAL (Nuevo) */}
-          {(features.name || features.number) && (
-              <div className="bg-yellow-50 p-3 rounded-lg border border-yellow-200 text-xs text-yellow-800 flex gap-2 items-start animate-fade-in">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p>
-                      Los datos que indicados en el pedido será el que aparezca en el producto final. 
-                      Por favor comprueba haber escrito todo correctamente. Indicando mayúsculas, acentos, etc.
-                  </p>
+          {/* SECCIÓN DE COLOR AUTOMÁTICO */}
+          {features.color && (
+              <div className="animate-fade-in">
+                  <label className="block text-sm font-medium text-gray-700 mb-2">Color Oficial del Club</label>
+                  <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                      {customization.clubId ? (
+                          (() => {
+                              const colorInfo = AVAILABLE_COLORS.find(c => c.id === customization.color) || { label: customization.color, hex: customization.color, border: 'border-gray-300' };
+                              return (
+                                  <>
+                                      <div className={`w-10 h-10 rounded-full border-2 ${colorInfo.border} shadow-sm`} style={{ backgroundColor: colorInfo.hex }} />
+                                      <div><p className="text-sm font-bold text-gray-800 capitalize">{colorInfo.label}</p><p className="text-xs text-gray-500">Asignado automáticamente</p></div>
+                                  </>
+                              );
+                          })()
+                      ) : (
+                          <>
+                              <div className="w-10 h-10 rounded-full border-2 border-gray-300 bg-gray-100 flex items-center justify-center shadow-inner"><span className="text-gray-400 font-bold text-lg">?</span></div>
+                              <div><p className="text-sm font-bold text-gray-600">Pendiente de Club</p><p className="text-xs text-gray-500 font-medium">Selecciona tu club para visualizar</p></div>
+                          </>
+                      )}
+                      <Lock className="w-4 h-4 text-gray-400 ml-auto" />
+                  </div>
               </div>
           )}
 
@@ -4157,6 +4052,15 @@ const globalAccountingStats = useMemo(() => {
       if(item.playerName && item.includeName) details.push(`Nombre: ${item.playerName}`);
       if(item.playerNumber && item.includeNumber) details.push(`Dorsal: ${item.playerNumber}`);
       if(item.color) details.push(`Color: ${item.color}`);
+      if(item.size) details.push(`Talla: ${item.size}`); // Me he asegurado de añadir Talla también
+
+      // LÓGICA DE DETALLES EXTRA (J2/J3)
+      if (item.details) {
+          if (item.details.player2) details.push(`(J2: ${item.details.player2.name} #${item.details.player2.number})`);
+          if (item.details.player3) details.push(`(J3: ${item.details.player3.name} #${item.details.player3.number})`);
+          if (item.details.variant) details.push(`[${item.details.variant}]`);
+      }
+
       return details.join(', ');
   };
 

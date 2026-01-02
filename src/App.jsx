@@ -1555,29 +1555,29 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
           })()}
           
 
-          {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
-          {customization.clubId && !features.photo && (
-              <div className="relative animate-fade-in">
-                  <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona Categoría <span className="text-red-500">*</span></label>
-                  <Input 
-                      placeholder="Escribe para buscar categoría..." 
-                      value={categoryInput}
-                      onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: ''}); setShowCategorySuggestions(true); }}
-                      onFocus={() => setShowCategorySuggestions(true)}
-                      onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)}
-                  />
-                  {showCategorySuggestions && categorySuggestions.length > 0 && (
-                      <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                          {categorySuggestions.map(cat => (
-                              <div key={cat} onClick={() => handleSelectCategory(cat)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
-                                  <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
-                                  <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
-                              </div>
-                          ))}
-                      </div>
-                  )}
-              </div>
-          )}
+            {/* BUSCADOR DE CATEGORÍA (Visible solo si hay club) */}
+            {customization.clubId && (
+                <div className="relative animate-fade-in">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona Categoría <span className="text-red-500">*</span></label>
+                    <Input 
+                        placeholder="Escribe para buscar categoría..." 
+                        value={categoryInput}
+                        onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: ''}); setShowCategorySuggestions(true); }}
+                        onFocus={() => setShowCategorySuggestions(true)}
+                        onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)}
+                    />
+                    {showCategorySuggestions && categorySuggestions.length > 0 && (
+                        <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                            {categorySuggestions.map(cat => (
+                                <div key={cat} onClick={() => handleSelectCategory(cat)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
+                                    <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
+                                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
+                                </div>
+                            ))}
+                        </div>
+                    )}
+                </div>
+            )}
 
           <div className="grid grid-cols-2 gap-4">
             {features.name && (

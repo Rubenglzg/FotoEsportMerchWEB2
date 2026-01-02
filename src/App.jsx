@@ -3327,6 +3327,11 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
         customerPhone: '',
         paymentMethod: 'transfer',
         targetBatch: '',
+        
+        // --- ESTOS CAMPOS SON OBLIGATORIOS PARA EVITAR ERRORES ---
+        classification: 'standard', // 'standard', 'gift', 'incident'
+        incidentResponsibility: 'internal', // 'internal', 'supplier', 'club'
+        
         items: [],
         tempItem: {
             productId: '',
@@ -4123,7 +4128,7 @@ const globalAccountingStats = useMemo(() => {
 // --- DENTRO DE AdminDashboard (Sustituir función existente) ---
 
     const submitManualOrder = async () => {
-        // 1. Validaciones
+        // 1. Validaciones básicas
         if (!manualOrderForm.clubId || !manualOrderForm.customerName || manualOrderForm.items.length === 0) {
             showNotification('Faltan datos (Club, Cliente o Productos)', 'error');
             return;
@@ -4131,10 +4136,36 @@ const globalAccountingStats = useMemo(() => {
 
         const selectedClub = clubs.find(c => c.id === manualOrderForm.clubId);
         const totalOrder = manualOrderForm.items.reduce((sum, item) => sum + (item.price * item.quantity), 0);
-        const batchId = manualOrderForm.targetBatch ? parseInt(manualOrderForm.targetBatch) : selectedClub.activeGlobalOrderId;
+        
+        // --- 2. LÓGICA DE LOTE DESTINO (ROBUSTA) ---
+        let rawBatch = manualOrderForm.targetBatch;
+        
+        // Si está vacío, usar el activo del club
+        if (!rawBatch && selectedClub) rawBatch = selectedClub.activeGlobalOrderId;
+
+        // Convertir a formato correcto (String o Número)
+        let batchIdToSave = rawBatch;
+        const batchStr = String(rawBatch);
+
+        if (batchStr === 'INDIVIDUAL') {
+            batchIdToSave = 'INDIVIDUAL';
+        } else if (batchStr.startsWith('ERR-')) {
+            // Es un lote de errores (ej: "ERR-1"), lo dejamos como texto
+            batchIdToSave = batchStr;
+        } else {
+            // Es un número (ej: "15" o 15), lo convertimos a entero
+            batchIdToSave = parseInt(rawBatch);
+        }
+
+        // --- 3. LÓGICA DE MÉTODO DE PAGO ---
+        // Protegemos contra undefined usando || 'standard'
+        const currentClass = manualOrderForm.classification || 'standard';
+        
+        let finalPaymentMethod = manualOrderForm.paymentMethod;
+        if (currentClass === 'gift') finalPaymentMethod = 'gift';
+        if (currentClass === 'incident') finalPaymentMethod = 'incident';
 
         try {
-            // 2. Guardar en Firebase
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
                 createdAt: serverTimestamp(),
                 clubId: selectedClub.id,
@@ -4150,77 +4181,103 @@ const globalAccountingStats = useMemo(() => {
                     image: item.image || null
                 })),
                 total: totalOrder,
-                status: 'recopilando', 
+                
+                // Estado: Si es Individual va 'en_produccion', si es Lote se agrupa ('recopilando')
+                status: batchIdToSave === 'INDIVIDUAL' ? 'en_produccion' : 'recopilando', 
+                
                 visibleStatus: 'Pedido Manual (Admin)',
                 type: 'manual', 
-                paymentMethod: manualOrderForm.paymentMethod, 
-                globalBatch: batchId,
+                paymentMethod: finalPaymentMethod, 
+                globalBatch: batchIdToSave,
+                
+                // --- AQUÍ ESTABA EL ERROR: EVITAR UNDEFINED ---
+                manualOrderDetails: {
+                    classification: currentClass,
+                    responsibility: currentClass === 'incident' ? (manualOrderForm.incidentResponsibility || 'internal') : null
+                },
                 incidents: []
             });
 
             showNotification('Pedido manual creado correctamente');
             
-            // 3. CERRAR Y RESETEAR ABSOLUTAMENTE TODO
+            // Limpiar formulario y cerrar modal
             setManualOrderModal(false);
-            setManualOrderForm(INITIAL_MANUAL_FORM_STATE); // <--- Aquí usamos la constante limpia
+            setManualOrderForm(INITIAL_MANUAL_FORM_STATE);
 
         } catch (error) {
-            console.error("Error creando pedido manual:", error);
-            showNotification('Error al crear el pedido', 'error');
+            console.error("Error detallado creando pedido manual:", error);
+            // Mostrar error más descriptivo
+            if (error.message.includes("undefined")) {
+                showNotification('Error interno: Datos indefinidos en el formulario', 'error');
+            } else {
+                showNotification('Error al crear el pedido en base de datos', 'error');
+            }
         }
     };
 
-    // Función auxiliar para añadir producto a la lista temporal
+// Función auxiliar para añadir producto a la lista temporal (ACTUALIZADA)
     const addManualItemToOrder = () => {
         const { productId, size, name, number, quantity, activeName, activeNumber, activeSize, activeShield } = manualOrderForm.tempItem;
         if (!productId) return;
 
         const productDef = products.find(p => p.id === productId);
-        
-        // 1. Obtener Color del Club seleccionado
         const selectedClub = clubs.find(c => c.id === manualOrderForm.clubId);
         const clubColor = selectedClub ? (selectedClub.color || 'white') : 'white';
 
-        // 2. Configuración y Precio
+        // Precios base
         const defaults = productDef.defaults || { name: false, number: false, size: false, shield: true };
         const modifiable = productDef.modifiable || { name: true, number: true, size: true, shield: true };
         const fee = financialConfig.modificationFee || 0;
 
         let unitPrice = productDef.price;
 
-        // Lógica de Cobro
+        // Suplementos
         if (modifiable.size && (activeSize !== defaults.size)) unitPrice += fee;
         if (modifiable.name && (activeName !== defaults.name)) unitPrice += fee;
         if (modifiable.number && (activeNumber !== defaults.number)) unitPrice += fee;
         if (modifiable.shield && (activeShield !== defaults.shield)) unitPrice += fee;
 
-        // 3. Crear Objeto Item (Formato Estandarizado Web)
+        // --- LÓGICA DE PRECIO FINAL ---
+        let finalPrice = unitPrice;
+        let finalCost = productDef.cost || 0;
+        
+        // Usamos || 'standard' por seguridad
+        const currentClass = manualOrderForm.classification || 'standard';
+
+        if (currentClass === 'gift') {
+            finalPrice = 0; 
+        } else if (currentClass === 'incident') {
+            const resp = manualOrderForm.incidentResponsibility || 'internal';
+            if (resp === 'club') {
+                finalPrice = unitPrice; // Fallo club = Se cobra
+            } else if (resp === 'supplier') {
+                finalPrice = 0;
+                finalCost = 0; // Garantía = Coste 0
+            } else {
+                finalPrice = 0; // Fallo interno = Gratis cliente, pagamos nosotros
+            }
+        }
+
         const newItem = {
             productId,
             name: productDef.name,
-            
-            // Datos Planos (Igual que en la web)
             size: activeSize ? (size || 'Única') : '',
             playerName: activeName ? (name || '') : '',
             playerNumber: activeNumber ? (number || '') : '',
-            color: clubColor, // Asignamos el color del club automáticamente
-            
-            // Flags para saber qué mostrar
+            color: clubColor,
             includeName: activeName,
             includeNumber: activeNumber,
             includeShield: activeShield,
-
-            price: unitPrice,
+            price: finalPrice, 
             quantity: parseInt(quantity),
-            cost: productDef.cost || 0,
+            cost: finalCost,   
             image: productDef.image,
-            cartId: Date.now() + Math.random() // ID único para lista
+            cartId: Date.now() + Math.random()
         };
 
         setManualOrderForm({
             ...manualOrderForm,
             items: [...manualOrderForm.items, newItem],
-            // Resetear form temporal
             tempItem: { 
                 productId: '', size: '', name: '', number: '', price: 0, quantity: 1, 
                 activeName: false, activeNumber: false, activeSize: false, activeShield: false 
@@ -6276,7 +6333,7 @@ const globalAccountingStats = useMemo(() => {
             ))}
         </div>
 
-        {/* --- C. MODAL DE CREACIÓN DE PEDIDO MANUAL (ACTUALIZADO) --- */}
+{/* --- MODAL DE CREACIÓN DE PEDIDO MANUAL (MEJORADO) --- */}
         {manualOrderModal && (
             <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/50 backdrop-blur-sm animate-fade-in">
                 <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl overflow-hidden max-h-[90vh] flex flex-col">
@@ -6286,7 +6343,7 @@ const globalAccountingStats = useMemo(() => {
                             <Plus className="w-6 h-6 text-emerald-400"/>
                             <div>
                                 <h3 className="text-lg font-bold">Nuevo Pedido Manual</h3>
-                                <p className="text-xs text-gray-400">El precio respetará la configuración del producto</p>
+                                <p className="text-xs text-gray-400">Configura destino y tipo de cobro</p>
                             </div>
                         </div>
                         <button onClick={() => setManualOrderModal(false)} className="text-gray-400 hover:text-white"><X className="w-6 h-6"/></button>
@@ -6295,35 +6352,186 @@ const globalAccountingStats = useMemo(() => {
                     {/* Cuerpo Scrollable */}
                     <div className="p-6 overflow-y-auto custom-scrollbar space-y-6">
                         
-                        {/* 1. Datos Generales (Igual que antes) */}
-                        <div className="grid grid-cols-2 gap-4">
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase">Club</label>
-                                <select 
-                                    className="w-full border rounded p-2 mt-1"
-                                    value={manualOrderForm.clubId}
-                                    onChange={(e) => {
-                                        const c = clubs.find(cl => cl.id === e.target.value);
-                                        setManualOrderForm({...manualOrderForm, clubId: e.target.value, targetBatch: c?.activeGlobalOrderId});
-                                    }}
-                                >
-                                    <option value="">Selecciona Club...</option>
-                                    {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
-                                </select>
-                            </div>
-                            <div>
-                                <label className="text-xs font-bold text-gray-500 uppercase">Lote Destino</label>
-                                <input 
-                                    type="number" 
-                                    className="w-full border rounded p-2 mt-1"
-                                    value={manualOrderForm.targetBatch}
-                                    onChange={e => setManualOrderForm({...manualOrderForm, targetBatch: e.target.value})}
-                                    placeholder="Ej. 1"
-                                />
-                            </div>
+                        {/* 1. SELECCIÓN DE CLUB */}
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Club</label>
+                            <select 
+                                className="w-full border rounded-lg p-2.5 bg-gray-50 focus:ring-2 focus:ring-emerald-500 outline-none font-bold text-gray-700"
+                                value={manualOrderForm.clubId}
+                                onChange={(e) => {
+                                    const c = clubs.find(cl => cl.id === e.target.value);
+                                    setManualOrderForm({...manualOrderForm, clubId: e.target.value, targetBatch: c?.activeGlobalOrderId});
+                                }}
+                            >
+                                <option value="">-- Seleccionar Club --</option>
+                                {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                            </select>
                         </div>
 
-                        {/* 2. Cliente y Pago (Igual que antes) */}
+                        {manualOrderForm.clubId && (
+                            <div className="grid grid-cols-1 md:grid-cols-2 gap-6 animate-fade-in">
+                                
+                                {/* 2. DESTINO DEL PEDIDO (LOTE) - SIN DUPLICADOS */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 uppercase block mb-1">¿Dónde añadirlo?</label>
+                                    <select 
+                                        className="w-full border rounded-lg p-2.5 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none"
+                                        value={manualOrderForm.targetBatch}
+                                        onChange={e => setManualOrderForm({...manualOrderForm, targetBatch: e.target.value})}
+                                    >
+                                        <option value="INDIVIDUAL">📦 Individual / Suelto</option>
+                                        
+                                        {/* GRUPO: PEDIDOS GLOBALES */}
+                                        <optgroup label="--- Lotes Globales ---">
+                                            {(() => {
+                                                const c = clubs.find(cl => cl.id === manualOrderForm.clubId);
+                                                if (!c) return null;
+
+                                                const activeBatchId = c.activeGlobalOrderId; // Ej: 15 (Number)
+                                                const options = [];
+                                                const seenValues = new Set(); // Para controlar duplicados
+
+                                                // 1. Añadir SIEMPRE el Lote Activo primero
+                                                if (activeBatchId) {
+                                                    const val = activeBatchId.toString();
+                                                    seenValues.add(val);
+                                                    options.push(
+                                                        <option key={`global-active-${val}`} value={activeBatchId}>
+                                                            🔥 Global Activo #{activeBatchId}
+                                                        </option>
+                                                    );
+                                                }
+
+                                                // 2. Buscar otros lotes abiertos en la base de datos
+                                                orders
+                                                    .filter(o => 
+                                                        o.clubId === manualOrderForm.clubId && 
+                                                        !['SPECIAL', 'INDIVIDUAL'].includes(o.globalBatch) && 
+                                                        !o.globalBatch.toString().startsWith('ERR-') && 
+                                                        ['recopilando', 'en_produccion'].includes(o.status)
+                                                    )
+                                                    .forEach(o => {
+                                                        const val = o.globalBatch.toString();
+                                                        // Solo añadir si no lo hemos pintado ya (evita duplicar el activo)
+                                                        if (!seenValues.has(val)) {
+                                                            seenValues.add(val);
+                                                            options.push(
+                                                                <option key={o.id} value={o.globalBatch}>
+                                                                    Global #{o.globalBatch} ({o.status === 'recopilando' ? 'Abierto' : 'Prod.'})
+                                                                </option>
+                                                            );
+                                                        }
+                                                    });
+
+                                                return options;
+                                            })()}
+                                        </optgroup>
+
+                                        {/* GRUPO: LOTES DE ERRORES */}
+                                        <optgroup label="--- Lotes de Errores ---" className="text-red-600 font-bold">
+                                            {(() => {
+                                                const c = clubs.find(cl => cl.id === manualOrderForm.clubId);
+                                                const activeErrId = c ? (c.activeErrorBatchId || 1) : 1;
+                                                const activeErrBatch = `ERR-${activeErrId}`;
+                                                
+                                                const options = [];
+                                                const seenValues = new Set(); // Resetear control de duplicados para este grupo
+
+                                                // 1. Buscar lotes de errores existentes en BD
+                                                const errorBatches = orders.filter(o => 
+                                                    o.clubId === manualOrderForm.clubId && 
+                                                    o.globalBatch && 
+                                                    o.globalBatch.toString().startsWith('ERR-') && 
+                                                    ['recopilando', 'en_produccion'].includes(o.status)
+                                                );
+
+                                                // 2. Procesar los existentes primero (para ordenarlos mejor)
+                                                // Creamos una lista temporal combinada
+                                                const allErrOptions = [];
+
+                                                // A) Añadimos el "Teórico Activo" si no existe en la BD aún
+                                                const existsActiveInDB = errorBatches.some(o => o.globalBatch === activeErrBatch);
+                                                if (!existsActiveInDB) {
+                                                    allErrOptions.push({
+                                                        val: activeErrBatch,
+                                                        label: `🚨 Errores Activo #${activeErrId} (Nuevo)`,
+                                                        isNew: true
+                                                    });
+                                                }
+
+                                                // B) Añadimos los que vienen de la BD
+                                                errorBatches.forEach(o => {
+                                                    const isRecopilando = o.status === 'recopilando';
+                                                    allErrOptions.push({
+                                                        val: o.globalBatch,
+                                                        label: `${isRecopilando ? '🚨' : '⚠️'} ${o.visibleStatus || o.globalBatch} (${isRecopilando ? 'Abierto' : 'Prod.'})`,
+                                                        isNew: false
+                                                    });
+                                                });
+
+                                                // 3. Renderizar evitando duplicados reales y ordenando
+                                                // Ordenar: Texto descendente (ERR-2 antes que ERR-1)
+                                                allErrOptions.sort((a, b) => b.val.localeCompare(a.val, undefined, { numeric: true }));
+
+                                                allErrOptions.forEach((opt, idx) => {
+                                                    if (!seenValues.has(opt.val)) {
+                                                        seenValues.add(opt.val);
+                                                        options.push(
+                                                            <option key={`${opt.val}-${idx}`} value={opt.val}>
+                                                                {opt.label}
+                                                            </option>
+                                                        );
+                                                    }
+                                                });
+
+                                                return options;
+                                            })()}
+                                        </optgroup>
+                                    </select>
+                                </div>
+
+                                {/* 3. TIPO DE PEDIDO (VENTA / REGALO / FALLO) */}
+                                <div>
+                                    <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Clasificación</label>
+                                    <select 
+                                        className={`w-full border rounded-lg p-2.5 text-sm font-bold outline-none focus:ring-2 ${
+                                            manualOrderForm.classification === 'standard' ? 'border-gray-300 text-gray-800 focus:ring-emerald-500' :
+                                            manualOrderForm.classification === 'gift' ? 'border-blue-300 bg-blue-50 text-blue-700 focus:ring-blue-500' :
+                                            'border-red-300 bg-red-50 text-red-700 focus:ring-red-500'
+                                        }`}
+                                        value={manualOrderForm.classification}
+                                        onChange={e => setManualOrderForm({...manualOrderForm, classification: e.target.value})}
+                                    >
+                                        <option value="standard">💰 Venta Normal</option>
+                                        <option value="gift">🎁 Regalo (Coste Interno)</option>
+                                        <option value="incident">⚠️ Fallo / Reposición</option>
+                                    </select>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* SUB-OPCIONES PARA FALLO */}
+                        {manualOrderForm.classification === 'incident' && (
+                            <div className="bg-red-50 p-3 rounded-lg border border-red-100 flex flex-col gap-2 animate-fade-in">
+                                <label className="text-xs font-bold text-red-700 uppercase">¿Quién asume el coste?</label>
+                                <div className="flex gap-2">
+                                    <button 
+                                        onClick={() => setManualOrderForm({...manualOrderForm, incidentResponsibility: 'internal'})}
+                                        className={`flex-1 py-2 text-xs rounded border transition-colors ${manualOrderForm.incidentResponsibility === 'internal' ? 'bg-white border-red-400 text-red-700 font-bold shadow-sm' : 'border-transparent hover:bg-red-100 text-red-500'}`}
+                                    >
+                                        Fallo Nuestro (Coste Empresa)
+                                    </button>
+                                    <button 
+                                        onClick={() => setManualOrderForm({...manualOrderForm, incidentResponsibility: 'supplier'})}
+                                        className={`flex-1 py-2 text-xs rounded border transition-colors ${manualOrderForm.incidentResponsibility === 'supplier' ? 'bg-white border-red-400 text-red-700 font-bold shadow-sm' : 'border-transparent hover:bg-red-100 text-red-500'}`}
+                                    >
+                                        Garantía Proveedor (Coste 0)
+                                    </button>
+                                </div>
+                            </div>
+                        )}
+
+                        {/* 4. DATOS CLIENTE */}
                         <div className="bg-gray-50 p-4 rounded-xl border border-gray-200">
                             <h4 className="text-xs font-bold text-gray-700 uppercase mb-3 border-b border-gray-200 pb-2">Datos Cliente</h4>
                             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
@@ -6331,23 +6539,31 @@ const globalAccountingStats = useMemo(() => {
                                 <input placeholder="Email (Opcional)" className="border rounded p-2 text-sm" value={manualOrderForm.customerEmail} onChange={e => setManualOrderForm({...manualOrderForm, customerEmail: e.target.value})} />
                                 <input placeholder="Teléfono" className="border rounded p-2 text-sm" value={manualOrderForm.customerPhone} onChange={e => setManualOrderForm({...manualOrderForm, customerPhone: e.target.value})} />
                                 
-                                <select 
-                                    className="border rounded p-2 text-sm font-bold text-gray-700" 
-                                    value={manualOrderForm.paymentMethod} 
-                                    onChange={e => setManualOrderForm({...manualOrderForm, paymentMethod: e.target.value})}
-                                >
-                                    <option value="transfer">Transferencia</option>
-                                    <option value="bizum">Bizum</option>
-                                    <option value="cash">Efectivo</option>
-                                </select>
+                                {manualOrderForm.classification === 'standard' ? (
+                                    <select 
+                                        className="border rounded p-2 text-sm font-bold text-gray-700" 
+                                        value={manualOrderForm.paymentMethod} 
+                                        onChange={e => setManualOrderForm({...manualOrderForm, paymentMethod: e.target.value})}
+                                    >
+                                        <option value="transfer">Transferencia</option>
+                                        <option value="bizum">Bizum</option>
+                                        <option value="cash">Efectivo</option>
+                                    </select>
+                                ) : (
+                                    <div className="border rounded p-2 text-sm bg-gray-200 text-gray-500 font-bold italic text-center">
+                                        {manualOrderForm.classification === 'gift' ? 'Sin Cobro (Regalo)' : 'Sin Cobro (Incidencia)'}
+                                    </div>
+                                )}
                             </div>
                         </div>
 
-                        {/* 3. Productos (Carrito Manual Inteligente) */}
-                        <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100">
-                            <h4 className="text-xs font-bold text-emerald-800 uppercase mb-3 flex items-center gap-2"><ShoppingCart className="w-4 h-4"/> Productos</h4>
+                        {/* 5. AÑADIR PRODUCTOS (CARRITO MANUAL) */}
+                        <div className={`p-4 rounded-xl border ${manualOrderForm.classification === 'standard' ? 'bg-emerald-50/50 border-emerald-100' : 'bg-gray-50 border-gray-200'}`}>
+                            <h4 className="text-xs font-bold uppercase mb-3 flex items-center gap-2">
+                                <ShoppingCart className="w-4 h-4"/> Productos
+                            </h4>
                             
-                            <div className="flex flex-wrap items-end gap-2 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
+                            <div className="flex flex-wrap items-end gap-2 mb-4 bg-white p-3 rounded-lg border shadow-sm">
                                 
                                 {/* 1. SELECTOR DE PRODUCTO (Inicializa estados) */}
                                 <div className="flex-1 min-w-[150px]">

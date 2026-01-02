@@ -6070,7 +6070,7 @@ const globalAccountingStats = useMemo(() => {
                                                                 className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
                                                             >
                                                                 <div className="flex gap-4 items-center">
-                                                                    {/* Etiquetas de Tipo */}
+                                                                    {/* Etiquetas de Tipo (MANTENIDAS) */}
                                                                     {order.type === 'special' ? (
                                                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
                                                                     ) : order.type === 'manual' ? (
@@ -6088,7 +6088,37 @@ const globalAccountingStats = useMemo(() => {
                                                                     )}
                                                                     
                                                                     <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
-                                                                    {(!isStandard && !isErrorBatch) && <Badge status={order.status} />}
+                                                                    
+                                                                    {/* --- AQUÍ ESTÁ EL CAMBIO: SELECTOR PARA INDIVIDUALES --- */}
+                                                                    {batch.id === 'INDIVIDUAL' ? (
+                                                                            <div onClick={(e) => e.stopPropagation()}> 
+                                                                                <select
+                                                                                    value={order.status}
+                                                                                    onChange={(e) => {
+                                                                                        const newSt = e.target.value;
+                                                                                        // Definimos el texto visible según la opción elegida
+                                                                                        let visibleSt = 'Actualizado';
+                                                                                        if (newSt === 'pendiente_validacion') visibleSt = 'Pendiente';
+                                                                                        if (newSt === 'en_produccion') visibleSt = 'En Producción';
+                                                                                        if (newSt === 'entregado_club') visibleSt = 'Entregado';
+
+                                                                                        updateOrderStatus(order.id, newSt, visibleSt);
+                                                                                    }}
+                                                                                    className={`text-[10px] font-bold uppercase py-1 px-2 rounded border cursor-pointer outline-none ${
+                                                                                        order.status === 'en_produccion' ? 'bg-purple-100 text-purple-800 border-purple-200' :
+                                                                                        order.status === 'entregado_club' ? 'bg-green-100 text-green-800 border-green-200' :
+                                                                                        'bg-yellow-100 text-yellow-800 border-yellow-200' // Para Pendiente
+                                                                                    }`}
+                                                                                >
+                                                                                    <option value="pendiente_validacion">Pendiente</option>
+                                                                                    <option value="en_produccion">En Producción</option>
+                                                                                    <option value="entregado_club">Entregado</option>
+                                                                                </select>
+                                                                            </div>
+                                                                        ) : (
+                                                                            // Si no es individual, mantenemos el comportamiento normal (Badge estático)
+                                                                            (!isStandard && !isErrorBatch) && <Badge status={order.status} />
+                                                                        )}
                                                                 </div>
                                                                 <div className="flex gap-4 items-center text-sm">
                                                                     <span className="font-bold">{order.total.toFixed(2)}€</span>

@@ -2942,6 +2942,124 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
       modified: null 
   });
 
+  // --- NUEVO ESTADO PARA GESTIÓN AVANZADA DE LOTES ---
+    const [manageBatchModal, setManageBatchModal] = useState({
+        active: false,
+        club: null,
+        batchId: null,
+        orders: [],
+        action: 'move',     // 'move' | 'delete'
+        targetBatch: '',    // Para mover
+        deleteType: 'full'  // 'full' (Borrar Lote y Retroceder) | 'empty' (Solo vaciar pedidos)
+    });
+
+// ABRIR MODAL
+  const openManageBatchModal = (club, batchId, batchOrders) => {
+      let defaultTarget = '';
+      if (String(batchId).startsWith('ERR')) {
+          defaultTarget = club.activeGlobalOrderId; 
+      } else {
+          defaultTarget = club.activeGlobalOrderId;
+          if(batchId === club.activeGlobalOrderId) defaultTarget = 'INDIVIDUAL';
+      }
+
+      setManageBatchModal({
+          active: true,
+          club: club,
+          batchId: batchId,
+          orders: batchOrders,
+          action: batchOrders.length > 0 ? 'move' : 'delete',
+          targetBatch: defaultTarget,
+          deleteType: 'full' // Por defecto eliminar completo
+      });
+  };
+
+// --- FUNCIÓN EJECUTAR (ROBUSTA) ---
+  const executeBatchManagement = async () => {
+      const { club, batchId, orders: batchOrders, action, targetBatch, deleteType } = manageBatchModal;
+      if (!club || !batchId) return;
+
+      if (action === 'move' && !targetBatch) {
+          showNotification("Debes seleccionar un lote de destino", "error");
+          return;
+      }
+
+      try {
+          const batch = writeBatch(db);
+          
+          // Lógica robusta para identificar IDs numéricos
+          let batchNum = typeof batchId === 'number' ? batchId : 0;
+          let isErrorBatch = false;
+
+          if (typeof batchId === 'string' && batchId.startsWith('ERR')) {
+              isErrorBatch = true;
+              batchNum = parseInt(batchId.split('-')[1]); // "ERR-2" -> 2
+          }
+
+          // 1. PROCESAR PEDIDOS (Mover o Borrar)
+          batchOrders.forEach(order => {
+              const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
+              if (action === 'delete') {
+                  batch.delete(ref);
+              } else {
+                  // Lógica de mover (igual que antes)
+                  let finalGlobalBatch = targetBatch;
+                  if (targetBatch === 'ERR_ACTIVE') {
+                      finalGlobalBatch = `ERR-${club.activeErrorBatchId || 1}`;
+                  } else if (targetBatch !== 'INDIVIDUAL' && targetBatch !== 'SPECIAL') {
+                      if (!String(targetBatch).startsWith('ERR')) finalGlobalBatch = parseInt(targetBatch);
+                  }
+                  batch.update(ref, { 
+                      globalBatch: finalGlobalBatch, 
+                      status: 'recopilando', 
+                      visibleStatus: 'Recopilando (Traspasado)' 
+                  });
+              }
+          });
+
+          // 2. RETROCEDER CONTADOR (Solo si es 'delete full' y coincide con el activo)
+          if (action === 'delete' && deleteType === 'full') {
+              const clubRef = doc(db, 'clubs', club.id);
+              
+              if (isErrorBatch) {
+                  // CASO ERROR: ERR-2 -> Retroceder a 1
+                  const currentActiveErr = parseInt(club.activeErrorBatchId || 1);
+                  if (batchNum === currentActiveErr && batchNum >= 1) {
+                      // Restamos 1 (si es 1 pasa a 0 y desaparecen los errores)
+                      batch.update(clubRef, { activeErrorBatchId: batchNum - 1 });
+                      
+                      // Reabrir pedidos del anterior (si existen)
+                      if (batchNum > 1) {
+                          const prevBatchId = `ERR-${batchNum - 1}`;
+                          const prevOrders = orders.filter(o => o.clubId === club.id && o.globalBatch === prevBatchId);
+                          prevOrders.forEach(po => batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'orders', po.id), { status: 'recopilando' }));
+                      }
+                  }
+              } else {
+                  // CASO STANDARD: 5 -> Retroceder a 4
+                  const currentActiveStd = parseInt(club.activeGlobalOrderId || 1);
+                  if (batchNum === currentActiveStd && batchNum >= 1) {
+                      batch.update(clubRef, { activeGlobalOrderId: batchNum - 1 });
+                      
+                      if (batchNum > 1) {
+                          const prevOrders = orders.filter(o => o.clubId === club.id && o.globalBatch === batchNum - 1);
+                          prevOrders.forEach(po => batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'orders', po.id), { status: 'recopilando' }));
+                      }
+                  }
+              }
+          }
+
+          await batch.commit();
+          
+          showNotification(action === 'move' ? 'Pedidos traspasados' : 'Lote eliminado correctamente');
+          setManageBatchModal({ ...manageBatchModal, active: false });
+
+      } catch (error) {
+          console.error("Error batch management:", error);
+          showNotification("Error al procesar", "error");
+      }
+  };
+
   // Dentro de AdminDashboard, junto a los otros useState...
     const [collapsedBatches, setCollapsedBatches] = useState([]); // <--- NUEVO ESTADO
 
@@ -5465,6 +5583,174 @@ const globalAccountingStats = useMemo(() => {
         </div>
       )}
 
+    {/* --- MODAL GESTOR DE LOTES (V2 - CON OPCIONES DE BORRADO) --- */}
+        {manageBatchModal.active && (
+            <div className="fixed inset-0 bg-black/60 z-[200] flex items-center justify-center p-4 backdrop-blur-sm animate-fade-in">
+                <div className="bg-white rounded-xl shadow-2xl w-full max-w-lg overflow-hidden border border-gray-100">
+                    {/* Cabecera */}
+                    <div className="bg-gray-900 text-white px-6 py-4 flex justify-between items-center">
+                        <div>
+                            <h3 className="font-bold text-lg flex items-center gap-2">
+                                <Settings className="w-5 h-5 text-emerald-400"/> 
+                                Gestionar Lote #{manageBatchModal.batchId}
+                            </h3>
+                            <p className="text-xs text-gray-400">{manageBatchModal.club?.name}</p>
+                        </div>
+                        <button onClick={() => setManageBatchModal({...manageBatchModal, active: false})} className="text-gray-400 hover:text-white">
+                            <X className="w-6 h-6"/>
+                        </button>
+                    </div>
+
+                    <div className="p-6 space-y-6">
+                        {/* Info */}
+                        <div className="flex items-center gap-4 bg-gray-50 p-3 rounded-lg border border-gray-200">
+                            <div className="bg-white p-2 rounded shadow-sm border border-gray-100">
+                                <Package className="w-6 h-6 text-blue-600"/>
+                            </div>
+                            <div>
+                                <p className="text-sm font-bold text-gray-800">Contenido: {manageBatchModal.orders.length} pedidos</p>
+                                <p className="text-xs text-gray-500">Selecciona qué hacer con este bloque de pedidos.</p>
+                            </div>
+                        </div>
+
+                        {/* OPCIÓN 1: MOVER */}
+                        <label className={`block relative p-4 rounded-xl border-2 cursor-pointer transition-all ${manageBatchModal.action === 'move' ? 'border-emerald-500 bg-emerald-50/20' : 'border-gray-200 hover:border-emerald-200'}`}>
+                            <div className="flex items-start gap-3">
+                                <input 
+                                    type="radio" 
+                                    name="bAction" 
+                                    checked={manageBatchModal.action === 'move'}
+                                    onChange={() => setManageBatchModal({...manageBatchModal, action: 'move'})}
+                                    disabled={manageBatchModal.orders.length === 0}
+                                    className="mt-1 w-4 h-4 accent-emerald-600"
+                                />
+                                <div className="flex-1">
+                                    <span className={`font-bold block ${manageBatchModal.orders.length === 0 ? 'text-gray-400' : 'text-gray-800'}`}>Traspasar Pedidos</span>
+                                    <p className="text-xs text-gray-500 mt-1">Mueve los pedidos a otro lote (ej. siguiente o errores) sin borrarlos.</p>
+                                    
+                                    {manageBatchModal.action === 'move' && (
+                                        <div className="mt-3 animate-fade-in">
+                                            <select 
+                                                className="w-full border border-gray-300 rounded p-2 text-sm font-bold text-gray-700 focus:ring-2 focus:ring-emerald-500 outline-none"
+                                                value={manageBatchModal.targetBatch}
+                                                onChange={(e) => setManageBatchModal({...manageBatchModal, targetBatch: e.target.value})}
+                                            >
+                                                <option value="">-- Destino --</option>
+                                                <option value={manageBatchModal.club?.activeGlobalOrderId}>📦 Lote Activo Actual</option>
+                                                <option value={manageBatchModal.club?.activeGlobalOrderId + 1}>✨ Siguiente Lote Futuro</option>
+                                                <option value="ERR_ACTIVE">🚨 Lote de Errores</option>
+                                                <option value="INDIVIDUAL">👤 Individual (Sueltos)</option>
+                                            </select>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </label>
+
+                        {/* OPCIÓN 2: ELIMINAR */}
+                        <label className={`block relative p-4 rounded-xl border-2 cursor-pointer transition-all ${manageBatchModal.action === 'delete' ? 'border-red-500 bg-red-50/20' : 'border-gray-200 hover:border-red-200'}`}>
+                            <div className="flex items-start gap-3">
+                                <input 
+                                    type="radio" 
+                                    name="bAction" 
+                                    checked={manageBatchModal.action === 'delete'}
+                                    onChange={() => setManageBatchModal({...manageBatchModal, action: 'delete'})}
+                                    className="mt-1 w-4 h-4 accent-red-600"
+                                />
+                                <div className="flex-1">
+                                    <span className="font-bold text-red-700 block">Eliminar / Vaciar</span>
+                                    <p className="text-xs text-red-600/80 mt-1">Acciones destructivas sobre el lote.</p>
+
+                                    {manageBatchModal.action === 'delete' && (
+                                        <div className="mt-3 space-y-2 animate-fade-in pl-1">
+                                            
+                                         {/* Opción A: Borrar Lote Entero (LÓGICA MEJORADA) */}
+                                            {(() => {
+                                                const mBatch = manageBatchModal.batchId;
+                                                const mClub = manageBatchModal.club;
+                                                if(!mClub) return null;
+
+                                                let showDeleteOption = false;
+
+                                                // CASO 1: Lote Numérico (Estándar)
+                                                // Debe ser igual al activo y mayor o igual a 1
+                                                if (typeof mBatch === 'number') {
+                                                    const activeStd = parseInt(mClub.activeGlobalOrderId || 1);
+                                                    showDeleteOption = (mBatch === activeStd && activeStd >= 1);
+                                                }
+
+                                                // CASO 2: Lote de Errores (String tipo "ERR-2")
+                                                // Extraemos el número "2" y comparamos con el activo de errores
+                                                if (typeof mBatch === 'string' && mBatch.startsWith('ERR')) {
+                                                    const parts = mBatch.split('-'); // ["ERR", "2"]
+                                                    if (parts.length === 2) {
+                                                        const batchNum = parseInt(parts[1]);
+                                                        const activeErr = parseInt(mClub.activeErrorBatchId || 1);
+                                                        // Mostramos si coincide con el activo (ej: 2 === 2)
+                                                        showDeleteOption = (batchNum === activeErr && activeErr >= 1);
+                                                    }
+                                                }
+
+                                                if (showDeleteOption) {
+                                                    return (
+                                                        <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-red-50 transition-colors animate-fade-in">
+                                                            <input 
+                                                                type="radio" 
+                                                                name="delType"
+                                                                checked={manageBatchModal.deleteType === 'full'}
+                                                                onChange={() => setManageBatchModal({...manageBatchModal, deleteType: 'full'})}
+                                                                className="w-4 h-4 accent-red-600"
+                                                            />
+                                                            <div>
+                                                                <span className="text-xs font-bold text-gray-800 block">
+                                                                    Eliminar Lote y Retroceder
+                                                                </span>
+                                                                <span className="text-[10px] text-gray-500 block">
+                                                                    Borra el lote actual y vuelve a activar el anterior.
+                                                                </span>
+                                                            </div>
+                                                        </label>
+                                                    );
+                                                }
+                                                return null;
+                                            })()}
+
+                                            {/* Opción B: Solo vaciar */}
+                                            <label className="flex items-center gap-2 cursor-pointer p-2 rounded hover:bg-red-50 transition-colors">
+                                                <input 
+                                                    type="radio" 
+                                                    name="delType"
+                                                    checked={manageBatchModal.deleteType === 'empty'}
+                                                    onChange={() => setManageBatchModal({...manageBatchModal, deleteType: 'empty'})}
+                                                    className="w-4 h-4 accent-red-600"
+                                                />
+                                                <div>
+                                                    <span className="text-xs font-bold text-gray-800 block">Solo Vaciar Pedidos</span>
+                                                    <span className="text-[10px] text-gray-500 block">Borra los pedidos pero mantiene el lote visible (vacío).</span>
+                                                </div>
+                                            </label>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        </label>
+                    </div>
+
+                    <div className="bg-gray-50 px-6 py-4 flex justify-end gap-3 border-t">
+                        <Button variant="secondary" onClick={() => setManageBatchModal({...manageBatchModal, active: false})}>Cancelar</Button>
+                        <Button 
+                            onClick={executeBatchManagement}
+                            className={`${manageBatchModal.action === 'delete' ? 'bg-red-600 hover:bg-red-700' : 'bg-emerald-600 hover:bg-emerald-700'} text-white shadow-md`}
+                        >
+                            {manageBatchModal.action === 'delete' ? 'Confirmar Eliminación' : 'Confirmar Traspaso'}
+                        </Button>
+                    </div>
+                </div>
+            </div>
+        )}
+
+      
+
 
 {/* --- PESTAÑA PEDIDOS/CONTABILIDAD (AdminDashboard) --- */}
 {tab === 'accounting' && (
@@ -5753,6 +6039,16 @@ const globalAccountingStats = useMemo(() => {
                                                     </div>
                                                 </>
                                             )}
+
+                                            {/* --- PEGAR AQUÍ EL NUEVO BOTÓN (PASO 2) --- */}
+                                            <button 
+                                                onClick={() => openManageBatchModal(club, batch.id, batch.orders)}
+                                                className="p-2 ml-2 rounded-lg bg-red-50 text-red-500 border border-red-100 hover:bg-red-500 hover:text-white hover:border-red-500 transition-all shadow-sm group"
+                                                title="Gestionar o Eliminar Lote"
+                                            >
+                                                <Trash2 className="w-4 h-4" />
+                                            </button>
+
                                         </div>
                                     </div>
 

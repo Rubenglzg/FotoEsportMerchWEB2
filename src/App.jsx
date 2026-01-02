@@ -2921,7 +2921,7 @@ const SupplierStockModal = ({ active, onClose, batchId, orders, suppliers, produ
     );
 };
 
-function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch}) {
+function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch}) {
   const [tab, setTab] = useState('management');
   const [showNewClubPass, setShowNewClubPass] = useState(false);
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
@@ -2941,6 +2941,18 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
       original: null, 
       modified: null 
   });
+
+  // Dentro de AdminDashboard, junto a los otros useState...
+    const [collapsedBatches, setCollapsedBatches] = useState([]); // <--- NUEVO ESTADO
+
+    // Función auxiliar para alternar (abrir/cerrar)
+    const toggleBatch = (batchId) => {
+        if (collapsedBatches.includes(batchId)) {
+            setCollapsedBatches(collapsedBatches.filter(id => id !== batchId));
+        } else {
+            setCollapsedBatches([...collapsedBatches, batchId]);
+        }
+    };
 
   // Estado para controlar el modal de cambio de estado con notificación
     const [statusChangeModal, setStatusChangeModal] = useState({ 
@@ -3662,42 +3674,68 @@ function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialC
   const getWidth = (val, max) => max > 0 ? `${(val / max) * 100}%` : '0%';
 
 // Lógica de agrupación de pedidos (V4 - Con Lote Activo siempre visible)
-  const accountingData = useMemo(() => {
-      const visibleClubs = filterClubId === 'all' 
-          ? clubs 
-          : clubs.filter(c => c.id === filterClubId);
+    const accountingData = useMemo(() => {
+        const visibleClubs = filterClubId === 'all' ? clubs : clubs.filter(c => c.id === filterClubId);
 
-      return visibleClubs.map(club => {
-          const clubOrders = financialOrders.filter(o => o.clubId === club.id);
-          const batches = {};
-          
-          clubOrders.forEach(order => {
-              let batchId = order.globalBatch || 1;
-              if (order.type === 'special') batchId = 'SPECIAL';
-              if (batchId === 'INDIVIDUAL') batchId = 'INDIVIDUAL';
-              
-              if (!batches[batchId]) batches[batchId] = [];
-              batches[batchId].push(order);
-          });
+        return visibleClubs.map(club => {
+            const clubOrders = financialOrders.filter(o => o.clubId === club.id);
+            const batches = {};
+            
+            clubOrders.forEach(order => {
+                let batchId = order.globalBatch || 1;
+                // Asegurar que string ids se traten como strings
+                if (typeof batchId === 'string' && batchId.startsWith('ERR')) {
+                    // Mantener batchId tal cual (ej: "ERR-1")
+                } else {
+                    if (order.type === 'special') batchId = 'SPECIAL';
+                    if (batchId === 'INDIVIDUAL') batchId = 'INDIVIDUAL';
+                }
+                
+                if (!batches[batchId]) batches[batchId] = [];
+                batches[batchId].push(order);
+            });
 
-          // --- NUEVO: Asegurar que el Lote Activo aparece aunque esté vacío ---
-          if (club.activeGlobalOrderId && !batches[club.activeGlobalOrderId]) {
-              batches[club.activeGlobalOrderId] = [];
-          }
+            // Asegurar Lote Activo Standard
+            if (club.activeGlobalOrderId && !batches[club.activeGlobalOrderId]) {
+                batches[club.activeGlobalOrderId] = [];
+            }
 
-          const sortedBatches = Object.entries(batches)
-              .map(([id, orders]) => ({ id: (id === 'SPECIAL' || id === 'INDIVIDUAL') ? id : parseInt(id), orders }))
-              .sort((a, b) => {
-                  if (a.id === 'SPECIAL') return -1;
-                  if (b.id === 'SPECIAL') return 1;
-                  if (a.id === 'INDIVIDUAL') return -1;
-                  if (b.id === 'INDIVIDUAL') return 1;
-                  return b.id - a.id; 
-              });
+            // Asegurar Lote Activo de Errores (para que salga aunque esté vacío)
+            const activeErr = `ERR-${club.activeErrorBatchId || 1}`;
+            if (!batches[activeErr]) batches[activeErr] = [];
 
-          return { club, batches: sortedBatches };
-      });
-  }, [clubs, financialOrders, filterClubId]);
+            const sortedBatches = Object.entries(batches)
+                .map(([id, orders]) => {
+                    // Detectar si es un lote de errores (string que empieza por ERR)
+                    const isError = typeof id === 'string' && id.startsWith('ERR');
+                    // Si es SPECIAL, INDIVIDUAL o ERROR, mantenemos el ID como string. Si no, número.
+                    return { id: (id === 'SPECIAL' || id === 'INDIVIDUAL' || isError) ? id : parseInt(id), orders, isError };
+                })
+                .sort((a, b) => {
+                    // 1. Especiales primero
+                    if (a.id === 'SPECIAL') return -1;
+                    if (b.id === 'SPECIAL') return 1;
+                    
+                    // 2. Errores después (Ordenados del más nuevo al más viejo: ERR-2, ERR-1...)
+                    if (a.isError && b.isError) {
+                        const numA = parseInt(a.id.split('-')[1]);
+                        const numB = parseInt(b.id.split('-')[1]);
+                        return numB - numA; 
+                    }
+                    if (a.isError) return -1; // Errores van antes que los lotes normales
+                    if (b.isError) return 1;
+
+                    // 3. Individuales al final
+                    if (a.id === 'INDIVIDUAL') return 1;
+                    if (b.id === 'INDIVIDUAL') return -1;
+                    
+                    // 4. Lotes numéricos normales (descendente)
+                    return b.id - a.id; 
+                });
+
+            return { club, batches: sortedBatches };
+        });
+    }, [clubs, financialOrders, filterClubId]);
 
   // 1. Estado para el modal de detalles
   const [accDetailsModal, setAccDetailsModal] = useState({ active: false, title: '', items: [], type: '' });
@@ -3873,23 +3911,27 @@ const globalAccountingStats = useMemo(() => {
 
         const { order, item, qty, cost, reason, responsibility, internalOrigin, recharge, targetBatch } = incidentForm;
         
-        // 1. Calcular PRECIO DE VENTA (Lo que paga el cliente/club)
-        // Solo cobramos si es culpa del club y marcamos "Cobrar de nuevo"
+        // Obtener el club actualizado para saber el ID de error actual
+        const currentClub = clubs.find(c => c.id === order.clubId);
+        
+        // LÓGICA DE LOTE DE ERRORES
+        let batchIdToSave = targetBatch;
+        if (targetBatch === 'ERRORS') {
+            const currentClub = clubs.find(c => c.id === order.clubId);
+            const errorId = currentClub?.activeErrorBatchId || 1; 
+            batchIdToSave = `ERR-${errorId}`; // <--- ESTO ES LA CLAVE
+        } else if (targetBatch !== 'INDIVIDUAL') {
+            batchIdToSave = parseInt(targetBatch);
+        }
+
         const finalPrice = (responsibility === 'club' && recharge) ? item.price : 0;
         
-        // 2. Calcular COSTE (Lo que pagamos nosotros al proveedor)
-        // Si es fallo 'internal':
-        //    - 'supplier': El proveedor asume el coste -> Coste para nosotros = 0
-        //    - 'us': Nosotros asumimos el coste -> Coste = El coste de reimpresión introducido
-        // Si es fallo 'club':
-        //    - Nosotros pagamos la reimpresión (aunque luego se la cobremos al club en el precio) -> Coste = input cost
         let finalCost = parseFloat(cost);
         if (responsibility === 'internal' && internalOrigin === 'supplier') {
             finalCost = 0;
         }
 
         const totalOrder = finalPrice * qty;
-        const batchIdToSave = targetBatch === 'INDIVIDUAL' ? 'INDIVIDUAL' : parseInt(targetBatch);
 
         try {
             await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
@@ -3905,10 +3947,11 @@ const globalAccountingStats = useMemo(() => {
                     ...item,
                     quantity: parseInt(qty),
                     price: finalPrice,
-                    cost: finalCost, // <--- COSTE AJUSTADO
+                    cost: finalCost,
                     name: `${item.name} [REP]`
                 }],
                 total: totalOrder,
+                // Si es un lote de errores, lo ponemos en "recopilando" para que salga en el dashboard
                 status: targetBatch === 'INDIVIDUAL' ? 'en_produccion' : 'recopilando',
                 visibleStatus: 'Reposición / Incidencia',
                 type: 'replacement',
@@ -3919,12 +3962,12 @@ const globalAccountingStats = useMemo(() => {
                     originalItemId: item.cartId,
                     reason: reason,
                     responsibility: responsibility,
-                    internalOrigin: responsibility === 'internal' ? internalOrigin : null // Guardamos el detalle
+                    internalOrigin: responsibility === 'internal' ? internalOrigin : null
                 },
                 incidents: []
             });
 
-            // Marcar incidencia resuelta en el original
+            // ... (resto del código igual: updateDoc incidents array, showNotification, etc.)
             const originalRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
             await updateDoc(originalRef, {
                 incidents: arrayUnion({
@@ -3933,7 +3976,7 @@ const globalAccountingStats = useMemo(() => {
                     itemName: item.name,
                     date: new Date().toISOString(),
                     resolved: true,
-                    note: `Reposición generada (${targetBatch === 'INDIVIDUAL' ? 'Entr. Individual' : 'Lote ' + targetBatch})`
+                    note: `Reposición generada (${String(batchIdToSave).startsWith('ERR') ? 'Lote Errores' : 'Lote ' + batchIdToSave})`
                 })
             });
 
@@ -5084,15 +5127,35 @@ const globalAccountingStats = useMemo(() => {
                         </div>
 
                         {/* Asignación a Lote Inteligente */}
-                      <div>
-                          <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Añadir a Lote de Entrega</label>
-                          <select 
-                              className="w-full border rounded p-2 text-sm bg-gray-50 focus:ring-2 focus:ring-orange-500 outline-none"
-                              value={incidentForm.targetBatch}
-                              onChange={e => setIncidentForm({...incidentForm, targetBatch: e.target.value})}
-                          >
+                            <div>
+                                <label className="block text-xs font-bold text-gray-600 mb-1 uppercase">Añadir a Lote de Entrega</label>
+                                <select 
+                                    className="w-full border rounded p-2 text-sm bg-gray-50 focus:ring-2 focus:ring-orange-500 outline-none"
+                                    value={incidentForm.targetBatch}
+                                    onChange={e => setIncidentForm({...incidentForm, targetBatch: e.target.value})}
+                                >
                               {/* OPCIÓN 1: Entrega Individual */}
                               <option value="INDIVIDUAL">📦 Entrega Individual (Excepcional)</option>
+
+                                {/* OPCIÓN INTELIGENTE PARA PEDIDO ERRORES */}
+                                <option value="ERRORS" className="font-bold text-red-600">
+                                    {(() => {
+                                        // 1. Obtener ID del lote activo
+                                        const c = clubs.find(cl => cl.id === incidentForm.order.clubId);
+                                        const errId = c ? (c.activeErrorBatchId || 1) : 1;
+                                        
+                                        // 2. Comprobar si ya existen pedidos en ese lote (ERR-X)
+                                        const batchKey = `ERR-${errId}`;
+                                        const hasOrders = orders.some(o => o.clubId === incidentForm.order.clubId && o.globalBatch === batchKey);
+                                        
+                                        // 3. Mostrar texto dinámico
+                                        if (hasOrders) {
+                                            return `🚨 Pedido Errores #${errId} (En Curso)`;
+                                        } else {
+                                            return `🚨 Pedido Errores #${errId} (Lote Futuro - Abrir Nuevo)`;
+                                        }
+                                    })()}
+                                </option>
                               
                               {/* OPCIÓN 2: Lotes Activos (Recopilando o Producción) */}
                               {(() => {
@@ -5483,20 +5546,45 @@ const globalAccountingStats = useMemo(() => {
                     
                     <div className="divide-y divide-gray-200">
                         {batches.map(batch => {
+                            // 1. Identificar tipo de lote
+                            const isErrorBatch = typeof batch.id === 'string' && batch.id.startsWith('ERR');
                             const isStandard = typeof batch.id === 'number';
-                            const isActive = isStandard && batch.id === club.activeGlobalOrderId;
-                            const status = (!isStandard) ? 'special' : (batch.orders[0]?.status || 'recopilando');
+
+                            // 2. Identificar si está activo
+                            const isActiveStandard = isStandard && batch.id === club.activeGlobalOrderId;
+                            const isActiveError = isErrorBatch && batch.id === `ERR-${club.activeErrorBatchId || 1}`;
+
+                            // Estado y totales
+                            // Si es Error Batch, también puede tener estado 'recopilando', etc.
+                            const status = (!isStandard && !isErrorBatch) ? 'special' : (batch.orders[0]?.status || 'recopilando');
                             const isProduction = ['en_produccion', 'entregado_club'].includes(status);
                             const batchTotal = batch.orders.reduce((sum, o) => sum + o.total, 0);
 
                             return (
-                                <div key={batch.id} className={`p-4 transition-colors ${isActive ? 'bg-emerald-50/40' : 'bg-white'}`}>
+                                <div key={batch.id} className={`p-4 transition-colors ${isActiveStandard ? 'bg-emerald-50/40' : isActiveError ? 'bg-red-50/40' : 'bg-white'}`}>
                                     
                                     {/* 1. CABECERA DEL LOTE */}
                                     <div className="flex flex-col md:flex-row justify-between items-start md:items-center mb-4 gap-4">
                                         <div className="flex flex-wrap items-center gap-3">
-                                            {/* Título */}
-                                            {isStandard ? (
+                                            
+                                            {/* --- BOTÓN COLAPSAR/EXPANDIR --- */}
+                                            <button 
+                                                onClick={() => toggleBatch(batch.id)}
+                                                className="p-1 rounded-full hover:bg-black/10 transition-colors"
+                                            >
+                                                <ChevronRight 
+                                                    className={`w-6 h-6 text-gray-500 transition-transform duration-200 ${collapsedBatches.includes(batch.id) ? '' : 'rotate-90'}`}
+                                                />
+                                            </button>
+                                            {/* ------------------------------- */}
+                                            
+                                            {/* TÍTULOS DINÁMICOS - ROJO SUAVIZADO (text-red-600 en vez de 700) */}
+                                            {isErrorBatch ? (
+                                                <span className="font-black text-lg text-red-600 flex items-center gap-2">
+                                                    <AlertTriangle className="w-5 h-5"/>
+                                                    PEDIDO ERRORES #{batch.id.split('-')[1]}
+                                                </span>
+                                            ) : isStandard ? (
                                                 <span className="font-bold text-lg text-emerald-900">Pedido Global #{batch.id}</span>
                                             ) : (
                                                 <span className="font-black text-lg text-gray-700 flex items-center gap-2">
@@ -5505,18 +5593,25 @@ const globalAccountingStats = useMemo(() => {
                                                 </span>
                                             )}
 
-                                            {isActive && <span className="text-[10px] bg-emerald-600 text-white px-2 py-0.5 rounded font-bold uppercase">Activo</span>}
-                                            {isStandard && <Badge status={status} />}
+                                            {/* ETIQUETA ACTIVO - ROJO SUAVIZADO (bg-red-500 en vez de 600) */}
+                                            {(isActiveStandard || isActiveError) && (
+                                                <span className={`text-[10px] px-2 py-0.5 rounded font-bold uppercase ${isErrorBatch ? 'bg-red-500 text-white' : 'bg-emerald-600 text-white'}`}>
+                                                    Activo
+                                                </span>
+                                            )}
+
+                                            {/* Badge de estado (Para Standard y Errores) */}
+                                            {(isStandard || isErrorBatch) && <Badge status={status} />}
                                             
                                             <span className="text-xs font-mono bg-gray-100 px-2 py-1 rounded text-gray-600 border">
                                                 Total: {batchTotal.toFixed(2)}€
                                             </span>
 
-                                            {/* --- GESTIÓN DE FECHA DE CIERRE (Con Lápiz) --- */}
-                                            {isStandard && isActive && (
+                                            {/* GESTIÓN DE FECHA DE CIERRE (Solo para Lotes Estándar) */}
+                                            {isStandard && isActiveStandard && (
                                                 <div className="ml-2">
                                                     {editingDate.clubId === club.id ? (
-                                                        // MODO EDICIÓN
+                                                        // MODO EDICIÓN FECHA
                                                         <div className="flex items-center gap-1 bg-white p-1 rounded-lg border-2 border-blue-400 shadow-md animate-fade-in scale-105 origin-left">
                                                             <div className="flex flex-col px-1">
                                                                 <span className="text-[8px] font-bold text-blue-500 uppercase leading-none">Nueva Fecha</span>
@@ -5543,21 +5638,19 @@ const globalAccountingStats = useMemo(() => {
                                                                         });
                                                                     }}
                                                                     className="bg-emerald-100 hover:bg-emerald-200 text-emerald-700 p-1.5 rounded transition-colors"
-                                                                    title="Guardar"
                                                                 >
                                                                     <Check className="w-3.5 h-3.5"/>
                                                                 </button>
                                                                 <button 
                                                                     onClick={() => setEditingDate({ clubId: null, date: '' })}
                                                                     className="bg-red-50 hover:bg-red-100 text-red-500 p-1.5 rounded transition-colors"
-                                                                    title="Cancelar"
                                                                 >
                                                                     <X className="w-3.5 h-3.5"/>
                                                                 </button>
                                                             </div>
                                                         </div>
                                                     ) : (
-                                                        // MODO VISUALIZACIÓN
+                                                        // MODO VISUALIZACIÓN FECHA
                                                         <div className={`group flex items-center gap-2 px-3 py-1.5 rounded-lg border transition-all ${!club.nextBatchDate ? 'bg-orange-50 border-orange-200' : 'bg-white border-gray-200 hover:border-blue-300'}`}>
                                                             <Calendar className={`w-3.5 h-3.5 ${!club.nextBatchDate ? 'text-orange-500' : 'text-gray-400'}`}/>
                                                             <div className="flex flex-col">
@@ -5570,7 +5663,6 @@ const globalAccountingStats = useMemo(() => {
                                                                 <button 
                                                                     onClick={() => setEditingDate({ clubId: club.id, date: club.nextBatchDate || '' })}
                                                                     className="ml-1 p-1.5 rounded-md text-gray-400 hover:text-blue-600 hover:bg-blue-50 transition-colors opacity-0 group-hover:opacity-100 focus:opacity-100"
-                                                                    title="Editar fecha de cierre"
                                                                 >
                                                                     <Edit3 className="w-3.5 h-3.5"/>
                                                                 </button>
@@ -5585,6 +5677,18 @@ const globalAccountingStats = useMemo(() => {
 
                                         {/* ACCIONES DEL LOTE */}
                                         <div className="flex items-center gap-2">
+                                            
+                                            {/* BOTÓN CERRAR LOTE DE ERRORES - ROJO SUAVIZADO (bg-red-500 en vez de 600) */}
+                                            {isActiveError && (
+                                                <Button 
+                                                    size="xs" 
+                                                    onClick={() => incrementClubErrorBatch(club.id)} 
+                                                    className="bg-red-500 hover:bg-red-600 text-white text-[10px] h-7 px-3 shadow-sm mr-2"
+                                                >
+                                                    <Archive className="w-3 h-3 mr-1"/> Cerrar Lote Errores
+                                                </Button>
+                                            )}
+
                                             <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)} disabled={batch.orders.length===0}>
                                                 <FileDown className="w-3 h-3 mr-1"/> Excel
                                             </Button>
@@ -5597,221 +5701,232 @@ const globalAccountingStats = useMemo(() => {
                                                 <Printer className="w-3 h-3 mr-1"/> Albarán
                                             </Button>
 
-                                            {isStandard && (
-                                                <Button 
-                                                    size="xs" 
-                                                    variant="outline"
-                                                    className="ml-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
-                                                    disabled={batch.orders.length === 0}
-                                                    onClick={() => setSupplierStockModal({ 
-                                                        active: true, 
-                                                        batchId: batch.id, 
-                                                        orders: batch.orders, 
-                                                        club: club 
-                                                    })}
-                                                >
-                                                    <Factory className="w-3 h-3 mr-1"/> Stock Prov.
-                                                </Button>
-                                            )}
+                                            {/* Stock y Cambio de Estado (Común para Standard y Errores) */}
+                                            {(isStandard || isErrorBatch) && (
+                                                <>
+                                                    <Button 
+                                                        size="xs" 
+                                                        variant="outline"
+                                                        className="ml-2 text-indigo-600 border-indigo-200 hover:bg-indigo-50"
+                                                        disabled={batch.orders.length === 0}
+                                                        onClick={() => setSupplierStockModal({ 
+                                                            active: true, 
+                                                            batchId: batch.id, 
+                                                            orders: batch.orders, 
+                                                            club: club 
+                                                        })}
+                                                    >
+                                                        <Factory className="w-3 h-3 mr-1"/> Stock Prov.
+                                                    </Button>
 
-                                            {isStandard && (
-                                                <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
-                                                    <select 
-                                                        value={status}
-                                                        onChange={(e) => {
-                                                            e.preventDefault(); // <--- Añade esto por seguridad
-                                                            initiateStatusChange(club.id, batch.id, e.target.value);
-                                                        }}
-                                                        className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer outline-none ${
-                                                            status === 'en_produccion' ? 'bg-purple-100 text-purple-700 border-purple-200' :
-                                                            status === 'entregado_club' ? 'bg-green-100 text-green-700 border-green-200' :
-                                                            'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
-                                                        }`}
-                                                    >
-                                                        <option value="recopilando">Recopilando</option>
-                                                        <option value="en_produccion">En Producción</option>
-                                                        <option value="entregado_club">Entregado</option>
-                                                    </select>
-                                                    {/* --- NUEVO BOTÓN HISTORIAL --- */}
-                                                    <button 
-                                                        onClick={() => {
-                                                            // Filtramos el historial de este club para este lote específico
-                                                            const history = club.batchHistory?.filter(h => h.batchId === batch.id) || [];
-                                                            setBatchHistoryModal({ 
-                                                                active: true, 
-                                                                history: history.sort((a,b) => new Date(b.date) - new Date(a.date)), // Ordenar por fecha desc
-                                                                batchId: batch.id, 
-                                                                clubName: club.name 
-                                                            });
-                                                        }}
-                                                        className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 border border-blue-200 transition-colors"
-                                                        title="Ver Historial de Cambios"
-                                                    >
-                                                        {/* Icono de Historial/Reloj */}
-                                                        <NotebookText className="w-4 h-4" />
-                                                    </button>
-                                                </div>
+                                                    <div className="flex items-center gap-2 ml-2 border-l pl-2 border-gray-300">
+                                                        <select 
+                                                            value={status}
+                                                            onChange={(e) => {
+                                                                e.preventDefault();
+                                                                initiateStatusChange(club.id, batch.id, e.target.value);
+                                                            }}
+                                                            className={`text-xs border rounded py-1 px-2 font-bold cursor-pointer outline-none ${
+                                                                status === 'en_produccion' ? 'bg-purple-100 text-purple-700 border-purple-200' :
+                                                                status === 'entregado_club' ? 'bg-green-100 text-green-700 border-green-200' :
+                                                                'bg-white text-gray-700 border-gray-300 hover:border-gray-400'
+                                                            }`}
+                                                        >
+                                                            <option value="recopilando">Recopilando</option>
+                                                            <option value="en_produccion">En Producción</option>
+                                                            <option value="entregado_club">Entregado</option>
+                                                        </select>
+                                                        <button 
+                                                            onClick={() => {
+                                                                const history = club.batchHistory?.filter(h => h.batchId === batch.id) || [];
+                                                                setBatchHistoryModal({ 
+                                                                    active: true, 
+                                                                    history: history.sort((a,b) => new Date(b.date) - new Date(a.date)),
+                                                                    batchId: batch.id, 
+                                                                    clubName: club.name 
+                                                                });
+                                                            }}
+                                                            className="p-1.5 bg-blue-50 text-blue-600 rounded hover:bg-blue-100 border border-blue-200 transition-colors"
+                                                        >
+                                                            <NotebookText className="w-4 h-4" />
+                                                        </button>
+                                                    </div>
+                                                </>
                                             )}
                                         </div>
                                     </div>
 
-                                    {/* 2. LISTA DE PEDIDOS */}
-                                    {batch.orders.length === 0 ? (
-                                        <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
-                                            Aún no hay pedidos en este lote.
-                                        </div>
-                                    ) : (
-                                        <div className="pl-4 border-l-4 border-gray-200 space-y-2">
-                                            {batch.orders.map(order => (
-                                            <div key={order.id} className={`border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:border-emerald-300 group/order ${order.type === 'manual' ? 'border-l-4 border-l-orange-400' : ''}`}>
-                                        
-                                                    {/* CABECERA TARJETA */}
-                                                    <div 
-                                                        onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
-                                                        className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
-                                                    >
-                                                        <div className="flex gap-4 items-center">
-                                                            {/* Etiquetas de Tipo */}
-                                                            {order.type === 'special' ? (
-                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
-                                                            ) : order.type === 'manual' ? (
-                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
-                                                                    <Edit3 className="w-3 h-3"/> ANOTADO MANUALMENTE
-                                                                </span>
-                                                            ) : order.globalBatch === 'INDIVIDUAL' ? (
-                                                                <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
-                                                            ) : (
-                                                                <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded text-gray-600">#{order.id.slice(0,6)}</span>
-                                                            )}
-                                                            
-                                                            <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
-                                                            {!isStandard && <Badge status={order.status} />}
-                                                        </div>
-                                                        <div className="flex gap-4 items-center text-sm">
-                                                            <span className="font-bold">{order.total.toFixed(2)}€</span>
-                                                            <ChevronRight className={`w-4 h-4 text-gray-300 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
-                                                        </div>
-                                                    </div>
-                                                    
-                                                    {/* DETALLE EXPANDIDO */}
-                                                    {expandedOrderId === order.id && (
-                                                        <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
-                                                            
-                                                            <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2"><Package className="w-3 h-3"/> Productos del Pedido</h5>
-                                                            <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100 mb-4">
-                                                                {order.items.map(item => {
-                                                                    const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
-                                                                    return (
-                                                                        <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
-                                                                            <div className="flex gap-3 items-center flex-1">
-                                                                                {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
-                                                                                <div>
-                                                                                    <p className="font-bold text-gray-800 text-sm">{item.name}</p>
-                                                                                    {/* Muestra los detalles (Talla, Nombre, Dorsal) */}
-                                                                                    <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
-                                                                                </div>
-                                                                            </div>
-                                                                            <div className="flex items-center gap-6 mr-4">
-                                                                                <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Cant.</p><p className="font-medium text-sm">{item.quantity || 1}</p></div>
-                                                                                <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Precio</p><p className="font-medium text-sm">{item.price.toFixed(2)}€</p></div>
-                                                                            </div>
-                                                                            <div className="flex items-center gap-2 border-l pl-3">
-                                                                                {isIncident ? (
-                                                                                    <span className="text-xs text-red-600 font-bold flex items-center gap-1 bg-red-50 px-2 py-1 rounded"><AlertTriangle className="w-3 h-3"/> Reportado</span>
-                                                                                ) : (
-                                                                                    <button 
-                                                                                        onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
-                                                                                        className="text-orange-600 bg-orange-50 hover:bg-orange-100 p-1.5 rounded-md text-xs border border-orange-200 flex items-center gap-1 transition-colors" 
-                                                                                        title="Reportar Fallo / Incidencia"
-                                                                                    >
-                                                                                        <AlertTriangle className="w-3 h-3"/> Fallo
-                                                                                    </button>
-                                                                                )}
-                                                                            </div>
-                                                                        </div>
-                                                                    );
-                                                                })}
-                                                            </div>
-
-                                                            {/* --- HISTORIAL DE NOTIFICACIONES --- */}
-                                                            <div className="mt-4 bg-white border border-gray-200 rounded-lg overflow-hidden">
-                                                                <div className="bg-gray-100 px-3 py-2 border-b border-gray-200 flex justify-between items-center">
-                                                                    <h5 className="font-bold text-gray-600 text-xs uppercase flex items-center gap-2">
-                                                                        <Mail className="w-3 h-3"/> Historial de Avisos Enviados
-                                                                    </h5>
-                                                                    <span className="text-[10px] text-gray-400">{order.notificationLog ? order.notificationLog.length : 0} registros</span>
-                                                                </div>
-                                                                
-                                                                <div className="max-h-32 overflow-y-auto">
-                                                                    {order.notificationLog && order.notificationLog.length > 0 ? (
-                                                                        <table className="w-full text-left text-[10px]">
-                                                                            <thead className="bg-gray-50 text-gray-400">
-                                                                                <tr>
-                                                                                    <th className="px-3 py-1 font-medium">Fecha</th>
-                                                                                    <th className="px-3 py-1 font-medium">Cambio</th>
-                                                                                    <th className="px-3 py-1 font-medium">Canal</th>
-                                                                                </tr>
-                                                                            </thead>
-                                                                            <tbody className="divide-y divide-gray-50">
-                                                                                {order.notificationLog.map((log, i) => (
-                                                                                    <tr key={i} className="hover:bg-gray-50">
-                                                                                        <td className="px-3 py-1.5 text-gray-600">
-                                                                                            {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
-                                                                                        </td>
-                                                                                        <td className="px-3 py-1.5">
-                                                                                            <div className="flex items-center gap-2">
-                                                                                                {/* Estado Origen (Gris y tachado o más pequeño) */}
-                                                                                                <span className="text-xs text-gray-400 font-medium">
-                                                                                                    {formatStatus(log.statusFrom)}
-                                                                                                </span>
-                                                                                                
-                                                                                                {/* Flecha de dirección */}
-                                                                                                <ArrowRight className="w-3 h-3 text-emerald-500" />
-                                                                                                
-                                                                                                {/* Estado Destino (Negrita y destacado) */}
-                                                                                                <span className="text-xs font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">
-                                                                                                    {formatStatus(log.statusTo)}
-                                                                                                </span>
-                                                                                            </div>
-                                                                                        </td>
-                                                                                        <td className="px-3 py-1.5">
-                                                                                            <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${log.method === 'email' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-green-50 text-green-600 border-green-100'}`}>
-                                                                                                {log.method.toUpperCase()}
-                                                                                            </span>
-                                                                                        </td>
-                                                                                    </tr>
-                                                                                ))}
-                                                                            </tbody>
-                                                                        </table>
-                                                                    ) : (
-                                                                        <p className="p-3 text-xs text-gray-400 italic text-center">No se han enviado notificaciones para este pedido.</p>
-                                                                    )}
-                                                                </div>
-                                                            </div>
-                                                            
-                                                            <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
-                                                                <button 
-                                                                    onClick={(e) => { 
-                                                                        e.stopPropagation(); 
-                                                                        const original = JSON.parse(JSON.stringify(order)); 
-                                                                        const modified = JSON.parse(JSON.stringify(order)); 
-                                                                        setEditOrderModal({ active: true, original, modified }); 
-                                                                    }} 
-                                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors"
-                                                                >
-                                                                    <Edit3 className="w-3 h-3"/> Modificar Datos
-                                                                </button>
-                                                                <button 
-                                                                    onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }} 
-                                                                    className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
-                                                                >
-                                                                    <Trash2 className="w-3 h-3"/> Eliminar
-                                                                </button>
-                                                            </div>
-                                                        </div>
-                                                    )}
+                                    {/* 2. LISTA DE PEDIDOS (Con lógica de colapsado) */}
+                                    {!collapsedBatches.includes(batch.id) ? (
+                                        <>
+                                            {batch.orders.length === 0 ? (
+                                                <div className="pl-4 border-l-4 border-gray-200 py-4 text-gray-400 text-sm italic">
+                                                    Aún no hay pedidos en este lote.
                                                 </div>
-                                            ))}
+                                            ) : (
+                                                <div className={`pl-4 border-l-4 space-y-2 ${isErrorBatch ? 'border-red-200' : 'border-gray-200'}`}>
+                                                    {batch.orders.map(order => (
+                                                        <div key={order.id} className={`border rounded-lg bg-white shadow-sm overflow-hidden transition-all hover:border-emerald-300 group/order ${order.type === 'manual' ? 'border-l-4 border-l-orange-400' : order.type === 'replacement' ? 'border-l-4 border-l-red-500' : ''}`}>
+                                                    
+                                                            {/* CABECERA TARJETA */}
+                                                            <div 
+                                                                onClick={() => setExpandedOrderId(expandedOrderId === order.id ? null : order.id)} 
+                                                                className="flex justify-between items-center p-3 cursor-pointer hover:bg-gray-50 select-none"
+                                                            >
+                                                                <div className="flex gap-4 items-center">
+                                                                    {/* Etiquetas de Tipo */}
+                                                                    {order.type === 'special' ? (
+                                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
+                                                                    ) : order.type === 'manual' ? (
+                                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
+                                                                            <Edit3 className="w-3 h-3"/> MANUAL
+                                                                        </span>
+                                                                    ) : order.type === 'replacement' ? (
+                                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 flex items-center gap-1">
+                                                                            <AlertTriangle className="w-3 h-3"/> ERROR
+                                                                        </span>
+                                                                    ) : order.globalBatch === 'INDIVIDUAL' ? (
+                                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
+                                                                    ) : (
+                                                                        <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded text-gray-600">#{order.id.slice(0,6)}</span>
+                                                                    )}
+                                                                    
+                                                                    <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
+                                                                    {(!isStandard && !isErrorBatch) && <Badge status={order.status} />}
+                                                                </div>
+                                                                <div className="flex gap-4 items-center text-sm">
+                                                                    <span className="font-bold">{order.total.toFixed(2)}€</span>
+                                                                    <ChevronRight className={`w-4 h-4 text-gray-300 transition-transform duration-200 ${expandedOrderId === order.id ? 'rotate-90' : ''}`}/>
+                                                                </div>
+                                                            </div>
+                                                            
+                                                            {/* DETALLE EXPANDIDO */}
+                                                            {expandedOrderId === order.id && (
+                                                                <div className="p-4 bg-gray-50 border-t border-gray-100 text-sm animate-fade-in-down">
+                                                                    
+                                                                    {/* Si es una reposición, mostramos el motivo */}
+                                                                    {order.incidentDetails && (
+                                                                        <div className="mb-4 bg-red-50 p-3 rounded border border-red-100 text-red-800 text-xs">
+                                                                            <p className="font-bold flex items-center gap-1"><AlertTriangle className="w-3 h-3"/> Detalles del Fallo:</p>
+                                                                            <p className="mt-1">"{order.incidentDetails.reason}"</p>
+                                                                            <p className="mt-1 opacity-75">
+                                                                                Responsable: {order.incidentDetails.responsibility === 'internal' ? 'Interno' : 'Club'}
+                                                                            </p>
+                                                                        </div>
+                                                                    )}
+
+                                                                    <h5 className="font-bold text-gray-500 mb-3 text-xs uppercase flex items-center gap-2"><Package className="w-3 h-3"/> Productos</h5>
+                                                                    <div className="bg-white rounded border border-gray-200 divide-y divide-gray-100 mb-4">
+                                                                        {order.items.map(item => {
+                                                                            const isIncident = order.incidents?.some(inc => inc.itemId === item.cartId && !inc.resolved);
+                                                                            return (
+                                                                                <div key={item.cartId || Math.random()} className="flex justify-between items-center p-3 hover:bg-gray-50">
+                                                                                    <div className="flex gap-3 items-center flex-1">
+                                                                                        {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
+                                                                                        <div>
+                                                                                            <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                                                                                            <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
+                                                                                        </div>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-6 mr-4">
+                                                                                        <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Cant.</p><p className="font-medium text-sm">{item.quantity || 1}</p></div>
+                                                                                        <div className="text-right"><p className="text-[10px] text-gray-400 uppercase font-bold">Precio</p><p className="font-medium text-sm">{item.price.toFixed(2)}€</p></div>
+                                                                                    </div>
+                                                                                    <div className="flex items-center gap-2 border-l pl-3">
+                                                                                        {isIncident ? (
+                                                                                            <span className="text-xs text-red-600 font-bold flex items-center gap-1 bg-red-50 px-2 py-1 rounded"><AlertTriangle className="w-3 h-3"/> Reportado</span>
+                                                                                        ) : (
+                                                                                            <button 
+                                                                                                onClick={(e) => { e.stopPropagation(); handleOpenIncident(order, item); }} 
+                                                                                                className="text-orange-600 bg-orange-50 hover:bg-orange-100 p-1.5 rounded-md text-xs border border-orange-200 flex items-center gap-1 transition-colors" 
+                                                                                                title="Reportar Fallo / Incidencia"
+                                                                                            >
+                                                                                                <AlertTriangle className="w-3 h-3"/> Fallo
+                                                                                            </button>
+                                                                                        )}
+                                                                                    </div>
+                                                                                </div>
+                                                                            );
+                                                                        })}
+                                                                    </div>
+
+                                                                    {/* --- HISTORIAL DE NOTIFICACIONES --- */}
+                                                                    <div className="mt-4 bg-white border border-gray-200 rounded-lg overflow-hidden">
+                                                                        <div className="bg-gray-100 px-3 py-2 border-b border-gray-200 flex justify-between items-center">
+                                                                            <h5 className="font-bold text-gray-600 text-xs uppercase flex items-center gap-2">
+                                                                                <Mail className="w-3 h-3"/> Historial de Avisos
+                                                                            </h5>
+                                                                            <span className="text-[10px] text-gray-400">{order.notificationLog ? order.notificationLog.length : 0} registros</span>
+                                                                        </div>
+                                                                        
+                                                                        <div className="max-h-32 overflow-y-auto">
+                                                                            {order.notificationLog && order.notificationLog.length > 0 ? (
+                                                                                <table className="w-full text-left text-[10px]">
+                                                                                    <thead className="bg-gray-50 text-gray-400">
+                                                                                        <tr>
+                                                                                            <th className="px-3 py-1 font-medium">Fecha</th>
+                                                                                            <th className="px-3 py-1 font-medium">Cambio</th>
+                                                                                            <th className="px-3 py-1 font-medium">Canal</th>
+                                                                                        </tr>
+                                                                                    </thead>
+                                                                                    <tbody className="divide-y divide-gray-50">
+                                                                                        {order.notificationLog.map((log, i) => (
+                                                                                            <tr key={i} className="hover:bg-gray-50">
+                                                                                                <td className="px-3 py-1.5 text-gray-600">
+                                                                                                    {new Date(log.date).toLocaleDateString()} {new Date(log.date).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                                                                                </td>
+                                                                                                <td className="px-3 py-1.5">
+                                                                                                    <div className="flex items-center gap-2">
+                                                                                                        <span className="text-xs text-gray-400 font-medium">{formatStatus(log.statusFrom)}</span>
+                                                                                                        <ArrowRight className="w-3 h-3 text-emerald-500" />
+                                                                                                        <span className="text-xs font-bold text-gray-800 bg-gray-100 px-2 py-0.5 rounded border border-gray-200">{formatStatus(log.statusTo)}</span>
+                                                                                                    </div>
+                                                                                                </td>
+                                                                                                <td className="px-3 py-1.5">
+                                                                                                    <span className={`px-1.5 py-0.5 rounded text-[9px] font-bold border ${log.method === 'email' ? 'bg-blue-50 text-blue-600 border-blue-100' : 'bg-green-50 text-green-600 border-green-100'}`}>
+                                                                                                        {log.method.toUpperCase()}
+                                                                                                    </span>
+                                                                                                </td>
+                                                                                            </tr>
+                                                                                        ))}
+                                                                                    </tbody>
+                                                                                </table>
+                                                                            ) : (
+                                                                                <p className="p-3 text-xs text-gray-400 italic text-center">No se han enviado notificaciones.</p>
+                                                                            )}
+                                                                        </div>
+                                                                    </div>
+                                                                    
+                                                                    <div className="flex justify-end gap-3 pt-2 border-t border-gray-200">
+                                                                        <button 
+                                                                            onClick={(e) => { 
+                                                                                e.stopPropagation(); 
+                                                                                const original = JSON.parse(JSON.stringify(order)); 
+                                                                                const modified = JSON.parse(JSON.stringify(order)); 
+                                                                                setEditOrderModal({ active: true, original, modified }); 
+                                                                            }} 
+                                                                            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-emerald-600 bg-emerald-50 hover:bg-emerald-100 rounded border border-emerald-200 transition-colors"
+                                                                        >
+                                                                            <Edit3 className="w-3 h-3"/> Modificar
+                                                                        </button>
+                                                                        <button 
+                                                                            onClick={(e) => { e.stopPropagation(); handleDeleteOrder(order.id); }} 
+                                                                            className="flex items-center gap-1 px-3 py-1.5 text-xs font-medium text-red-600 bg-red-50 hover:bg-red-100 rounded border border-red-200 transition-colors"
+                                                                        >
+                                                                            <Trash2 className="w-3 h-3"/> Eliminar
+                                                                        </button>
+                                                                    </div>
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </>
+                                    ) : (
+                                        /* ESTADO COLAPSADO */
+                                        <div className="pl-4 py-2 text-xs text-gray-400 italic bg-gray-50 border-t border-gray-100">
+                                            <span className="font-bold">{batch.orders.length} pedidos ocultos.</span> Haz clic en la flecha de la cabecera para desplegar.
                                         </div>
                                     )}
                                 </div>
@@ -7100,6 +7215,28 @@ export default function App() {
       }); 
   };
 
+    // --- FUNCIÓN QUE FALTABA PARA CERRAR LOTE DE ERRORES ---
+    const incrementClubErrorBatch = (clubId) => {
+        const club = clubs.find(c => c.id === clubId);
+        // Si no existe el campo en base de datos, asumimos que es el 1
+        const currentErrId = club.activeErrorBatchId || 1;
+        
+        setConfirmation({ 
+            msg: `¿Cerrar el Lote de Errores #${currentErrId}? \nLos siguientes fallos irán al #${currentErrId + 1}.`, 
+            title: "Cerrar Lote de Errores",
+            onConfirm: async () => { 
+                try {
+                    // Actualizamos el contador en Firebase
+                    await updateDoc(doc(db, 'clubs', clubId), { activeErrorBatchId: currentErrId + 1 });
+                    showNotification(`Nuevo Lote de Errores iniciado (#${currentErrId + 1})`); 
+                } catch (e) { 
+                    console.error(e); 
+                    showNotification("Error al cerrar el lote", "error");
+                }
+            } 
+        }); 
+    };
+
   const decrementClubGlobalOrder = async (clubId, newActiveId) => { 
       try {
           await updateDoc(doc(db, 'clubs', clubId), { activeGlobalOrderId: newActiveId });
@@ -7437,7 +7574,7 @@ export default function App() {
         {view === 'order-success' && <OrderSuccessView setView={setView} />}
         {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
-        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} /> }
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} incrementClubErrorBatch={incrementClubErrorBatch} /> }
       </main>
       <footer className="bg-gray-900 text-white py-12 mt-12"><div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8"><div><div className="mb-4 text-white"><CompanyLogo className="h-40" /></div><p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p></div><div><h3 className="text-lg font-semibold mb-4">Legal</h3><ul className="space-y-2 text-gray-400 cursor-pointer"><li>Política de Privacidad</li><li>Aviso Legal</li><li onClick={() => setView('right-to-forget')} className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"><UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)</li></ul></div><div><h3 className="text-lg font-semibold mb-4">Contacto</h3><p className="text-gray-400">info@fotoesportmerch.es</p></div></div></footer>
     </div>

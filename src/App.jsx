@@ -629,18 +629,20 @@ const ColorPicker = ({ selectedColor, onChange }) => {
 // --- COMPONENTE FILA DE CLUB (ACTUALIZADO CON CAMBIO DE FOTO) ---
 const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
     const [isEditing, setIsEditing] = useState(false);
+    // 1. AÑADIDO: cashPaymentEnabled al estado (por defecto true si no existe)
     const [editData, setEditData] = useState({ 
         name: club.name, 
         pass: club.pass, 
         username: club.username || '', 
         color: club.color || 'white',
-        commission: club.commission || 0.12 
+        commission: club.commission || 0.12,
+        cashPaymentEnabled: club.cashPaymentEnabled !== false // true por defecto
     });
     const [showPass, setShowPass] = useState(false);
-    const [newLogo, setNewLogo] = useState(null); // Estado para el nuevo logo
+    const [newLogo, setNewLogo] = useState(null); 
 
     const handleSave = () => { 
-        // Pasamos editData y el archivo newLogo a la función updateClub
+        // 2. AÑADIDO: Se pasa cashPaymentEnabled al actualizar
         updateClub({ ...club, ...editData, commission: parseFloat(editData.commission) }, newLogo); 
         setIsEditing(false); 
         setNewLogo(null);
@@ -696,11 +698,29 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
 
                 {/* Pie: Comisión y Botones */}
                 <div className="flex justify-between items-end border-t pt-4 mt-2">
-                     <div>
-                        <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Comisión Venta</label>
-                        <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded border">
-                            <input type="number" step="1" className="w-12 bg-transparent text-right text-sm font-bold outline-none" value={(editData.commission * 100).toFixed(0)} onChange={e => setEditData({...editData, commission: parseFloat(e.target.value) / 100})} />
-                            <span className="text-xs font-bold">%</span>
+                     <div className="flex gap-4">
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Comisión Venta</label>
+                            <div className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded border">
+                                <input type="number" step="1" className="w-12 bg-transparent text-right text-sm font-bold outline-none" value={(editData.commission * 100).toFixed(0)} onChange={e => setEditData({...editData, commission: parseFloat(e.target.value) / 100})} />
+                                <span className="text-xs font-bold">%</span>
+                            </div>
+                        </div>
+                        
+                        {/* 3. AÑADIDO: Checkbox Efectivo */}
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Métodos Pago</label>
+                            <label className={`flex items-center gap-2 px-3 py-1.5 rounded border cursor-pointer transition-colors ${editData.cashPaymentEnabled ? 'bg-green-50 border-green-200 text-green-700' : 'bg-gray-50 border-gray-200 text-gray-400'}`}>
+                                <input 
+                                    type="checkbox" 
+                                    className="accent-green-600 w-4 h-4"
+                                    checked={editData.cashPaymentEnabled} 
+                                    onChange={e => setEditData({...editData, cashPaymentEnabled: e.target.checked})} 
+                                />
+                                <span className="text-xs font-bold flex items-center gap-1">
+                                    <Banknote className="w-3.5 h-3.5"/> Efectivo
+                                </span>
+                            </label>
                         </div>
                     </div>
 
@@ -715,10 +735,10 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
         )
     }
 
+    // 4. AÑADIDO: Indicador visual en modo "Ver"
     return (
         <div className={`flex justify-between items-center p-4 rounded-xl border mb-3 transition-all group ${club.blocked ? 'bg-red-50 border-red-200' : 'bg-white border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
             <div className="flex items-center gap-5">
-                {/* LOGO DEL CLUB */}
                 <div className="w-16 h-16 rounded-xl bg-gray-50 border border-gray-200 flex items-center justify-center overflow-hidden shrink-0 p-2 shadow-inner">
                     {club.logoUrl ? (
                         <img src={club.logoUrl} alt="Logo" className="w-full h-full object-contain" />
@@ -738,6 +758,12 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
                         <span className="flex items-center gap-1 bg-gray-100 px-2 py-1 rounded"><User className="w-3 h-3 text-gray-400"/> {club.username}</span>
                         <span className="flex items-center gap-1 bg-emerald-50 text-emerald-700 border border-emerald-100 px-2 py-1 rounded font-bold">Comisión: {(club.commission * 100).toFixed(0)}%</span>
                          <span className="flex items-center gap-1 bg-blue-50 text-blue-700 border border-blue-100 px-2 py-1 rounded font-bold">Lote Activo: #{club.activeGlobalOrderId || 1}</span>
+                         {/* Indicador de efectivo */}
+                         {club.cashPaymentEnabled === false && (
+                             <span className="flex items-center gap-1 bg-red-50 text-red-600 border border-red-100 px-2 py-1 rounded font-bold" title="Pago en efectivo desactivado">
+                                 <Ban className="w-3 h-3"/> No Efectivo
+                             </span>
+                         )}
                     </div>
                 </div>
             </div>
@@ -1590,6 +1616,22 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
   });
   const [paymentMethod, setPaymentMethod] = useState('card');
 
+  // --- 1. LÓGICA DE DETECCIÓN DEL CLUB Y PERMISOS DE PAGO ---
+  // Obtenemos el club del carrito (asumiendo que todos los items son del mismo club o usamos el primero)
+  const currentClubId = cart.length > 0 ? cart[0].clubId : null;
+  const currentClub = clubs.find(c => c.id === currentClubId);
+  
+  // Si no está definido (legacy), asumimos que sí se permite (true)
+  const isCashEnabled = currentClub ? (currentClub.cashPaymentEnabled !== false) : true;
+
+  // Si el usuario tenía seleccionado Efectivo pero el club lo prohíbe, cambiar a tarjeta automáticamente
+  useEffect(() => {
+      if (!isCashEnabled && paymentMethod === 'cash') {
+          setPaymentMethod('card');
+      }
+  }, [isCashEnabled, paymentMethod]);
+  // ------------------------------------------------------------
+
   const handleSubmit = (e) => { 
       e.preventDefault(); 
       createOrder({ 
@@ -1606,11 +1648,11 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
   
   return (
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+      {/* ... (La columna de items del carrito se queda igual) ... */}
       <div className="lg:col-span-2 space-y-4">
           <h2 className="text-2xl font-bold mb-4">Resumen</h2>
             {cart.map((item, index) => (
                 <div key={item.cartId || index} className="flex gap-4 mb-4 border-b border-gray-100 pb-4 last:border-0 last:pb-0">
-                    {/* Imagen Producto */}
                     <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shrink-0 relative">
                         <img src={item.image} className="w-full h-full object-cover" alt="" />
                         {item.quantity > 1 && (
@@ -1620,7 +1662,6 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                         )}
                     </div>
 
-                    {/* Info del Producto */}
                     <div className="flex-1 min-w-0">
                         <div className="flex justify-between items-start mb-1">
                             <h4 className="font-bold text-gray-800 text-sm truncate pr-2" title={item.name}>
@@ -1630,33 +1671,24 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                                 {(item.price * (item.quantity || 1)).toFixed(2)}€
                             </p>
                         </div>
-
-                        {/* Datos Principales (J1) */}
                         <div className="text-xs text-gray-600 mb-1">
                             <span className="font-semibold">{item.clubName || 'Club'}</span>
                             {item.category && <span className="opacity-75"> | {item.category}</span>}
                             {item.playerName && <div className="text-gray-500">J1: {item.playerName} <strong className="text-gray-700">#{item.playerNumber}</strong></div>}
                         </div>
-
-                        {/* Datos Extra (J2, J3, Variante) */}
                         {item.details && (item.details.player2 || item.details.player3 || item.details.variant !== 'Standard') && (
                             <div className="bg-slate-50 border border-slate-100 rounded p-2 text-[10px] space-y-1 mt-1.5">
-                                {/* Variante */}
                                 {item.details.variant && item.details.variant !== 'Standard' && (
                                     <div className="font-bold text-blue-600 uppercase tracking-wide mb-1 border-b border-slate-200 pb-0.5">
                                         Opción: {item.details.variant}
                                     </div>
                                 )}
-                                
-                                {/* Jugador 2 */}
                                 {item.details.player2 && (
                                     <div className="flex items-center gap-1 text-slate-600">
                                         <span className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[8px]">J2</span>
                                         <span>{item.details.player2.name} <strong>#{item.details.player2.number}</strong></span>
                                     </div>
                                 )}
-
-                                {/* Jugador 3 */}
                                 {item.details.player3 && (
                                     <div className="flex items-center gap-1 text-slate-600">
                                         <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-[8px]">J3</span>
@@ -1665,12 +1697,7 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                                 )}
                             </div>
                         )}
-
-                        <button 
-                            /* CORRECCIÓN AQUÍ: Usar item.cartId en lugar de index */
-                            onClick={() => removeFromCart(item.cartId)} 
-                            className="text-[10px] text-red-400 hover:text-red-600 underline mt-2 flex items-center gap-1"
-                        >
+                        <button onClick={() => removeFromCart(item.cartId)} className="text-[10px] text-red-400 hover:text-red-600 underline mt-2 flex items-center gap-1">
                             <Trash2 className="w-3 h-3"/> Eliminar producto
                         </button>
                     </div>
@@ -1683,7 +1710,6 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
           <form onSubmit={handleSubmit} className="space-y-4">
               <Input label="Nombre y Apellidos" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
               
-              {/* CAMBIO REALIZADO AQUÍ: Email ahora es opcional y required={false} */}
               <Input 
                   label="Email (Opcional)" 
                   type="email" 
@@ -1725,14 +1751,45 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                   </label>
               </div>
 
+              {/* --- SECCIÓN PAGO MODIFICADA --- */}
               <div className="border-t pt-4">
                   <label className="block text-sm font-medium mb-2">Pago</label>
-                  <div className="grid grid-cols-2 gap-2 mb-4">
-                      <div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'card' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('card')}><CreditCard className="w-5 h-5"/> Tarjeta</div>
-                      <div className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 ${paymentMethod === 'cash' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200'}`} onClick={() => setPaymentMethod('cash')}><Banknote className="w-5 h-5"/> Efectivo</div>
+                  <div className={`grid gap-2 mb-4 ${isCashEnabled ? 'grid-cols-2' : 'grid-cols-1'}`}>
+                      
+                      {/* TARJETA (Siempre visible) */}
+                      <div 
+                        className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 transition-all ${paymentMethod === 'card' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200 hover:bg-gray-50'}`} 
+                        onClick={() => setPaymentMethod('card')}
+                      >
+                          <CreditCard className="w-5 h-5"/> 
+                          Tarjeta
+                      </div>
+
+                      {/* EFECTIVO (Solo si el club lo permite) */}
+                      {isCashEnabled && (
+                          <div 
+                            className={`p-3 border rounded-lg cursor-pointer text-center flex flex-col items-center gap-1 transition-all ${paymentMethod === 'cash' ? 'border-emerald-600 bg-emerald-50 text-emerald-700 ring-1 ring-emerald-500' : 'border-gray-200 hover:bg-gray-50'}`} 
+                            onClick={() => setPaymentMethod('cash')}
+                          >
+                              <Banknote className="w-5 h-5"/> 
+                              Efectivo
+                          </div>
+                      )}
                   </div>
-                  {paymentMethod === 'cash' && <p className="text-xs text-yellow-700 bg-yellow-50 p-2 rounded mb-4 border border-yellow-200">El pedido quedará marcado como "Pendiente" hasta que abones el importe en tu club.</p>}
+
+                  {/* Mensajes según método */}
+                  {paymentMethod === 'cash' && isCashEnabled && (
+                      <p className="text-xs text-yellow-700 bg-yellow-50 p-2 rounded mb-4 border border-yellow-200 animate-fade-in">
+                          El pedido quedará marcado como "Pendiente" hasta que abones el importe en tu club.
+                      </p>
+                  )}
+                  {paymentMethod === 'card' && (
+                      <p className="text-xs text-blue-700 bg-blue-50 p-2 rounded mb-4 border border-blue-200 animate-fade-in">
+                          Pago seguro con tarjeta. El pedido se procesará inmediatamente.
+                      </p>
+                  )}
               </div>
+              {/* ------------------------------------- */}
 
               <div className="flex items-start gap-2 mb-4">
                   <input type="checkbox" required checked={formData.rgpd} onChange={e => setFormData({...formData, rgpd: e.target.checked})} className="mt-1 accent-emerald-600" />
@@ -7955,7 +8012,7 @@ export default function App() {
       }); 
   };
 
-  // --- FUNCIÓN MEJORADA: CREAR CLUB CON LOGO Y CREDENCIALES ---
+// --- FUNCIÓN MEJORADA: CREAR CLUB CON LOGO Y CREDENCIALES ---
   const createClub = async (clubData, logoFile) => {
       try {
           let logoUrl = '';
@@ -7971,13 +8028,14 @@ export default function App() {
           await addDoc(collection(db, 'clubs'), {
               name: clubData.name,
               code: clubData.code,
-              username: clubData.username, // Nuevo: Usuario para login
-              pass: clubData.pass,         // Nuevo: Contraseña personalizada
+              username: clubData.username, 
+              pass: clubData.pass,         
               color: clubData.color,
-              logoUrl: logoUrl,            // Nuevo: URL del escudo
+              logoUrl: logoUrl,            
               commission: 0.12,
               blocked: false,
               activeGlobalOrderId: 1,
+              cashPaymentEnabled: true, // <--- AÑADIDO: Por defecto activado
               createdAt: serverTimestamp()
           });
           

@@ -3173,10 +3173,47 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
     };
 
 
-    // --- FUNCIÓN ACTUALIZADA: GUARDA HISTORIAL GLOBAL EN EL CLUB ---
+    // --- FUNCIÓN ACTUALIZADA: GUARDA HISTORIAL GLOBAL EN EL CLUB CON VALIDACIÓN DE TIPOS ---
     const executeBatchStatusUpdate = async (shouldNotify) => {
         const { clubId, batchId, newStatus } = statusChangeModal;
         if (!clubId || !batchId || !newStatus) return;
+
+        // --- NUEVA VALIDACIÓN: IMPEDIR MÚLTIPLES LOTES ACTIVOS DEL MISMO TIPO ---
+        if (newStatus === 'recopilando') {
+            // 1. Determinar el tipo del lote que intentamos activar
+            const targetIsError = String(batchId).startsWith('ERR');
+            const targetIsIndividual = batchId === 'INDIVIDUAL';
+            const targetIsGlobal = !targetIsError && !targetIsIndividual; // Lotes numéricos normales (1, 2, 3...)
+
+            // 2. Buscar si ya existe algún pedido/lote en 'recopilando' que sea conflictivo
+            const conflictOrder = orders.find(o => {
+                // Solo revisar pedidos de este club
+                if (o.clubId !== clubId) return false;
+                // Solo nos importan los que están activos actualmente
+                if (o.status !== 'recopilando') return false;
+                // Ignoramos los pedidos que pertenecen al lote que estamos editando (no son conflicto)
+                if (o.globalBatch === batchId) return false;
+
+                // Determinar tipo del pedido encontrado
+                const currentIsError = String(o.globalBatch).startsWith('ERR');
+                const currentIsIndividual = o.globalBatch === 'INDIVIDUAL';
+                const currentIsGlobal = !currentIsError && !currentIsIndividual;
+
+                // 3. Verificar colisión de tipos
+                if (targetIsError && currentIsError) return true;       // Conflicto: Dos lotes de errores abiertos
+                if (targetIsIndividual && currentIsIndividual) return true; // Conflicto: Dos grupos individuales (raro)
+                if (targetIsGlobal && currentIsGlobal) return true;     // Conflicto: Lote 1 abierto y abrimos Lote 2
+
+                return false;
+            });
+
+            if (conflictOrder) {
+                showNotification(`⛔ ACCIÓN DENEGADA: Ya tienes el Lote Global #${conflictOrder.globalBatch} en estado "Recopilando". Debes pasarlo a producción antes de abrir otro del mismo tipo.`, 'error');
+                setStatusChangeModal({ ...statusChangeModal, active: false });
+                return; // DETENEMOS LA EJECUCIÓN AQUÍ
+            }
+        }
+        // --------------------------------------------------------------------------
 
         setStatusChangeModal({ ...statusChangeModal, active: false });
 
@@ -3207,25 +3244,18 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                     visibleStatus: newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'
                 };
                 
-                // LOGICA DE EMAIL (NUEVA)
+                // LOGICA DE EMAIL
                 if (shouldNotify) {
                     const targetEmail = order.customer.email;
-                    
-                    // Validar que sea un email real
                     if (targetEmail && targetEmail.includes('@') && targetEmail.length > 5) {
-                        
-                        // Crear referencia para un nuevo documento en la colección 'mail'
-                        // La extensión de Firebase escuchará esta colección
                         const mailRef = doc(collection(db, 'mail'));
-                        
                         batchWrite.set(mailRef, {
-                            to: [targetEmail], // Array de destinatarios
+                            to: [targetEmail],
                             message: {
                                 subject: `📢 Estado Actualizado: Pedido ${clubName} (#${order.id.slice(0,6)})`,
-                                html: generateEmailHTML(order, newStatus, clubName), // Usamos el helper
-                                text: `Tu pedido ha cambiado al estado: ${newStatus}. Contacta con tu club para más detalles.` // Fallback texto plano
+                                html: generateEmailHTML(order, newStatus, clubName),
+                                text: `Tu pedido ha cambiado al estado: ${newStatus}. Contacta con tu club para más detalles.`
                             },
-                            // Metadatos opcionales
                             metadata: {
                                 orderId: order.id,
                                 clubId: clubId,
@@ -3233,15 +3263,12 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                                 timestamp: serverTimestamp()
                             }
                         });
-
-                        // Guardamos log en el propio pedido de que se intentó notificar
                         updates.notificationLog = arrayUnion({ 
                             date: now, 
                             statusFrom: order.status,
                             statusTo: newStatus, 
                             method: 'email' 
                         });
-                        
                         notifiedCount++;
                     }
                 }
@@ -3251,8 +3278,8 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
             }
         });
 
-        // 2. Guardar Historial GLOBAL en el Club (Sin cambios, se mantiene igual)
-        const clubRefDoc = doc(db, 'clubs', clubId); // Renombrado para evitar conflicto
+        // 2. Guardar Historial GLOBAL en el Club
+        const clubRefDoc = doc(db, 'clubs', clubId);
         const globalLogEntry = {
             batchId: batchId,
             date: now,
@@ -3266,9 +3293,16 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
             batchHistory: arrayUnion(globalLogEntry)
         });
 
-        // 3. Lógica de Tregua y Avance
+        // 3. Lógica de Tregua y Avance de Contadores
         if (newStatus === 'recopilando') {
+            // Si activamos un lote, reseteamos el tiempo de reapertura (Tregua)
             batchWrite.update(clubRefDoc, { lastBatchReopenTime: Date.now() });
+            
+            // ADICIONAL: Si es un lote numérico, nos aseguramos de que el club apunte a este como activo
+            // Esto corrige inconsistencias si se reabre un lote antiguo manualmente
+            if (typeof batchId === 'number' && !String(batchId).startsWith('ERR')) {
+                batchWrite.update(clubRefDoc, { activeGlobalOrderId: batchId });
+            }
         }
         
         if (newStatus === 'en_produccion') { 
@@ -3277,14 +3311,13 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                 batchWrite.update(clubRefDoc, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
             } 
 
-            // B) NUEVA LÓGICA: Lotes de Errores (ERR-1, ERR-2...)
+            // B) Lógica: Lotes de Errores (ERR-1, ERR-2...)
             if (typeof batchId === 'string' && batchId.startsWith('ERR-')) {
                 const currentErrNum = parseInt(batchId.split('-')[1]);
                 const activeErrNum = parseInt(club.activeErrorBatchId || 1);
                 
-                // Si el lote de errores que pasamos a producción es el activo, avanzamos el contador
                 if (!isNaN(currentErrNum) && currentErrNum === activeErrNum) {
-                     batchWrite.update(clubRefDoc, { activeErrorBatchId: activeErrNum + 1 });
+                    batchWrite.update(clubRefDoc, { activeErrorBatchId: activeErrNum + 1 });
                 }
             }
         }
@@ -5705,11 +5738,35 @@ const globalAccountingStats = useMemo(() => {
                                                 value={manageBatchModal.targetBatch}
                                                 onChange={(e) => setManageBatchModal({...manageBatchModal, targetBatch: e.target.value})}
                                             >
-                                                <option value="">-- Destino --</option>
-                                                <option value={manageBatchModal.club?.activeGlobalOrderId}>📦 Lote Activo Actual</option>
-                                                <option value={manageBatchModal.club?.activeGlobalOrderId + 1}>✨ Siguiente Lote Futuro</option>
-                                                <option value="ERR_ACTIVE">🚨 Lote de Errores</option>
+                                                <option value="">-- Seleccionar Destino --</option>
+                                                
+                                                {/* Opciones Especiales */}
                                                 <option value="INDIVIDUAL">👤 Individual (Sueltos)</option>
+                                                <option value="ERR_ACTIVE">🚨 Lote de Errores (Activo)</option>
+
+                                                {/* Opciones Numéricas: Pasado, Presente y Futuro */}
+                                                <optgroup label="--- Historial de Lotes ---">
+                                                    {(() => {
+                                                        const c = manageBatchModal.club;
+                                                        if (!c) return null;
+                                                        
+                                                        const active = c.activeGlobalOrderId || 1;
+                                                        const options = [];
+
+                                                        // Generamos opciones desde el Activo + 1 (Futuro) bajando hasta el 1 (Histórico)
+                                                        // Así puedes seleccionar cualquier lote anterior.
+                                                        for(let i = active + 1; i >= 1; i--) {
+                                                            let label = `Lote Global #${i}`;
+                                                            
+                                                            if (i === active) label = `📦 Lote Global #${i} (ACTIVO ACTUAL)`;
+                                                            else if (i === active + 1) label = `✨ Lote Global #${i} (FUTURO)`;
+                                                            else label = `⏪ Lote Global #${i} (Anterior)`;
+
+                                                            options.push(<option key={i} value={i}>{label}</option>);
+                                                        }
+                                                        return options;
+                                                    })()}
+                                                </optgroup>
                                             </select>
                                         </div>
                                     )}
@@ -5836,34 +5893,47 @@ const globalAccountingStats = useMemo(() => {
                 </div>
             </div>
 
-            {/* Selector Central */}
+            {/* Selector Central (MODIFICADO: Ahora usa filterClubId) */}
             <div className="flex items-center gap-6 bg-white px-6 py-3 rounded-2xl shadow-sm border border-slate-100">
                 <div className="relative group flex items-center">
                     <select 
                         className="appearance-none bg-transparent text-base font-extrabold text-slate-700 pr-8 cursor-pointer outline-none hover:text-blue-600 transition-colors"
-                        value={selectedClubId}
-                        onChange={(e) => setSelectedClubId(e.target.value)}
+                        value={filterClubId} // Usamos el estado del filtro
+                        onChange={(e) => setFilterClubId(e.target.value)} // Actualizamos el filtro directamente
                     >
+                        <option value="all">Todos los Clubes</option> {/* Opción por defecto */}
                         {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                     </select>
                     <ChevronRight className="w-4 h-4 text-slate-400 absolute right-0 pointer-events-none rotate-90"/>
                 </div>
-                <div className="h-8 w-px bg-slate-100"></div>
-                <div className="flex items-center gap-2">
-                    <span className="text-xs text-slate-600 font-bold uppercase">Lote Activo:</span>
-                    <span className="text-base font-extrabold text-slate-800">#{selectedClub?.activeGlobalOrderId}</span>
-                </div>
+                
+                {/* Solo mostramos el Lote Activo si hay un club concreto seleccionado */}
+                {filterClubId !== 'all' && (
+                    <>
+                        <div className="h-8 w-px bg-slate-100"></div>
+                        <div className="flex items-center gap-2">
+                            <span className="text-xs text-slate-600 font-bold uppercase">Lote Activo:</span>
+                            <span className="text-base font-extrabold text-slate-800">
+                                #{clubs.find(c => c.id === filterClubId)?.activeGlobalOrderId || '-'}
+                            </span>
+                        </div>
+                    </>
+                )}
             </div>
 
             {/* Acciones Globales */}
             <div className="flex items-center gap-2">
-                {/* BOTÓN NUEVO: CREAR PEDIDO MANUAL */}
+                {/* BOTÓN NUEVO: CREAR PEDIDO MANUAL (Actualizado para manejar 'all') */}
                 <button 
                     onClick={() => {
+                        // Si hay un club filtrado, lo pre-seleccionamos. Si es 'all', lo dejamos en blanco.
+                        const preSelectedClub = filterClubId !== 'all' ? filterClubId : '';
+                        const preSelectedBatch = preSelectedClub ? clubs.find(c => c.id === preSelectedClub)?.activeGlobalOrderId : '';
+
                         setManualOrderForm({
                             ...manualOrderForm, 
-                            clubId: selectedClubId, // Preseleccionar el club actual
-                            targetBatch: selectedClub?.activeGlobalOrderId || ''
+                            clubId: preSelectedClub, 
+                            targetBatch: preSelectedBatch || ''
                         });
                         setManualOrderModal(true);
                     }}

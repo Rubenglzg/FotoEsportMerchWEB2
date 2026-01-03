@@ -5871,19 +5871,6 @@ const globalAccountingStats = useMemo(() => {
                 >
                     <Plus className="w-4 h-4"/> Nuevo Pedido Manual
                 </button>
-
-                {selectedClub && selectedClub.activeGlobalOrderId > 1 && (
-                    <button 
-                        onClick={() => setConfirmation({ title: "Revertir", msg: "¿Volver al lote anterior?", onConfirm: () => handleRevertGlobalBatch(selectedClubId) })}
-                        className="text-xs font-bold text-slate-500 hover:text-red-600 px-3 py-2 flex gap-1 rounded hover:bg-red-50 transition-colors"
-                        title="Deshacer cierre de lote"
-                    >
-                        <RotateCcw className="w-3 h-3"/>
-                    </button>
-                )}
-                <Button onClick={() => incrementClubGlobalOrder(selectedClubId)} className="bg-blue-600 text-white text-xs py-2 px-4 shadow-md hover:bg-blue-700">
-                    <Archive className="w-4 h-4 mr-2"/> Cerrar Lote
-                </Button>
             </div>
         </div>
 
@@ -6032,18 +6019,7 @@ const globalAccountingStats = useMemo(() => {
                                         </div>
 
                                         {/* ACCIONES DEL LOTE */}
-                                        <div className="flex items-center gap-2">
-                                            
-                                            {/* BOTÓN CERRAR LOTE DE ERRORES - ROJO SUAVIZADO (bg-red-500 en vez de 600) */}
-                                            {isActiveError && (
-                                                <Button 
-                                                    size="xs" 
-                                                    onClick={() => incrementClubErrorBatch(club.id)} 
-                                                    className="bg-red-500 hover:bg-red-600 text-white text-[10px] h-7 px-3 shadow-sm mr-2"
-                                                >
-                                                    <Archive className="w-3 h-3 mr-1"/> Cerrar Lote Errores
-                                                </Button>
-                                            )}
+                                        <div className="flex items-center gap-2">                                        
 
                                             <Button size="xs" variant="outline" onClick={() => generateBatchExcel(batch.id, batch.orders, club.name)} disabled={batch.orders.length===0}>
                                                 <FileDown className="w-3 h-3 mr-1"/> Excel

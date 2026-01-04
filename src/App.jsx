@@ -1638,7 +1638,8 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
       phone: '', 
       notification: 'email', 
       rgpd: false,
-      marketingConsent: false 
+      marketingConsent: false,
+      emailUpdates: false // Nueva casilla por defecto desmarcada
   });
   const [paymentMethod, setPaymentMethod] = useState('card');
 
@@ -1736,10 +1737,10 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
           <form onSubmit={handleSubmit} className="space-y-4">
               <Input label="Nombre y Apellidos" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
               
-              <Input 
-                  label="Email (Opcional)" 
+                <Input 
+                  label="Email (Obligatorio para factura)" 
                   type="email" 
-                  required={false}
+                  required={true}
                   placeholder="ejemplo@correo.com"
                   value={formData.email} 
                   onChange={e => setFormData({...formData, email: e.target.value})} 
@@ -1754,19 +1755,27 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                   onChange={e => setFormData({...formData, phone: e.target.value})} 
               />
               
-              <div className="mb-3 bg-blue-50 p-4 rounded-lg border border-blue-100 flex items-start gap-3">
-                  <Mail className="w-5 h-5 text-blue-600 shrink-0 mt-0.5" />
-                  <div>
-                      <p className="text-xs text-blue-800 font-bold mb-1">Avisos de Pedido</p>
-                      <p className="text-xs text-blue-600">
-                          Si indicas tu email, te enviaremos las actualizaciones de estado (producción y entrega).
-                      </p>
+
+                <div className="mb-3 bg-blue-50 p-3 rounded-lg border border-blue-100">             
+                  {/* 2. Checkbox y Texto agrupados en flex */}
+                  <div className="flex items-start gap-2">
+                      <input 
+                          type="checkbox" 
+                          id="emailUpdates"
+                          checked={formData.emailUpdates} 
+                          onChange={e => setFormData({...formData, emailUpdates: e.target.checked})} 
+                          className="mt-1 accent-blue-600 w-4 h-4 cursor-pointer shrink-0" 
+                      />
+                      <label htmlFor="emailUpdates" className="text-xs text-blue-800 cursor-pointer">
+                          <strong className="block mb-1">Avisos de Pedido</strong>
+                          <span className="text-blue-600">Marca esta casilla si quieres que te avisemos de las actualizaciones del estado de tu pedido.</span>
+                      </label>
                   </div>
               </div>
 
               <div className="flex items-start gap-2 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
                   <input 
-                      type="checkbox" 
+                      type="checkbox"
                       id="marketing"
                       checked={formData.marketingConsent} 
                       onChange={e => setFormData({...formData, marketingConsent: e.target.checked})} 
@@ -3643,7 +3652,10 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                 // LOGICA DE EMAIL
                 if (shouldNotify) {
                     const targetEmail = order.customer.email;
-                    if (targetEmail && targetEmail.includes('@') && targetEmail.length > 5) {
+                    // CAMBIO 3: Verificar explícitamente si el cliente marcó la casilla
+                    const wantsUpdates = order.customer.emailUpdates === true;
+
+                    if (wantsUpdates && targetEmail && targetEmail.includes('@') && targetEmail.length > 5) {
                         const mailRef = doc(collection(db, 'mail'));
                         batchWrite.set(mailRef, {
                             to: [targetEmail],

@@ -7370,17 +7370,34 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                       </h2>
                       <p className="text-gray-500">Gestión de caja, pedidos especiales y lotes globales.</p>
                   </div>
-                  {/* Selector Temporada */}
-                  <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
-                      <Calendar className="w-4 h-4 text-gray-500"/>
-                      <select 
-                          className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm" 
-                          value={financeSeasonId} 
-                          onChange={(e) => setFinanceSeasonId(e.target.value)}
-                      >
-                          <option value="all">Todas las Temporadas</option>
-                          {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
-                      </select>
+                  
+                  {/* ZONA DE FILTROS (Club y Temporada) */}
+                  <div className="flex gap-3">
+                      {/* Selector Club (NUEVO) */}
+                      <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
+                          <Store className="w-4 h-4 text-gray-500"/>
+                          <select 
+                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
+                              value={filterClubId} 
+                              onChange={(e) => setFilterClubId(e.target.value)}
+                          >
+                              <option value="all">Todos los Clubes</option>
+                              {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                          </select>
+                      </div>
+
+                      {/* Selector Temporada (EXISTENTE) */}
+                      <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
+                          <Calendar className="w-4 h-4 text-gray-500"/>
+                          <select 
+                              className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
+                              value={financeSeasonId} 
+                              onChange={(e) => setFinanceSeasonId(e.target.value)}
+                          >
+                              <option value="all">Todas las Temporadas</option>
+                              {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+                          </select>
+                      </div>
                   </div>
               </div>
 

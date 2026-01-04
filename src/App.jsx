@@ -5107,225 +5107,341 @@ const statsData = useMemo(() => {
       }) : '';
   };
 
-// --- FUNCIÓN EXCEL MEJORADA (CON CONTABILIDAD DETALLADA Y FIX NaN) ---
-  const handleExportSeasonExcel = async (seasonId) => {
-      const season = seasons.find(s => s.id === seasonId);
-      if (!season) return;
+// --- FUNCIÓN EXCEL MEJORADA (COMISIONES EXACTAS POR CLUB + NUEVAS SECCIONES) ---
+    const handleExportSeasonExcel = async (seasonId) => {
+        const season = seasons.find(s => s.id === seasonId);
+        if (!season) return;
 
-      const start = new Date(season.startDate).getTime();
-      const end = new Date(season.endDate).getTime();
+        const start = new Date(season.startDate).getTime();
+        const end = new Date(season.endDate).getTime();
 
-      const seasonOrders = orders.filter(o => {
-          if (o.manualSeasonId) return o.manualSeasonId === season.id;
-          const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
-          return d >= start && d <= end;
-      });
+        // 1. Filtrar pedidos de la temporada (por ID manual o fechas)
+        const seasonOrders = orders.filter(o => {
+            if (o.manualSeasonId) return o.manualSeasonId === season.id;
+            if (o.manualSeasonId && o.manualSeasonId !== season.id) return false;
+            
+            const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+            return d >= start && d <= end;
+        });
 
-      if (seasonOrders.length === 0) {
-          showNotification('No hay pedidos en esta temporada', 'error');
-          return;
-      }
+        if (seasonOrders.length === 0) {
+            showNotification('No hay pedidos en esta temporada', 'error');
+            return;
+        }
 
-      // --- HELPER: EVITA VALORES "NaN" ---
-      const safeNum = (val) => (typeof val === 'number' && !isNaN(val)) ? val : 0;
+        // Helper para evitar NaN
+        const safeNum = (val) => (typeof val === 'number' && !isNaN(val)) ? val : 0;
 
-      // --- CÁLCULO DE ESTADÍSTICAS ---
-      const calculateStats = (ordersToProcess) => {
-          let grossSales = 0;
-          let supplierCost = 0;
-          const monthly = {};
-          const payment = {};
-          const categories = {};
-          const productsStats = {};
+        // --- CÁLCULO DE ESTADÍSTICAS (PEDIDO A PEDIDO) ---
+        const calculateStats = (ordersToProcess) => {
+            let grossSales = 0;
+            let supplierCost = 0;
+            let gatewayCost = 0;
+            let totalClubComm = 0; // Acumulador exacto de comisiones club
+            let totalCommComm = 0; // Acumulador exacto de comisiones comercial
 
-          ordersToProcess.forEach(order => {
-              const total = safeNum(order.total);
-              grossSales += total;
-              
-              const orderCost = order.items.reduce((sum, item) => sum + (safeNum(item.cost) * (item.quantity || 1)), 0);
-              const incidentCost = order.incidents?.reduce((sum, inc) => sum + safeNum(inc.cost), 0) || 0;
-              supplierCost += (orderCost + incidentCost);
+            const monthly = {};
+            const payment = {};
+            const categories = {};
+            const productsStats = {};
 
-              // Mensual
-              const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
-              const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
-              const sortKey = date.getFullYear() * 100 + date.getMonth();
-              
-              if (!monthly[monthKey]) monthly[monthKey] = { total: 0, count: 0, sort: sortKey };
-              monthly[monthKey].total += total;
-              monthly[monthKey].count += 1;
+            // Variables para Incidencias
+            let incidentCount = 0;
+            const responsibility = { internal: 0, club: 0, supplier: 0 };
+            const costAssumed = { internal: 0, club: 0, supplier: 0 };
 
-              // Pago
-              const method = order.paymentMethod || 'card';
-              if (!payment[method]) payment[method] = { total: 0, count: 0 };
-              payment[method].total += total;
-              payment[method].count += 1;
+            ordersToProcess.forEach(order => {
+                // DETECTAR TIPO DE PEDIDO (Normal vs Incidencia/Error)
+                const isIncident = order.type === 'replacement' || order.paymentMethod === 'incident' || String(order.globalBatch).startsWith('ERR');
 
-              // Items
-              order.items.forEach(item => {
-                  const qty = item.quantity || 1;
-                  const subtotal = qty * safeNum(item.price);
-                  
-                  let catName = item.category || 'General';
-                  const normCat = catName.trim().replace(/\s+[A-Z0-9]$/i, '');
-                  
-                  if (!categories[normCat]) categories[normCat] = { total: 0, subCats: new Set() };
-                  categories[normCat].total += subtotal;
-                  categories[normCat].subCats.add(`${order.clubId}-${catName}`);
+                if (!isIncident) {
+                    // --- A. PROCESAMIENTO DE VENTAS VÁLIDAS ---
+                    const total = safeNum(order.total);
+                    grossSales += total;
 
-                  if (!productsStats[item.name]) productsStats[item.name] = { qty: 0, total: 0 };
-                  productsStats[item.name].qty += qty;
-                  productsStats[item.name].total += subtotal;
-              });
-          });
+                    // 1. Costes de Producto
+                    const orderCost = order.items.reduce((sum, item) => sum + (safeNum(item.cost) * (item.quantity || 1)), 0);
+                    supplierCost += orderCost;
 
-          // Usar valores seguros de configuración
-          const clubCommPct = safeNum(financialConfig.clubCommissionPct) || 0.12; 
-          const commCommPct = safeNum(financialConfig.commercialCommissionPct);
+                    // 2. Método de Pago (Normalizado)
+                    let rawMethod = order.paymentMethod || 'card';
+                    let methodLabel = 'tarjeta';
+                    
+                    if (rawMethod === 'cash') methodLabel = 'efectivo';
+                    else if (rawMethod === 'bizum' || rawMethod === 'transfer') methodLabel = 'transferencia/bizum';
+                    else methodLabel = 'tarjeta'; // Default a tarjeta si es desconocido
 
-          const commClub = grossSales * clubCommPct; 
-          const commCommercial = grossSales * commCommPct;
-          const netIncome = grossSales - supplierCost - commClub - commCommercial;
-          const avgTicket = ordersToProcess.length > 0 ? grossSales / ordersToProcess.length : 0;
+                    // 3. Coste Pasarela (Solo si es tarjeta)
+                    let orderGatewayFee = 0;
+                    if (methodLabel === 'tarjeta') {
+                        orderGatewayFee = (total * safeNum(financialConfig.gatewayPercentFee)) + safeNum(financialConfig.gatewayFixedFee);
+                        gatewayCost += orderGatewayFee;
+                    }
 
-          return {
-              count: ordersToProcess.length,
-              grossSales,
-              supplierCost,
-              commClub,
-              commCommercial,
-              netIncome,
-              avgTicket,
-              sortedMonths: Object.entries(monthly).map(([k,v]) => ({name: k, ...v})).sort((a,b) => a.sort - b.sort),
-              sortedPayment: Object.entries(payment).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.total - a.total),
-              sortedCats: Object.entries(categories).map(([k,v]) => ({name: k, total: v.total, count: v.subCats.size})).sort((a,b) => b.total - a.total),
-              sortedProds: Object.entries(productsStats).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.qty - a.qty).slice(0, 10)
-          };
-      };
+                    // 4. Cálculo de COMISIÓN CLUB (Usando valor específico del club del pedido)
+                    const orderClub = clubs.find(c => c.id === order.clubId);
+                    // Si el club tiene comisión definida la usamos, si no 0 (o el default que prefieras, aquí priorizamos el dato del club)
+                    const clubPct = orderClub ? (safeNum(orderClub.commission) || 0) : 0; 
+                    const currentClubComm = total * clubPct;
+                    totalClubComm += currentClubComm;
 
-      // --- HELPER: AUTOFIT INTELIGENTE ---
-      const adjustColumnWidths = (worksheet) => {
-          worksheet.columns.forEach(column => {
-              let maxLength = 0;
-              column.eachCell({ includeEmpty: true }, (cell) => {
-                  if (cell.isMerged) return;
-                  const v = cell.value ? cell.value.toString() : '';
-                  if (v.length > maxLength) maxLength = v.length;
-              });
-              column.width = Math.max(maxLength + 2, 15);
-          });
-      };
+                    // 5. Cálculo de COMISIÓN COMERCIAL
+                    // Base = Venta - CosteProd - ComisionClub - Pasarela
+                    const commBase = total - orderCost - currentClubComm - orderGatewayFee;
+                    const currentCommComm = commBase > 0 ? commBase * safeNum(financialConfig.commercialCommissionPct) : 0;
+                    totalCommComm += currentCommComm;
 
-      // --- GENERACIÓN DEL EXCEL ---
-      const workbook = new ExcelJS.Workbook();
-      workbook.creator = 'FotoEsport Admin';
-      workbook.created = new Date();
+                    // 6. Acumuladores de Pago
+                    if (!payment[methodLabel]) payment[methodLabel] = { total: 0, count: 0 };
+                    payment[methodLabel].total += total;
+                    payment[methodLabel].count += 1;
 
-      // Definición de Estilos
-      const styles = {
-          header: {
-              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } },
-              font: { color: { argb: 'FFFFFFFF' }, bold: true, size: 11, name: 'Calibri' },
-              alignment: { horizontal: 'center', vertical: 'middle' }
-          },
-          subHeader: {
-              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
-              font: { color: { argb: 'FF000000' }, bold: true, size: 11, name: 'Calibri' }
-          },
-          title: {
-              font: { color: { argb: 'FF000000' }, bold: true, size: 16, name: 'Calibri' }
-          },
-          sectionTitle: {
-              font: { color: { argb: 'FF10B981' }, bold: true, size: 12, name: 'Calibri' }
-          },
-          currency: { numFmt: '#,##0.00 "€"' },
-          currencyRed: { numFmt: '#,##0.00 "€"', font: { color: { argb: 'FFDC2626' } } },
-          currencyBold: { numFmt: '#,##0.00 "€"', font: { bold: true } },
-          subHeaderCurrency: {
-              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
-              font: { bold: true },
-              numFmt: '#,##0.00 "€"'
-          },
-          subHeaderCurrencyRed: {
-              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
-              font: { bold: true, color: { argb: 'FFDC2626' } },
-              numFmt: '#,##0.00 "€"'
-          }
-      };
+                    // 7. Acumuladores Mensuales
+                    const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
+                    const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
+                    const sortKey = date.getFullYear() * 100 + date.getMonth();
+                    if (!monthly[monthKey]) monthly[monthKey] = { total: 0, count: 0, sort: sortKey };
+                    monthly[monthKey].total += total;
+                    monthly[monthKey].count += 1;
 
-      // ==========================================
-      // HOJA 1: VISTA GLOBAL
-      // ==========================================
-      const globalStats = calculateStats(seasonOrders);
-      const wsGlobal = workbook.addWorksheet('Vista Global');
-      
-      wsGlobal.columns = [{key:'A'},{key:'B'},{key:'C'},{key:'D'},{key:'E'},{key:'F'},{key:'G'}];
-      wsGlobal.addRow([`Reporte Global - ${season.name}`]);
-      wsGlobal.getCell('A1').font = styles.title.font;
-      wsGlobal.mergeCells('A1:G1');
-      wsGlobal.addRow([]);
+                    // 8. Categorías y Productos
+                    order.items.forEach(item => {
+                        const qty = item.quantity || 1;
+                        const subtotal = qty * safeNum(item.price);
 
-      wsGlobal.addRow(['Resumen General']);
-      wsGlobal.getCell('A3').font = styles.sectionTitle.font;
-      const r4 = wsGlobal.addRow(['Facturación Total', globalStats.grossSales]);
-      r4.getCell(2).numFmt = styles.currencyBold.numFmt;
-      const r5 = wsGlobal.addRow(['Beneficio Neto', globalStats.netIncome]);
-      r5.getCell(2).numFmt = styles.currencyBold.numFmt;
-      wsGlobal.addRow(['Total Pedidos', globalStats.count]);
-      wsGlobal.addRow([]);
+                        let catName = item.category || 'General';
+                        const normCat = catName.trim().replace(/\s+[A-Z0-9]$/i, ''); // Normalizar
+                        
+                        if (!categories[normCat]) categories[normCat] = { total: 0, subCats: new Set() };
+                        categories[normCat].total += subtotal;
+                        categories[normCat].subCats.add(`${order.clubId}-${catName}`);
 
-      wsGlobal.addRow(['Reporte Financiero Detallado por Club']);
-      wsGlobal.getCell('A8').font = styles.sectionTitle.font;
-      wsGlobal.mergeCells('A8:G8');
-      
-      const headerRow = wsGlobal.addRow(['Club', 'Pedidos', 'Facturación', 'Coste Prov.', 'Com. Club', 'Neto Comercial', 'Beneficio Neto']);
-      for(let i=1; i<=7; i++) Object.assign(headerRow.getCell(i), styles.header);
+                        if (!productsStats[item.name]) productsStats[item.name] = { qty: 0, total: 0 };
+                        productsStats[item.name].qty += qty;
+                        productsStats[item.name].total += subtotal;
+                    });
 
-      clubs.forEach(c => {
-          const cStats = calculateStats(seasonOrders.filter(o => o.clubId === c.id));
-          const clubComm = cStats.grossSales * (safeNum(c.commission) || 0.12);
-          const commComm = cStats.grossSales * safeNum(financialConfig.commercialCommissionPct);
-          const net = cStats.grossSales - cStats.supplierCost - clubComm - commComm;
+                } else {
+                    // --- B. GESTIÓN DE INCIDENCIAS ---
+                    incidentCount++;
+                    const details = order.incidentDetails || {};
+                    const resp = details.responsibility || 'internal';
+                    
+                    const incCost = order.items.reduce((sum, i) => sum + ((i.cost || 0) * (i.quantity || 1)), 0);
+                    // Si se cobra (recharge), se suma a ventas en otro lado, pero aquí registramos el coste
+                    const incPrice = order.total; 
 
-          const row = wsGlobal.addRow([
-              c.name, cStats.count, cStats.grossSales, -cStats.supplierCost, -clubComm, commComm, net
-          ]);
-          row.getCell(3).numFmt = styles.currency.numFmt;
-          Object.assign(row.getCell(4), styles.currencyRed);
-          Object.assign(row.getCell(5), styles.currencyRed);
-          row.getCell(6).numFmt = styles.currency.numFmt;
-          Object.assign(row.getCell(7), styles.currencyBold);
-      });
-      
-      const totalRow = wsGlobal.addRow(['TOTALES', globalStats.count, globalStats.grossSales, -globalStats.supplierCost, -globalStats.commClub, globalStats.commCommercial, globalStats.netIncome]);
-      Object.assign(totalRow.getCell(1), styles.subHeader);
-      Object.assign(totalRow.getCell(2), styles.subHeader);
-      Object.assign(totalRow.getCell(3), styles.subHeaderCurrency);
-      Object.assign(totalRow.getCell(4), styles.subHeaderCurrencyRed);
-      Object.assign(totalRow.getCell(5), styles.subHeaderCurrencyRed);
-      Object.assign(totalRow.getCell(6), styles.subHeaderCurrency);
-      Object.assign(totalRow.getCell(7), styles.subHeaderCurrency);
-      wsGlobal.addRow([]);
+                    if (responsibility[resp] !== undefined) responsibility[resp]++;
+                    else responsibility.internal++;
 
-      // Tablas Lado a Lado (Evolución Mensual / Métodos de Pago)
-      const rTitle1 = wsGlobal.addRow(['Evolución Mensual', '', '', 'Métodos de Pago']);
-      rTitle1.getCell(1).font = styles.sectionTitle.font;
-      rTitle1.getCell(4).font = styles.sectionTitle.font;
-      wsGlobal.mergeCells(`A${rTitle1.number}:B${rTitle1.number}`);
-      wsGlobal.mergeCells(`D${rTitle1.number}:E${rTitle1.number}`);
-      const rHead1 = wsGlobal.addRow(['Mes', 'Ventas', '', 'Método', 'Total']);
-      [1,2,4,5].forEach(i => Object.assign(rHead1.getCell(i), styles.subHeader));
-      const max1 = Math.max(globalStats.sortedMonths.length, globalStats.sortedPayment.length);
-      for(let i=0; i<max1; i++){
-          const m = globalStats.sortedMonths[i];
-          const p = globalStats.sortedPayment[i];
-          const row = wsGlobal.addRow([ m ? m.name : '', m ? m.total : '', '', p ? p.name : '', p ? p.total : '' ]);
-          if(m) row.getCell(2).numFmt = styles.currency.numFmt;
-          if(p) row.getCell(5).numFmt = styles.currency.numFmt;
-      }
-      wsGlobal.addRow([]);
+                    if (resp === 'club') costAssumed.club += incPrice;
+                    else if (resp === 'supplier') costAssumed.supplier += incCost;
+                    else costAssumed.internal += incCost;
+                }
+            });
 
-      adjustColumnWidths(wsGlobal);
+            const validOrdersCount = ordersToProcess.filter(o => !['replacement','incident'].includes(o.paymentMethod) && !String(o.globalBatch).startsWith('ERR')).length;
+            const avgTicket = validOrdersCount > 0 ? grossSales / validOrdersCount : 0;
+            const netIncome = grossSales - supplierCost - gatewayCost - totalClubComm - totalCommComm;
+
+            return {
+                count: validOrdersCount,
+                grossSales,
+                supplierCost,
+                gatewayCost,
+                commClub: totalClubComm,      // Total real acumulado
+                commCommercial: totalCommComm,// Total real acumulado
+                netIncome,
+                avgTicket,
+                incidentData: {
+                    count: incidentCount,
+                    responsibility,
+                    costAssumed
+                },
+                sortedMonths: Object.entries(monthly).map(([k,v]) => ({name: k, ...v})).sort((a,b) => a.sort - b.sort),
+                sortedPayment: Object.entries(payment).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.total - a.total),
+                sortedCats: Object.entries(categories).map(([k,v]) => ({name: k, total: v.total})).sort((a,b) => b.total - a.total),
+                sortedProds: Object.entries(productsStats).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.qty - a.qty).slice(0, 10)
+            };
+        };
+
+        // --- HELPER: AUTOFIT COLUMNAS ---
+        const adjustColumnWidths = (worksheet) => {
+            worksheet.columns.forEach(column => {
+                let maxLength = 0;
+                column.eachCell({ includeEmpty: true }, (cell) => {
+                    if (cell.isMerged) return;
+                    const v = cell.value ? cell.value.toString() : '';
+                    if (v.length > maxLength) maxLength = v.length;
+                });
+                column.width = Math.max(maxLength + 2, 15);
+            });
+        };
+
+        // --- GENERACIÓN DEL LIBRO EXCEL ---
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'FotoEsport Admin';
+        workbook.created = new Date();
+
+        const styles = {
+            header: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } }, font: { color: { argb: 'FFFFFFFF' }, bold: true, size: 11 }, alignment: { horizontal: 'center' } },
+            subHeader: { fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }, font: { bold: true } },
+            title: { font: { bold: true, size: 16 } },
+            sectionTitle: { font: { color: { argb: 'FF10B981' }, bold: true, size: 12 } },
+            currency: { numFmt: '#,##0.00 "€"' },
+            currencyRed: { numFmt: '#,##0.00 "€"', font: { color: { argb: 'FFDC2626' } } },
+            currencyBold: { numFmt: '#,##0.00 "€"', font: { bold: true } }
+        };
+
+        // ==========================================
+        // HOJA 1: VISTA GLOBAL (RESUMEN COMPLETO)
+        // ==========================================
+        const globalStats = calculateStats(seasonOrders);
+        const wsGlobal = workbook.addWorksheet('Vista Global');
+        
+        wsGlobal.columns = [{key:'A'},{key:'B'},{key:'C'},{key:'D'},{key:'E'},{key:'F'},{key:'G'}, {key:'H'}];
+
+        wsGlobal.addRow([`Reporte Global - ${season.name}`]);
+        wsGlobal.getCell('A1').font = styles.title.font;
+        wsGlobal.mergeCells('A1:H1');
+        wsGlobal.addRow([]);
+
+        // 1. RESUMEN GENERAL (Con Ticket Medio)
+        wsGlobal.addRow(['Resumen General']);
+        wsGlobal.getCell('A3').font = styles.sectionTitle.font;
+        
+        wsGlobal.addRow(['Total Pedidos', globalStats.count]);
+        const rFact = wsGlobal.addRow(['Facturación Total', globalStats.grossSales]);
+        rFact.getCell(2).numFmt = styles.currencyBold.numFmt;
+        const rTicket = wsGlobal.addRow(['Ticket Medio', globalStats.avgTicket]);
+        rTicket.getCell(2).numFmt = styles.currency.numFmt;
+        const rNet = wsGlobal.addRow(['Beneficio Neto Global', globalStats.netIncome]);
+        rNet.getCell(2).numFmt = styles.currencyBold.numFmt;
+        
+        wsGlobal.addRow([]);
+
+        // 2. REPORTE FINANCIERO DETALLADO POR CLUB (Igual a Tabla Web)
+        wsGlobal.addRow(['Reporte Financiero Detallado por Club']);
+        wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
+        wsGlobal.mergeCells(`A${wsGlobal.lastRow.number}:H${wsGlobal.lastRow.number}`);
+
+        const headerRow = wsGlobal.addRow(['Club', 'Pedidos', 'Facturación', 'Coste Prov.', 'Pasarela/Gastos', 'Com. Club', 'Neto Comercial', 'Beneficio Neto']);
+        for(let i=1; i<=8; i++) Object.assign(headerRow.getCell(i), styles.header);
+
+        let totalTableGross = 0, totalTableSupp = 0, totalTableGate = 0, totalTableClub = 0, totalTableComm = 0, totalTableNet = 0;
+
+        clubs.forEach(c => {
+            // Calculamos stats SOLO para los pedidos de este club
+            // La función calculateStats ya usa la comisión específica de 'c' al iterar estos pedidos
+            const cStats = calculateStats(seasonOrders.filter(o => o.clubId === c.id));
+            
+            // Usamos los acumulados exactos que nos devuelve la función
+            const commClub = cStats.commClub;
+            const commCommercial = cStats.commCommercial;
+            const net = cStats.netIncome;
+
+            // Acumular Totales para la fila final
+            totalTableGross += cStats.grossSales;
+            totalTableSupp += cStats.supplierCost;
+            totalTableGate += cStats.gatewayCost;
+            totalTableClub += commClub;
+            totalTableComm += commCommercial;
+            totalTableNet += net;
+
+            const row = wsGlobal.addRow([
+                c.name,
+                cStats.count,
+                cStats.grossSales,
+                -cStats.supplierCost,
+                -cStats.gatewayCost,
+                -commClub,
+                commCommercial,
+                net
+            ]);
+
+            // Formatos
+            row.getCell(3).numFmt = styles.currency.numFmt;
+            Object.assign(row.getCell(4), styles.currencyRed);
+            Object.assign(row.getCell(5), styles.currencyRed);
+            Object.assign(row.getCell(6), styles.currencyRed);
+            row.getCell(7).numFmt = styles.currency.numFmt;
+            Object.assign(row.getCell(8), styles.currencyBold);
+        });
+
+        // Fila Totales
+        const totalRow = wsGlobal.addRow(['TOTALES', globalStats.count, totalTableGross, -totalTableSupp, -totalTableGate, -totalTableClub, totalTableComm, totalTableNet]);
+        for(let i=1; i<=8; i++) {
+            Object.assign(totalRow.getCell(i), styles.subHeader);
+            if(i > 2) totalRow.getCell(i).numFmt = styles.currency.numFmt;
+        }
+        
+        wsGlobal.addRow([]);
+
+        // 3. SECCIONES ADICIONALES (Meses, Métodos Pago, Categorías)
+        // Títulos
+        const rSecTitle = wsGlobal.addRow(['Evolución Mensual', '', 'Métodos de Pago', '', 'Facturación por Categoría']);
+        [1, 3, 5].forEach(i => rSecTitle.getCell(i).font = styles.sectionTitle.font);
+        
+        // Cabeceras
+        const rSecHead = wsGlobal.addRow(['Mes', 'Ventas', 'Método', 'Total', 'Categoría', 'Total']);
+        [1,2,3,4,5,6].forEach(i => Object.assign(rSecHead.getCell(i), styles.subHeader));
+
+        const maxRows = Math.max(globalStats.sortedMonths.length, globalStats.sortedPayment.length, globalStats.sortedCats.length);
+
+        for(let i=0; i<maxRows; i++){
+            const m = globalStats.sortedMonths[i];
+            const p = globalStats.sortedPayment[i];
+            const c = globalStats.sortedCats[i];
+
+            const row = wsGlobal.addRow([
+                m ? m.name : '', m ? m.total : '',
+                p ? p.name.toUpperCase() : '', p ? p.total : '', 
+                c ? c.name : '', c ? c.total : ''
+            ]);
+
+            if(m) row.getCell(2).numFmt = styles.currency.numFmt;
+            if(p) row.getCell(4).numFmt = styles.currency.numFmt;
+            if(c) row.getCell(6).numFmt = styles.currency.numFmt;
+        }
+
+        wsGlobal.addRow([]);
+
+        // 4. PRODUCTOS ESTRELLA (TOP 10)
+        wsGlobal.addRow(['Productos Estrella (Top Ventas)']);
+        wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
+        
+        const headProd = wsGlobal.addRow(['Producto', 'Unidades Vendidas', 'Facturación']);
+        [1,2,3].forEach(i => Object.assign(headProd.getCell(i), styles.subHeader));
+
+        globalStats.sortedProds.forEach(prod => {
+            const r = wsGlobal.addRow([prod.name, prod.qty, prod.total]);
+            r.getCell(3).numFmt = styles.currency.numFmt;
+        });
+
+        wsGlobal.addRow([]);
+
+        // 5. CONTROL DE INCIDENCIAS Y CALIDAD
+        wsGlobal.addRow(['Control de Incidencias y Calidad']);
+        wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
+
+        const incData = globalStats.incidentData;
+        const errorRate = (incData.count / (globalStats.count + incData.count)) * 100 || 0;
+
+        wsGlobal.addRow(['Tasa de Incidencias', `${errorRate.toFixed(2)}% (${incData.count} pedidos afectados)`]);
+        
+        const headInc = wsGlobal.addRow(['Responsabilidad', 'Cantidad', 'Coste Asumido']);
+        [1,2,3].forEach(i => Object.assign(headInc.getCell(i), styles.subHeader));
+
+        const rInt = wsGlobal.addRow(['Interno / Fábrica', incData.responsibility.internal, incData.costAssumed.internal]);
+        rInt.getCell(3).numFmt = styles.currencyRed.numFmt;
+        
+        const rClub = wsGlobal.addRow(['Club (Facturable)', incData.responsibility.club, incData.costAssumed.club]);
+        rClub.getCell(3).numFmt = styles.currency.numFmt;
+
+        const rSupp = wsGlobal.addRow(['Proveedor (Garantía)', incData.responsibility.supplier, incData.costAssumed.supplier]);
+        rSupp.getCell(3).numFmt = styles.currency.numFmt;
+
+        adjustColumnWidths(wsGlobal);
 
       // ==========================
       // HOJAS POR CLUB

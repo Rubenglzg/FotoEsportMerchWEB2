@@ -7665,7 +7665,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                                                                 </button>
                                                                 {/* FECHA AUMENTADA */}
                                                                 {status.cashCollected && status.cashCollectedDate && (
-                                                                    <span className="text-[11px] text-emerald-600 mt-1 font-mono font-bold">
+                                                                    <span className="text-[12px] text-emerald-600 mt-1 font-mono font-bold">
                                                                         {new Date(status.cashCollectedDate).toLocaleDateString()}
                                                                     </span>
                                                                 )}
@@ -7711,7 +7711,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                                                             </div>
                                                             {/* FECHA AUMENTADA */}
                                                             {status.supplierPaid && status.supplierPaidDate && (
-                                                                <div className="text-right text-[11px] text-green-600 font-mono font-bold -mt-1 mb-1">
+                                                                <div className="text-right text-[12px] text-green-600 font-mono font-bold -mt-1 mb-1">
                                                                     {new Date(status.supplierPaidDate).toLocaleDateString()}
                                                                 </div>
                                                             )}
@@ -7743,7 +7743,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                                                                     </div>
                                                                     {/* FECHA AUMENTADA */}
                                                                     {status.commercialPaid && status.commercialPaidDate && (
-                                                                        <div className="text-right text-[11px] text-green-600 font-mono font-bold -mt-1 mb-1">
+                                                                        <div className="text-right text-[12px] text-green-600 font-mono font-bold -mt-1 mb-1">
                                                                             {new Date(status.commercialPaidDate).toLocaleDateString()}
                                                                         </div>
                                                                     )}
@@ -7777,7 +7777,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                                                                     </div>
                                                                     {/* FECHA AUMENTADA */}
                                                                     {status.clubPaid && status.clubPaidDate && (
-                                                                        <div className="text-right text-[11px] text-green-600 font-mono font-bold -mt-1 mb-1">
+                                                                        <div className="text-right text-[12px] text-green-600 font-mono font-bold -mt-1 mb-1">
                                                                             {new Date(status.clubPaidDate).toLocaleDateString()}
                                                                         </div>
                                                                     )}

@@ -1571,9 +1571,16 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
 
       setConfirmation({
           msg: confirmMsg,
-          onConfirm: () => {
+            onConfirm: () => {
+              // --- CORRECCIÓN INICIO: Obtener nombre del club explícitamente ---
+              const selectedClubObj = clubs.find(c => c.id === customization.clubId);
+              const clubNameStr = selectedClubObj ? selectedClubObj.name : 'Club';
+              // -----------------------------------------------------------------
+
               const finalItem = {
                   ...product,
+                  clubName: clubNameStr, // <--- AÑADIR ESTA LÍNEA para guardar el nombre
+                  category: customization.category, // <--- AÑADIR ESTA LÍNEA para la categoría
                   name: extendedName,
                   playerName: isTeamPhoto ? '' : customization.playerName,
                   playerNumber: isTeamPhoto ? '' : customization.playerNumber,
@@ -1810,10 +1817,29 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                                 {(item.price * (item.quantity || 1)).toFixed(2)}€
                             </p>
                         </div>
-                        <div className="text-xs text-gray-600 mb-1">
-                            <span className="font-semibold">{item.clubName || 'Club'}</span>
-                            {item.category && <span className="opacity-75"> | {item.category}</span>}
-                            {item.playerName && <div className="text-gray-500">J1: {item.playerName} <strong className="text-gray-700">#{item.playerNumber}</strong></div>}
+                        {/* --- CORRECCIÓN INICIO: Diseño mejorado Club / Categoría --- */}
+                        <div className="text-xs text-gray-600 mb-1 flex flex-col gap-0.5">
+                            {/* 1. Nombre del Club (Buscamos en la lista 'clubs' usando el ID para asegurar que siempre salga el correcto) */}
+                            <span className="font-bold text-emerald-700">
+                                Club: {clubs.find(c => c.id === item.clubId)?.name || item.clubName || 'Club'}
+                            </span>
+                            
+                            {/* 2. Categoría debajo y bien etiquetada */}
+                            {item.category && (
+                                <span className="text-gray-600">
+                                    <strong>Categoría:</strong> {item.category}
+                                </span>
+                            )}
+
+                            {/* 3. Datos del Jugador 1 */}
+                            {item.playerName && (
+                                <div className="text-gray-600 mt-0.5">
+                                    <strong>J1:</strong> {item.playerName} 
+                                    {item.playerNumber && (
+                                        <> <strong className="ml-1">#</strong>{item.playerNumber}</>
+                                    )}
+                                </div>
+                            )}
                         </div>
                         {item.details && (item.details.player2 || item.details.player3 || item.details.variant !== 'Standard') && (
                             <div className="bg-slate-50 border border-slate-100 rounded p-2 text-[10px] space-y-1 mt-1.5">
@@ -1823,15 +1849,15 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                                     </div>
                                 )}
                                 {item.details.player2 && (
-                                    <div className="flex items-center gap-1 text-slate-600">
-                                        <span className="w-4 h-4 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[8px]">J2</span>
-                                        <span>{item.details.player2.name} <strong>#{item.details.player2.number}</strong></span>
+                                    <div className="flex items-center gap-1.5 text-slate-600 text-xs">
+                                        <span className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[10px] shrink-0">J2</span>
+                                        <span>{item.details.player2.name} <strong className="ml-0.5">#{item.details.player2.number}</strong></span>
                                     </div>
                                 )}
                                 {item.details.player3 && (
-                                    <div className="flex items-center gap-1 text-slate-600">
-                                        <span className="w-4 h-4 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-[8px]">J3</span>
-                                        <span>{item.details.player3.name} <strong>#{item.details.player3.number}</strong></span>
+                                    <div className="flex items-center gap-1.5 text-slate-600 text-xs">
+                                        <span className="w-5 h-5 rounded-full bg-purple-100 text-purple-700 flex items-center justify-center font-bold text-[10px] shrink-0">J3</span>
+                                        <span>{item.details.player3.name} <strong className="ml-0.5">#{item.details.player3.number}</strong></span>
                                     </div>
                                 )}
                             </div>

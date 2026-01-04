@@ -4282,11 +4282,12 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
   // 1. Estado para el modal de detalles
   const [accDetailsModal, setAccDetailsModal] = useState({ active: false, title: '', items: [], type: '' });
 
-  // 2. Lógica de cálculo de totales
-const globalAccountingStats = useMemo(() => {
+// 2. Lógica de cálculo de totales (ACTUALIZADA: Errores individuales no afectan al comercial)
+  const globalAccountingStats = useMemo(() => {
       const stats = {
         cardTotal: 0,
         cardFees: 0,
+        totalNetProfit: 0,
         cash: { collected: 0, pending: 0, listPending: [], listCollected: [] },
         supplier: { paid: 0, pending: 0, listPending: [], listPaid: [] },
         commercial: { paid: 0, pending: 0, listPending: [], listPaid: [] },
@@ -4297,37 +4298,65 @@ const globalAccountingStats = useMemo(() => {
         batches.forEach(batch => {
             const log = club.accountingLog?.[batch.id] || {};
             
-            const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
-            const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
-            
-            const cardTotal = cardOrders.reduce((sum, o) => sum + o.total, 0);
-            const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
-            const totalBatch = cardTotal + cashTotal;
+            // --- A. DEFINICIÓN DE EXENCIONES DE LOTE ---
+            const isErrorBatch = typeof batch.id === 'string' && batch.id.startsWith('ERR');
+            // Si es un lote entero de errores, nadie cobra comisión
+            const isCommissionExempt = isErrorBatch; 
 
-            // Coste Proveedor
-            const cost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+            // --- B. FILTROS DE PAGO (GENERALES) ---
+            const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
+            const nonCashOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
+
+            // --- C. TOTALES REALES DEL LOTE (Para Cajas y Neto Empresa) ---
+            const cashRevenue = cashOrders.reduce((sum, o) => sum + o.total, 0);
+            const nonCashRevenue = nonCashOrders.reduce((sum, o) => sum + o.total, 0);
+            const totalBatchRevenue = cashRevenue + nonCashRevenue;
+
+            // Coste TOTAL (Incluye coste de errores/reposiciones)
+            const totalCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
             
-            // Comisiones Pasarela
-            const fees = cardOrders.reduce((sum, o) => {
-                return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+            // Pasarela TOTAL (Solo pedidos tarjeta)
+            const totalFees = batch.orders.reduce((sum, o) => {
+                if(o.paymentMethod === 'card') return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                return sum;
             }, 0);
 
-            // --- 1. CÁLCULO PAGO CLUB ---
-            // (Total Tarjeta + Efectivo) * % Club
-            const clubCommissionRate = club.commission !== undefined ? club.commission : 0.12;
-            const commClub = totalBatch * clubCommissionRate;
+            // --- D. CÁLCULO DE COMISIONES (FILTRADO) ---
+            // "Los pedidos de errores no afectan al comercial" -> Filtramos los pedidos que generan comisión
+            const commissionableOrders = batch.orders.filter(o => 
+                o.paymentMethod !== 'incident' && 
+                o.paymentMethod !== 'gift' && 
+                o.type !== 'replacement'
+            );
 
-            // --- 2. CÁLCULO PAGO COMERCIAL ---
-            // (Total - Pasarela - Coste Prov - Pago Club) * % Comercial
-            // Base imponible para el comercial:
-            const commercialBase = totalBatch - fees - cost - commClub;
-            const commComm = commercialBase * financialConfig.commercialCommissionPct;
+            // Base para comisiones (Solo pedidos válidos)
+            const commRevenue = commissionableOrders.reduce((sum, o) => sum + o.total, 0);
+            const commCost = commissionableOrders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+            const commFees = commissionableOrders.reduce((sum, o) => {
+                if(o.paymentMethod === 'card') return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                return sum;
+            }, 0);
 
-            // ACUMULADORES
-            stats.cardTotal += cardTotal;
-            stats.cardFees += fees;
+            // 1. PAGO CLUB (Sobre ventas reales, si no es lote exento)
+            const clubCommissionRate = isCommissionExempt ? 0 : (club.commission !== undefined ? club.commission : 0.12);
+            const commClub = commRevenue * clubCommissionRate;
 
-            const cashVal = cashTotal + (log.cashUnder || 0) - (log.cashOver || 0);
+            // 2. PAGO COMERCIAL (Sobre base limpia de errores)
+            // Base = Ingresos Reales - Pasarela Real - Coste Real - Club Real
+            const commercialBase = commRevenue - commFees - commCost - commClub;
+            const commComm = isCommissionExempt ? 0 : (commercialBase * financialConfig.commercialCommissionPct);
+
+            // --- E. BENEFICIO NETO EMPRESA ---
+            // Ingresos Totales - Costes Totales (inc. errores) - Pagos a terceros
+            const batchNetProfit = totalBatchRevenue - totalCost - commClub - commComm - totalFees;
+
+            // ACUMULADORES GLOBALES
+            stats.cardTotal += nonCashRevenue; 
+            stats.cardFees += totalFees;
+            stats.totalNetProfit += batchNetProfit;
+
+            // Lógica de Cajas y Deudas
+            const cashVal = cashRevenue + (log.cashUnder || 0) - (log.cashOver || 0);
             if (log.cashCollected) {
                 stats.cash.collected += cashVal;
                 if(cashVal > 0) stats.cash.listCollected.push({ club: club.name, batch: batch.id, amount: cashVal });
@@ -4336,7 +4365,7 @@ const globalAccountingStats = useMemo(() => {
                 if(cashVal > 0) stats.cash.listPending.push({ club: club.name, batch: batch.id, amount: cashVal });
             }
 
-            const suppVal = cost + (log.supplierUnder || 0) - (log.supplierOver || 0);
+            const suppVal = totalCost + (log.supplierUnder || 0) - (log.supplierOver || 0);
             if (log.supplierPaid) {
                 stats.supplier.paid += suppVal;
                 if(suppVal > 0) stats.supplier.listPaid.push({ club: club.name, batch: batch.id, amount: suppVal });
@@ -4345,22 +4374,27 @@ const globalAccountingStats = useMemo(() => {
                 if(suppVal > 0) stats.supplier.listPending.push({ club: club.name, batch: batch.id, amount: suppVal });
             }
 
-            const commVal = commComm + (log.commercialUnder || 0) - (log.commercialOver || 0);
-            if (log.commercialPaid) {
-                stats.commercial.paid += commVal;
-                if(commVal > 0) stats.commercial.listPaid.push({ club: club.name, batch: batch.id, amount: commVal });
-            } else {
-                stats.commercial.pending += commVal;
-                if(commVal > 0) stats.commercial.listPending.push({ club: club.name, batch: batch.id, amount: commVal });
+            // Deudas solo si hay importes > 0
+            if (commComm > 0) {
+                const commVal = commComm + (log.commercialUnder || 0) - (log.commercialOver || 0);
+                if (log.commercialPaid) {
+                    stats.commercial.paid += commVal;
+                    if(commVal > 0) stats.commercial.listPaid.push({ club: club.name, batch: batch.id, amount: commVal });
+                } else {
+                    stats.commercial.pending += commVal;
+                    if(commVal > 0) stats.commercial.listPending.push({ club: club.name, batch: batch.id, amount: commVal });
+                }
             }
 
-            const clubVal = commClub + (log.clubUnder || 0) - (log.clubOver || 0);
-            if (log.clubPaid) {
-                stats.club.paid += clubVal;
-                if(clubVal > 0) stats.club.listPaid.push({ club: club.name, batch: batch.id, amount: clubVal });
-            } else {
-                stats.club.pending += clubVal;
-                if(clubVal > 0) stats.club.listPending.push({ club: club.name, batch: batch.id, amount: clubVal });
+            if (commClub > 0) {
+                const clubVal = commClub + (log.clubUnder || 0) - (log.clubOver || 0);
+                if (log.clubPaid) {
+                    stats.club.paid += clubVal;
+                    if(clubVal > 0) stats.club.listPaid.push({ club: club.name, batch: batch.id, amount: clubVal });
+                } else {
+                    stats.club.pending += clubVal;
+                    if(clubVal > 0) stats.club.listPending.push({ club: club.name, batch: batch.id, amount: clubVal });
+                }
             }
         });
     });
@@ -7275,7 +7309,7 @@ const globalAccountingStats = useMemo(() => {
 )}
 
 {/* --- PESTAÑA DE CONTABILIDAD (VERSIÓN V5 - CON PEDIDOS ESPECIALES SEPARADOS) --- */}
-      {tab === 'accounting-control' && (
+{tab === 'accounting-control' && (
           <div className="bg-white p-6 rounded-xl shadow space-y-8 animate-fade-in-up">
               <div className="flex justify-between items-center border-b pb-4">
                   <div>
@@ -7285,6 +7319,7 @@ const globalAccountingStats = useMemo(() => {
                       </h2>
                       <p className="text-gray-500">Gestión de caja, pedidos especiales y lotes globales.</p>
                   </div>
+                  {/* Selector Temporada */}
                   <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
                       <Calendar className="w-4 h-4 text-gray-500"/>
                       <select 
@@ -7298,36 +7333,44 @@ const globalAccountingStats = useMemo(() => {
                   </div>
               </div>
 
-              {/* --- PEGAR ESTO JUSTO ANTES DE {accountingData.map... --- */}
-              <div className="grid grid-cols-1 md:grid-cols-5 gap-4 mb-8">
-                  {/* Tarjeta 1: Ingresos Tarjeta */}
-                  <div className="bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-between">
-                    <p className="text-xs font-bold text-gray-400 uppercase">Total Tarjeta (Bruto)</p>
-                    <p className="text-2xl font-bold text-blue-600 mt-1">{globalAccountingStats.cardTotal.toFixed(2)}€</p>
+              {/* --- TARJETAS DE RESUMEN (CON BENEFICIO NETO) --- */}
+              <div className="grid grid-cols-1 md:grid-cols-6 gap-4 mb-8">
+                  
+                  {/* Tarjeta 1: BENEFICIO NETO (NUEVA) */}
+                  <div className="md:col-span-1 bg-emerald-50 p-4 rounded-xl border border-emerald-200 shadow-sm flex flex-col justify-between relative overflow-hidden">
+                    <div className="absolute top-0 right-0 p-2 opacity-10"><BarChart3 className="w-16 h-16"/></div>
+                    <p className="text-xs font-bold text-emerald-700 uppercase z-10">Beneficio Neto Total</p>
+                    <p className="text-2xl font-black text-emerald-600 mt-1 z-10">{globalAccountingStats.totalNetProfit.toFixed(2)}€</p>
+                    <p className="text-[9px] text-emerald-600/70 z-10 mt-1 leading-tight">Ganancia limpia tras gastos.</p>
+                  </div>
+
+                  {/* Tarjeta 2: Ingresos Banco/Tarjeta */}
+                  <div className="md:col-span-1 bg-white p-4 rounded-xl border border-blue-100 shadow-sm flex flex-col justify-between">
+                    <p className="text-xs font-bold text-gray-400 uppercase">Banco / Tarjeta</p>
+                    <p className="text-xl font-bold text-blue-600 mt-1">{globalAccountingStats.cardTotal.toFixed(2)}€</p>
                     
-                    {/* NUEVO DESGLOSE */}
                     <div className="mt-2 pt-2 border-t border-dashed border-gray-200">
-                        <div className="flex justify-between text-xs text-gray-500 mb-1">
-                            <span>Comisión Pasarela:</span>
+                        <div className="flex justify-between text-[10px] text-gray-500 mb-1">
+                            <span>Pasarela:</span>
                             <span className="text-red-500 font-bold">-{globalAccountingStats.cardFees.toFixed(2)}€</span>
                         </div>
-                        <div className="flex justify-between text-sm font-bold text-blue-800">
-                            <span>Neto Real:</span>
+                        <div className="flex justify-between text-xs font-bold text-blue-800">
+                            <span>Neto Banco:</span>
                             <span>{(globalAccountingStats.cardTotal - globalAccountingStats.cardFees).toFixed(2)}€</span>
                         </div>
                     </div>
                   </div>
 
-                  {/* Tarjeta 2: Efectivo */}
-                  <div className="bg-white p-4 rounded-xl border border-orange-100 shadow-sm flex flex-col justify-between">
+                  {/* Tarjeta 3: Efectivo */}
+                  <div className="md:col-span-1 bg-white p-4 rounded-xl border border-orange-100 shadow-sm flex flex-col justify-between">
                       <p className="text-xs font-bold text-gray-400 uppercase">Caja Efectivo</p>
                       <div className="mt-2 space-y-1">
-                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded" 
+                          <div className="flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 p-1 rounded" 
                                onClick={() => setAccDetailsModal({ active: true, title: 'Efectivo YA Recogido', items: globalAccountingStats.cash.listCollected, type: 'success' })}>
                               <span className="text-gray-600">Recogido:</span>
                               <span className="font-bold text-green-600">{globalAccountingStats.cash.collected.toFixed(2)}€</span>
                           </div>
-                          <div className="flex justify-between items-center text-sm cursor-pointer bg-red-50 p-1 rounded hover:bg-red-100 transition-colors"
+                          <div className="flex justify-between items-center text-xs cursor-pointer bg-red-50 p-1 rounded hover:bg-red-100 transition-colors"
                                onClick={() => setAccDetailsModal({ active: true, title: 'Efectivo PENDIENTE de Recoger', items: globalAccountingStats.cash.listPending, type: 'error' })}>
                               <span className="text-red-800 font-bold">Pendiente:</span>
                               <span className="font-black text-red-600">{globalAccountingStats.cash.pending.toFixed(2)}€</span>
@@ -7335,16 +7378,16 @@ const globalAccountingStats = useMemo(() => {
                       </div>
                   </div>
 
-                  {/* Tarjeta 3: Proveedor */}
-                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                  {/* Tarjeta 4: Proveedor */}
+                  <div className="md:col-span-1 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
                       <p className="text-xs font-bold text-gray-400 uppercase">Pagos Proveedor</p>
                       <div className="mt-2 space-y-1">
-                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded"
+                          <div className="flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 p-1 rounded"
                                onClick={() => setAccDetailsModal({ active: true, title: 'Proveedor PAGADO', items: globalAccountingStats.supplier.listPaid, type: 'success' })}>
                               <span className="text-gray-600">Pagado:</span>
                               <span className="font-bold text-green-600">{globalAccountingStats.supplier.paid.toFixed(2)}€</span>
                           </div>
-                          <div className="flex justify-between items-center text-sm cursor-pointer bg-orange-50 p-1 rounded hover:bg-orange-100 transition-colors"
+                          <div className="flex justify-between items-center text-xs cursor-pointer bg-orange-50 p-1 rounded hover:bg-orange-100 transition-colors"
                                onClick={() => setAccDetailsModal({ active: true, title: 'Proveedor PENDIENTE', items: globalAccountingStats.supplier.listPending, type: 'warning' })}>
                               <span className="text-orange-800 font-bold">Deuda:</span>
                               <span className="font-black text-orange-600">{globalAccountingStats.supplier.pending.toFixed(2)}€</span>
@@ -7352,16 +7395,16 @@ const globalAccountingStats = useMemo(() => {
                       </div>
                   </div>
 
-                  {/* Tarjeta 4: Comercial */}
-                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                  {/* Tarjeta 5: Comercial */}
+                  <div className="md:col-span-1 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
                       <p className="text-xs font-bold text-gray-400 uppercase">Com. Comercial</p>
                       <div className="mt-2 space-y-1">
-                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded"
+                          <div className="flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 p-1 rounded"
                                onClick={() => setAccDetailsModal({ active: true, title: 'Comercial PAGADO', items: globalAccountingStats.commercial.listPaid, type: 'success' })}>
                               <span className="text-gray-600">Pagado:</span>
                               <span className="font-bold text-green-600">{globalAccountingStats.commercial.paid.toFixed(2)}€</span>
                           </div>
-                          <div className="flex justify-between items-center text-sm cursor-pointer bg-blue-50 p-1 rounded hover:bg-blue-100 transition-colors"
+                          <div className="flex justify-between items-center text-xs cursor-pointer bg-blue-50 p-1 rounded hover:bg-blue-100 transition-colors"
                                onClick={() => setAccDetailsModal({ active: true, title: 'Comercial PENDIENTE', items: globalAccountingStats.commercial.listPending, type: 'info' })}>
                               <span className="text-blue-800 font-bold">Deuda:</span>
                               <span className="font-black text-blue-600">{globalAccountingStats.commercial.pending.toFixed(2)}€</span>
@@ -7369,16 +7412,16 @@ const globalAccountingStats = useMemo(() => {
                       </div>
                   </div>
 
-                  {/* Tarjeta 5: Club */}
-                  <div className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
+                  {/* Tarjeta 6: Club */}
+                  <div className="md:col-span-1 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
                       <p className="text-xs font-bold text-gray-400 uppercase">Pagos a Clubes</p>
                       <div className="mt-2 space-y-1">
-                          <div className="flex justify-between items-center text-sm cursor-pointer hover:bg-gray-50 p-1 rounded"
+                          <div className="flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 p-1 rounded"
                                onClick={() => setAccDetailsModal({ active: true, title: 'Club PAGADO', items: globalAccountingStats.club.listPaid, type: 'success' })}>
                               <span className="text-gray-600">Pagado:</span>
                               <span className="font-bold text-green-600">{globalAccountingStats.club.paid.toFixed(2)}€</span>
                           </div>
-                          <div className="flex justify-between items-center text-sm cursor-pointer bg-purple-50 p-1 rounded hover:bg-purple-100 transition-colors"
+                          <div className="flex justify-between items-center text-xs cursor-pointer bg-purple-50 p-1 rounded hover:bg-purple-100 transition-colors"
                                onClick={() => setAccDetailsModal({ active: true, title: 'Club PENDIENTE', items: globalAccountingStats.club.listPending, type: 'purple' })}>
                               <span className="text-purple-800 font-bold">Deuda:</span>
                               <span className="font-black text-purple-600">{globalAccountingStats.club.pending.toFixed(2)}€</span>
@@ -7387,44 +7430,44 @@ const globalAccountingStats = useMemo(() => {
                   </div>
               </div>
 
-                {accountingData.map(({ club, batches }) => {
-                  // --- CÁLCULOS DE ESTADO DE CUENTA (CORREGIDOS) ---
-                  let totalPendingCash = 0;
-                  let balanceProvider = 0;   
+{accountingData.map(({ club, batches }) => {
+                  // --- CÁLCULOS DE SALDOS DE CABECERA ---
+                  let totalPendingCash = 0; 
+                  let balanceProvider = 0; 
                   let balanceCommercial = 0; 
-                  let balanceClub = 0;       
+                  let balanceClub = 0;
 
                   batches.forEach(batch => {
                       const log = club.accountingLog?.[batch.id] || {};
                       
-                      const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
-                      const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
-                      
-                      const cardTotal = cardOrders.reduce((sum, o) => sum + o.total, 0);
-                      const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
-                      const bTotal = cardTotal + cashTotal;
-                      
-                      // Coste Proveedor
-                      const bCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+                      const isErrorBatch = typeof batch.id === 'string' && batch.id.startsWith('ERR');
+                      const isCommissionExempt = isErrorBatch;
 
-                      // 1. PAGO CLUB: (Total * % del Club)
-                      const clubCommissionRate = club.commission !== undefined ? club.commission : 0.12;
-                      const bCommClub = bTotal * clubCommissionRate;
-
-                      // 2. GASTO PASARELA (Necesario para la fórmula comercial)
-                      const batchGatewayFee = cardOrders.reduce((sum, o) => {
-                          return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                      // Totales Reales (Para Caja y Proveedor)
+                      const cashRevenue = batch.orders.filter(o => o.paymentMethod === 'cash').reduce((s,o)=>s+o.total,0);
+                      const totalCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+                      
+                      // Filtro Comisionable
+                      const commissionableOrders = batch.orders.filter(o => o.paymentMethod !== 'incident' && o.paymentMethod !== 'gift' && o.type !== 'replacement');
+                      
+                      const commRevenue = commissionableOrders.reduce((sum, o) => sum + o.total, 0);
+                      const commCost = commissionableOrders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+                      const commFees = commissionableOrders.reduce((sum, o) => {
+                          if(o.paymentMethod === 'card') return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                          return sum;
                       }, 0);
 
-                      // 3. PAGO COMERCIAL: (Total - Coste - Club - Pasarela) * % Comercial
-                      const commercialBase = bTotal - bCost - bCommClub - batchGatewayFee;
-                      const bCommComm = commercialBase * financialConfig.commercialCommissionPct;
+                      // Cálculos Comisión
+                      const clubRate = isCommissionExempt ? 0 : (club.commission || 0.12);
+                      const commClub = commRevenue * clubRate;
+                      
+                      const commBase = commRevenue - commCost - commClub - commFees;
+                      const commComm = isCommissionExempt ? 0 : (commBase * financialConfig.commercialCommissionPct);
 
-                      // ACUMULACIÓN DE SALDOS
-                      totalPendingCash += (!log.cashCollected ? cashTotal : 0) + (log.cashUnder || 0) - (log.cashOver || 0);
-                      balanceProvider += (!log.supplierPaid ? bCost : 0) + (log.supplierUnder || 0) - (log.supplierOver || 0);
-                      balanceCommercial += (!log.commercialPaid ? bCommComm : 0) + (log.commercialUnder || 0) - (log.commercialOver || 0);
-                      balanceClub += (!log.clubPaid ? bCommClub : 0) + (log.clubUnder || 0) - (log.clubOver || 0);
+                      totalPendingCash += (!log.cashCollected ? cashRevenue : 0) + (log.cashUnder||0) - (log.cashOver||0);
+                      balanceProvider += (!log.supplierPaid ? totalCost : 0) + (log.supplierUnder||0) - (log.supplierOver||0);
+                      balanceCommercial += (!log.commercialPaid ? commComm : 0) + (log.commercialUnder||0) - (log.commercialOver||0);
+                      balanceClub += (!log.clubPaid ? commClub : 0) + (log.clubUnder||0) - (log.clubOver||0);
                   });
 
                   const renderBalance = (amount, labelPositive, labelNegative) => {
@@ -7448,7 +7491,7 @@ const globalAccountingStats = useMemo(() => {
                               </div>
                           </div>
 
-                          {/* PANEL DE ESTADO (Ahora muestra los saldos calculados con las nuevas fórmulas) */}
+                          {/* PANEL DE ESTADO */}
                           <div className="grid grid-cols-2 md:grid-cols-4 gap-px bg-gray-200 border-b border-gray-200">
                               <div className="bg-white p-4 text-center">
                                   <p className="text-[10px] uppercase font-bold text-gray-400 mb-1">Caja Efectivo</p>
@@ -7472,41 +7515,62 @@ const globalAccountingStats = useMemo(() => {
                               <table className="w-full text-sm text-left">
                                   <thead className="bg-gray-50 text-gray-600 text-xs uppercase font-bold">
                                       <tr>
-                                          <th className="px-4 py-3 min-w-[120px]">Bloque / Lote</th>
-                                          <th className="px-4 py-3 text-right bg-blue-50/30">Tarjeta</th>
+                                          <th className="px-4 py-3 min-w-[120px]">Lote</th>
+                                          <th className="px-4 py-3 text-right bg-blue-50/30">Banco / Tarjeta (Neto)</th>
                                           <th className="px-4 py-3 text-right bg-orange-50/30">Efectivo</th>
                                           <th className="px-4 py-3 text-center bg-orange-50/30 min-w-[160px]">Control Caja</th>
                                           <th className="px-4 py-3 min-w-[160px]">Pago Proveedor</th>
                                           <th className="px-4 py-3 min-w-[160px]">Pago Comercial</th>
                                           <th className="px-4 py-3 min-w-[160px]">Pago Club</th>
+                                          <th className="px-4 py-3 min-w-[120px] text-right bg-emerald-50 text-emerald-800">Beneficio Neto</th>
                                       </tr>
                                   </thead>
                                   <tbody className="divide-y divide-gray-100 bg-white">
                                       {batches.map(batch => {
-                                          const isSpecial = batch.id === 'SPECIAL';
-                                          
-                                          const cardOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
+                                          // --- LÓGICA DE FILA ---
+                                          const isErrorBatch = typeof batch.id === 'string' && batch.id.startsWith('ERR');
+                                          const isCommissionExempt = isErrorBatch; 
+
+                                          // 1. Totales Reales (Incluyen todo para el neto de la empresa)
                                           const cashOrders = batch.orders.filter(o => o.paymentMethod === 'cash');
+                                          const nonCashOrders = batch.orders.filter(o => o.paymentMethod !== 'cash');
                                           
-                                          const cardTotal = cardOrders.reduce((sum, o) => sum + o.total, 0);
-                                          const cashTotal = cashOrders.reduce((sum, o) => sum + o.total, 0);
-                                          const bTotal = cardTotal + cashTotal;
+                                          const revenueCash = cashOrders.reduce((sum, o) => sum + o.total, 0);
+                                          const revenueNonCash = nonCashOrders.reduce((sum, o) => sum + o.total, 0); 
+                                          const totalBatchRevenue = revenueCash + revenueNonCash;
 
-                                          const bCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+                                          const totalCost = batch.orders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
                                           
-                                          // --- 1. PAGO CLUB (EN FILA) ---
-                                          const clubCommissionRate = club.commission !== undefined ? club.commission : 0.12;
-                                          const bCommClub = bTotal * clubCommissionRate;
-
-                                          // --- 2. PAGO COMERCIAL (EN FILA) ---
-                                          const batchGatewayFee = cardOrders.reduce((sum, o) => {
-                                              return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                                          const totalFees = batch.orders.reduce((sum, o) => {
+                                              if(o.paymentMethod === 'card') return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                                              return sum;
                                           }, 0);
-                                          const commercialBase = bTotal - bCost - bCommClub - batchGatewayFee;
-                                          const bCommComm = commercialBase * financialConfig.commercialCommissionPct;
 
+                                          // 2. Filtro Comisionable (Para Comercial y Club)
+                                          const commissionableOrders = batch.orders.filter(o => 
+                                              o.paymentMethod !== 'incident' && 
+                                              o.paymentMethod !== 'gift' && 
+                                              o.type !== 'replacement'
+                                          );
+
+                                          const commRevenue = commissionableOrders.reduce((sum, o) => sum + o.total, 0);
+                                          const commCost = commissionableOrders.reduce((sum, o) => sum + (o.items?.reduce((is, i) => is + ((i.cost || 0) * (i.quantity || 1)), 0) || 0), 0);
+                                          const commFees = commissionableOrders.reduce((sum, o) => {
+                                              if(o.paymentMethod === 'card') return sum + ((o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee);
+                                              return sum;
+                                          }, 0);
+
+                                          // 3. Cálculo de Comisiones (Usando datos filtrados)
+                                          const clubRate = isCommissionExempt ? 0 : (club.commission || 0.12);
+                                          const commClub = commRevenue * clubRate;
+
+                                          const commBase = commRevenue - commCost - commClub - commFees;
+                                          const commComm = isCommissionExempt ? 0 : (commBase * financialConfig.commercialCommissionPct);
+
+                                          // 4. Beneficio Neto (Usa los Totales Reales - Costes Reales - Comisiones Pagadas)
+                                          const netProfit = totalBatchRevenue - totalCost - commClub - commComm - totalFees;
+                                          
                                           const status = club.accountingLog?.[batch.id] || {};
-
                                           const AdjustmentInputs = ({ fieldOver, fieldUnder }) => (
                                               <div className="flex gap-2 mt-2">
                                                   <div className="flex-1"><label className="text-[9px] text-gray-400 block mb-0.5">De más</label><input type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300" value={status[fieldOver] || ''} onChange={(e) => updateBatchValue(club, batch.id, fieldOver, e.target.value)}/></div>
@@ -7515,37 +7579,39 @@ const globalAccountingStats = useMemo(() => {
                                           );
 
                                           return (
-                                              <tr key={batch.id} className={`align-top hover:bg-gray-50 transition-colors ${isSpecial ? 'bg-indigo-50/40' : ''}`}>
+                                              <tr key={batch.id} className={`align-top hover:bg-gray-50 transition-colors`}>
                                                   <td className="px-4 py-4">
-                                                      {isSpecial ? (
-                                                          <div className="inline-block">
-                                                              <span className="font-bold text-indigo-700 bg-indigo-100 border border-indigo-200 px-3 py-1 rounded-md text-xs uppercase tracking-wide shadow-sm flex items-center gap-1">
-                                                                  <Briefcase className="w-3 h-3"/> Especiales
-                                                              </span>
-                                                          </div>
-                                                      ) : (
-                                                          <span className="font-bold text-gray-800 bg-gray-100 px-2 py-1 rounded">Lote Global #{batch.id}</span>
-                                                      )}
-                                                      <div className="text-[10px] text-gray-400 mt-2">{batch.orders.length} pedidos</div>
+                                                      <div className="flex flex-col">
+                                                          <span className={`font-bold px-2 py-1 rounded w-fit ${isErrorBatch ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                              {isErrorBatch ? `Lote Errores #${batch.id.split('-')[1]}` : batch.id === 'INDIVIDUAL' ? 'Individual' : batch.id === 'SPECIAL' ? 'Especial' : `Lote #${batch.id}`}
+                                                          </span>
+                                                          {isCommissionExempt && <span className="text-[9px] font-bold text-orange-500 mt-1 uppercase">Sin Comisión</span>}
+                                                          <span className="text-[10px] text-gray-400 mt-1">{batch.orders.length} pedidos</span>
+                                                      </div>
                                                   </td>
                                                   
-                                                  <td className="px-4 py-4 text-right bg-blue-50/30"><span className="font-mono font-bold text-blue-700">{cardTotal.toFixed(2)}€</span></td>
-                                                  <td className="px-4 py-4 text-right bg-orange-50/30"><span className="font-mono font-bold text-orange-700">{cashTotal.toFixed(2)}€</span></td>
+                                                  <td className="px-4 py-4 text-right bg-blue-50/30">
+                                                      <div className="flex flex-col items-end">
+                                                          <span className="font-mono font-bold text-blue-700">{(revenueNonCash - totalFees).toFixed(2)}€</span>
+                                                          <span className="text-[9px] text-gray-400">Bruto: {revenueNonCash.toFixed(2)}€</span>
+                                                          {totalFees > 0 && <span className="text-[9px] text-red-400">(-{totalFees.toFixed(2)}€ fees)</span>}
+                                                      </div>
+                                                  </td>
+                                                  
+                                                  <td className="px-4 py-4 text-right bg-orange-50/30"><span className="font-mono font-bold text-orange-700">{revenueCash.toFixed(2)}€</span></td>
                                                   
                                                   <td className="px-4 py-4 bg-orange-50/30">
-                                                      {cashTotal > 0 ? (
+                                                      {revenueCash > 0 ? (
                                                           <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'cashCollected')} className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all mb-1 ${status.cashCollected ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}>
                                                               {status.cashCollected ? 'RECOGIDO' : 'PENDIENTE'}
                                                           </button>
-                                                      ) : <div className="text-center text-xs text-gray-300 py-1">-</div>}
+                                                      ) : <div className="text-center text-xs text-gray-300">-</div>}
                                                       <AdjustmentInputs fieldOver="cashOver" fieldUnder="cashUnder" />
                                                   </td>
 
                                                   <td className="px-4 py-4">
                                                       <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-xs text-red-500 font-bold">
-                                                              -{(bCost || 0).toFixed(2)}€
-                                                          </span>
+                                                          <span className="text-xs text-red-500 font-bold">-{totalCost.toFixed(2)}€</span>
                                                           <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
                                                               {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
                                                           </button>
@@ -7554,27 +7620,35 @@ const globalAccountingStats = useMemo(() => {
                                                   </td>
 
                                                   <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-xs text-blue-500 font-bold">
-                                                              +{(bCommComm || 0).toFixed(2)}€
-                                                          </span>
-                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                              {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                          </button>
-                                                      </div>
-                                                      <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
+                                                      {isCommissionExempt ? <div className="text-center text-gray-300 text-xs">-</div> : (
+                                                          <>
+                                                              <div className="flex justify-between items-center mb-1">
+                                                                  <span className="text-xs text-blue-500 font-bold">+{commComm.toFixed(2)}€</span>
+                                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                                      {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                  </button>
+                                                              </div>
+                                                              <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
+                                                          </>
+                                                      )}
                                                   </td>
 
                                                   <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-xs text-purple-500 font-bold">
-                                                              -{(bCommClub || 0).toFixed(2)}€
-                                                          </span>
-                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                              {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                          </button>
-                                                      </div>
-                                                      <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
+                                                      {isCommissionExempt ? <div className="text-center text-gray-300 text-xs">-</div> : (
+                                                          <>
+                                                              <div className="flex justify-between items-center mb-1">
+                                                                  <span className="text-xs text-purple-500 font-bold">-{commClub.toFixed(2)}€</span>
+                                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
+                                                                      {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                  </button>
+                                                              </div>
+                                                              <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
+                                                          </>
+                                                      )}
+                                                  </td>
+
+                                                  <td className="px-4 py-4 text-right font-black text-emerald-600 bg-emerald-50/30 border-l border-emerald-100">
+                                                      {netProfit.toFixed(2)}€
                                                   </td>
                                               </tr>
                                           );

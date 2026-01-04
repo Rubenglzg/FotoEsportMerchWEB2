@@ -4318,6 +4318,91 @@ const statsData = useMemo(() => {
       return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, financialReport: reportRows, allProductsStats };
   }, [financialOrders, statsClubFilter, clubs, financialConfig, products, seasons, financeSeasonId]);
 
+// --- LÓGICA DE ESTADÍSTICAS DE ERRORES (NUEVO) ---
+  const errorStats = useMemo(() => {
+      // 1. Filtrar pedidos por temporada y club (Igual que las finanzas)
+      let relevantOrders = orders;
+      
+      // Filtro Temporada
+      if (financeSeasonId !== 'all') {
+          const season = seasons.find(s => s.id === financeSeasonId);
+          if (season) {
+              const start = new Date(season.startDate).getTime();
+              const end = new Date(season.endDate).getTime();
+              relevantOrders = relevantOrders.filter(o => {
+                  if (o.manualSeasonId) return o.manualSeasonId === financeSeasonId;
+                  const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+                  return d >= start && d <= end;
+              });
+          }
+      }
+
+      // Filtro Club
+      if (statsClubFilter !== 'all') {
+          relevantOrders = relevantOrders.filter(o => o.clubId === statsClubFilter);
+      }
+
+      // 2. Separar pedidos
+      const normalOrders = relevantOrders.filter(o => o.type !== 'replacement' && o.paymentMethod !== 'incident' && !String(o.globalBatch).startsWith('ERR'));
+      const incidentOrders = relevantOrders.filter(o => o.type === 'replacement' || o.paymentMethod === 'incident' || String(o.globalBatch).startsWith('ERR'));
+
+      // 3. Cálculos Métricas
+      const totalOrdersCount = normalOrders.length + incidentOrders.length;
+      const errorCount = incidentOrders.length;
+      const errorRate = totalOrdersCount > 0 ? (errorCount / totalOrdersCount) * 100 : 0;
+
+      const responsibility = { internal: 0, club: 0, supplier: 0 };
+      const costAssumed = { internal: 0, club: 0, supplier: 0 };
+      const productErrors = {};
+
+      incidentOrders.forEach(ord => {
+          const details = ord.incidentDetails || {};
+          const resp = details.responsibility || 'internal'; // Por defecto 'internal' si no existe
+          
+          // Coste de producción de la reposición
+          const cost = ord.items.reduce((sum, i) => sum + (i.cost || 0), 0);
+          // Precio de venta (lo que paga el club si es su culpa)
+          const price = ord.total;
+
+          // A) Conteo de Responsabilidad
+          if (responsibility[resp] !== undefined) responsibility[resp]++;
+          else responsibility.internal++; // fallback
+
+          // B) Costes Asumidos
+          if (resp === 'club') {
+              // Si paga el club, el "coste asumido" es el precio que pagan
+              costAssumed.club += price;
+          } else if (resp === 'supplier') {
+              // Si es proveedor, asumimos que el coste de fabricación lo cubren ellos
+              costAssumed.supplier += cost; 
+          } else {
+              // Fallo interno (Nosotros): Asumimos el coste de producción
+              costAssumed.internal += cost;
+          }
+
+          // C) Productos con fallo
+          ord.items.forEach(item => {
+              // Limpiamos el nombre por si tiene etiquetas como [REP]
+              const name = item.name.replace(/\[REP\]/g, '').trim();
+              productErrors[name] = (productErrors[name] || 0) + 1;
+          });
+      });
+
+      // Ordenar productos con más fallos
+      const sortedProductErrors = Object.entries(productErrors)
+          .sort((a, b) => b[1] - a[1])
+          .slice(0, 5); // Top 5
+
+      return {
+          totalOrdersCount,
+          errorCount,
+          errorRate,
+          responsibility,
+          costAssumed,
+          sortedProductErrors
+      };
+  }, [orders, financeSeasonId, statsClubFilter, seasons]);
+
   // Función auxiliar para calcular porcentajes de ancho en gráficas
   const getWidth = (val, max) => max > 0 ? `${(val / max) * 100}%` : '0%';
 
@@ -8349,6 +8434,86 @@ const statsData = useMemo(() => {
                                 </div>
                             );
                         })}
+                    </div>
+                </div>
+
+                {/* --- SECCIÓN NUEVA: CONTROL DE CALIDAD Y ERRORES --- */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-red-100 mt-8">
+                    <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 border-b border-red-100 pb-2">
+                        <AlertTriangle className="w-5 h-5 text-red-600"/> Control de Incidencias y Calidad
+                    </h3>
+
+                    <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+                        
+                        {/* 1. KPI PRINCIPAL */}
+                        <div className="bg-red-50 rounded-xl p-6 flex flex-col justify-center items-center text-center border border-red-200">
+                            <p className="text-red-800 font-bold text-sm uppercase mb-2">Tasa de Error Global</p>
+                            <p className="text-5xl font-black text-red-600 mb-2">{errorStats.errorRate.toFixed(2)}%</p>
+                            <p className="text-xs text-red-700">
+                                <strong>{errorStats.errorCount}</strong> incidencias de <strong>{errorStats.totalOrdersCount}</strong> pedidos totales.
+                            </p>
+                        </div>
+
+                        {/* 2. RESPONSABILIDAD Y COSTES */}
+                        <div className="space-y-4">
+                            <h4 className="text-xs font-bold text-gray-500 uppercase">Responsabilidad y Coste Asumido</h4>
+                            
+                            {/* Nosotros */}
+                            <div className="bg-gray-50 p-3 rounded-lg border border-gray-200">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm font-bold text-gray-700">Nosotros (Interno)</span>
+                                    <span className="text-xs font-bold bg-gray-200 px-2 py-0.5 rounded text-gray-600">{errorStats.responsibility.internal} casos</span>
+                                </div>
+                                <div className="flex justify-between text-xs text-gray-500">
+                                    <span>Coste asumido:</span>
+                                    <span className="font-bold text-red-600">-{errorStats.costAssumed.internal.toFixed(2)}€</span>
+                                </div>
+                            </div>
+
+                            {/* Club */}
+                            <div className="bg-blue-50 p-3 rounded-lg border border-blue-100">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm font-bold text-blue-800">Club (Error Cliente)</span>
+                                    <span className="text-xs font-bold bg-blue-100 px-2 py-0.5 rounded text-blue-700">{errorStats.responsibility.club} casos</span>
+                                </div>
+                                <div className="flex justify-between text-xs text-blue-600">
+                                    <span>Pagado por Club:</span>
+                                    <span className="font-bold">+{errorStats.costAssumed.club.toFixed(2)}€</span>
+                                </div>
+                            </div>
+
+                            {/* Proveedor */}
+                            <div className="bg-orange-50 p-3 rounded-lg border border-orange-100">
+                                <div className="flex justify-between items-center mb-1">
+                                    <span className="text-sm font-bold text-orange-800">Proveedor (Garantía)</span>
+                                    <span className="text-xs font-bold bg-orange-100 px-2 py-0.5 rounded text-orange-700">{errorStats.responsibility.supplier} casos</span>
+                                </div>
+                                <div className="flex justify-between text-xs text-orange-600">
+                                    <span>Valor repuesto:</span>
+                                    <span className="font-bold">{errorStats.costAssumed.supplier.toFixed(2)}€</span>
+                                </div>
+                            </div>
+                        </div>
+
+                        {/* 3. PRODUCTOS CON MÁS FALLOS */}
+                        <div>
+                            <h4 className="text-xs font-bold text-gray-500 uppercase mb-4">Productos más problemáticos</h4>
+                            <div className="space-y-3">
+                                {errorStats.sortedProductErrors.length === 0 ? (
+                                    <p className="text-sm text-gray-400 italic text-center py-4">Sin datos de incidencias.</p>
+                                ) : (
+                                    errorStats.sortedProductErrors.map(([name, count], idx) => (
+                                        <div key={idx} className="flex justify-between items-center border-b border-gray-100 pb-2 last:border-0">
+                                            <div className="flex items-center gap-3">
+                                                <span className="w-5 h-5 rounded-full bg-red-100 text-red-600 flex items-center justify-center font-bold text-xs">{idx + 1}</span>
+                                                <span className="text-sm text-gray-700 font-medium truncate max-w-[150px]">{name}</span>
+                                            </div>
+                                            <span className="text-xs font-bold bg-red-50 text-red-700 px-2 py-1 rounded">{count} fallos</span>
+                                        </div>
+                                    ))
+                                )}
+                            </div>
+                        </div>
                     </div>
                 </div>
 

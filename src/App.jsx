@@ -1447,10 +1447,18 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
   const [availableCategories, setAvailableCategories] = useState([]);
 
+  // --- NUEVOS ESTADOS PARA CATEGORÍAS J2 y J3 ---
+  const [categoryInput2, setCategoryInput2] = useState('');
+  const [showCategorySuggestions2, setShowCategorySuggestions2] = useState(false);
+  const [categoryInput3, setCategoryInput3] = useState('');
+  const [showCategorySuggestions3, setShowCategorySuggestions3] = useState(false);
+
   // Inicialización correcta de estados basada en defaults
   const [customization, setCustomization] = useState({ 
       clubId: '', 
       category: '', 
+      category2: '', // Nueva categoría J2
+      category3: '', // Nueva categoría J3
       playerName: '', 
       playerNumber: '', 
       playerName2: '',
@@ -1467,6 +1475,17 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       includeShield: defaults.shield ?? true,
       selectedVariantId: null 
   });
+
+  // --- LOGICA DE SUGERENCIAS INDEPENDIENTES ---
+  const categorySuggestions2 = useMemo(() => {
+      if (categoryInput2.length < 2) return [];
+      return availableCategories.filter(c => c.toLowerCase().includes(categoryInput2.toLowerCase()));
+  }, [categoryInput2, availableCategories]);
+
+  const categorySuggestions3 = useMemo(() => {
+      if (categoryInput3.length < 2) return [];
+      return availableCategories.filter(c => c.toLowerCase().includes(categoryInput3.toLowerCase()));
+  }, [categoryInput3, availableCategories]);
 
   const [quantity, setQuantity] = useState(1);
 
@@ -1506,38 +1525,39 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       return availableCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase()));
   }, [categoryInput, availableCategories]);
 
-  const handleSelectClub = (club) => {
-      setCustomization({ ...customization, clubId: club.id, category: '', color: club.color || 'white' });
-      setClubInput(club.name); setCategoryInput(''); setShowClubSuggestions(false);
+ const handleSelectClub = (club) => {
+      setCustomization({ ...customization, clubId: club.id, category: '', category2: '', category3: '', color: club.color || 'white' });
+      setClubInput(club.name); 
+      setCategoryInput(''); 
+      setCategoryInput2('');
+      setCategoryInput3('');
+      setShowClubSuggestions(false);
   };
 
-    // --- LÓGICA DE COBRO ACTUALIZADA: Cualquier diferencia con el default se cobra ---
-    const modificationCount = useMemo(() => {
-        let count = 0;
-        const checkExtra = (key) => {
-            if (!features[key]) return false; // Si no existe, no cuenta
-            if (!modifiable[key]) return false; // Si no se puede tocar, no cuenta
-            
-            // Valores actuales (seleccionados por usuario)
-            const isSelected = customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`];
-            // Valores por defecto (del producto)
-            const isDefault = !!defaults[key];
+// --- LÓGICA DE COBRO ACTUALIZADA (Multiplicador de jugadores) ---
+  const modificationCount = useMemo(() => {
+      let count = 0;
+      // Determinamos cuántos jugadores hay activos según la variante
+      const playersCount = isTriple ? 3 : isDouble ? 2 : 1;
 
-            // SI HAY DIFERENCIA, HAY COBRO.
-            // Caso 1: Default OFF, Usuario ON -> Cobra
-            // Caso 2: Default ON, Usuario OFF -> Cobra
-            if (isSelected !== isDefault) {
-                return true;
-            }
-            return false;
-        };
-        
-        if (checkExtra('name')) count++;
-        if (checkExtra('number')) count++;
-        if (checkExtra('shield')) count++;
-        
-        return count;
-    }, [customization, defaults, features, modifiable]);
+      const checkExtra = (key) => {
+          if (!features[key]) return false;
+          if (!modifiable[key]) return false;
+          
+          const isSelected = customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`];
+          const isDefault = !!defaults[key];
+
+          // Si hay diferencia con el default, se cobra
+          return isSelected !== isDefault;
+      };
+      
+      // Si hay modificación, se suma y MULTIPLICA por los jugadores afectados
+      if (checkExtra('name')) count += playersCount;
+      if (checkExtra('number')) count += playersCount;
+      if (checkExtra('shield')) count += playersCount; 
+      
+      return count;
+  }, [customization, defaults, features, modifiable, isDouble, isTriple]);
 
     const isModified = modificationCount > 0;
     const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
@@ -1586,12 +1606,20 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                   playerNumber: isTeamPhoto ? '' : customization.playerNumber,
                   quantity: quantity, 
                   size: customization.size,
-                  details: {
-                      player2: (isDouble || isTriple) ? { name: customization.playerName2, number: customization.playerNumber2 } : null,
-                      player3: (isTriple) ? { name: customization.playerName3, number: customization.playerNumber3 } : null,
-                      variant: activeVariant ? activeVariant.name : 'Standard'
-                  }
-              };
+                    details: {
+                            player2: (isDouble || isTriple) ? { 
+                                name: customization.playerName2, 
+                                number: customization.playerNumber2,
+                                category: customization.category2 // Guardar Categoría J2
+                            } : null,
+                            player3: (isTriple) ? { 
+                                name: customization.playerName3, 
+                                number: customization.playerNumber3,
+                                category: customization.category3 // Guardar Categoría J3
+                            } : null,
+                            variant: activeVariant ? activeVariant.name : 'Standard'
+                        }
+                    };
               onAdd(finalItem, customization, unitPrice); 
               onBack(); 
           }
@@ -1711,21 +1739,91 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
               </div>
           )}
 
-          {(isDouble || isTriple) && (
-              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+            {(isDouble || isTriple) && (
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 relative">
                   <h4 className="font-bold text-blue-800 text-xs uppercase mb-3">Datos Jugador 2</h4>
+                  
+                  {/* Selector Categoría J2 */}
+                  <div className="relative mb-3">
+                      <label className="block text-[10px] font-bold text-blue-600 mb-1 uppercase">Categoría J2</label>
+                      <Input 
+                          placeholder="Buscar categoría J2..." 
+                          value={categoryInput2} 
+                          onChange={e => { 
+                              setCategoryInput2(e.target.value); 
+                              setCustomization({...customization, category2: ''}); 
+                              setShowCategorySuggestions2(true); 
+                          }} 
+                          onFocus={() => setShowCategorySuggestions2(true)} 
+                          onBlur={() => setTimeout(() => setShowCategorySuggestions2(false), 200)} 
+                      />
+                      {showCategorySuggestions2 && categorySuggestions2.length > 0 && (
+                          <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                              {categorySuggestions2.map(cat => (
+                                  <div key={cat} onClick={() => { 
+                                      setCustomization({ ...customization, category2: cat }); 
+                                      setCategoryInput2(cat); 
+                                      setShowCategorySuggestions2(false); 
+                                  }} className="px-4 py-3 hover:bg-blue-50 cursor-pointer text-sm">
+                                      {cat}
+                                  </div>
+                              ))}
+                          </div>
+                      )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
-                      <Input placeholder="Nombre J2" value={customization.playerName2} onChange={e => setCustomization({...customization, playerName2: e.target.value})}/>
-                      <Input placeholder="Dorsal J2" type="number" value={customization.playerNumber2} onChange={e => setCustomization({...customization, playerNumber2: e.target.value})}/>
+                      {/* Condicionamos visibilidad según si 'Incluir Nombre' está activo */}
+                      <div className={!customization.includeName ? 'opacity-40 pointer-events-none grayscale' : ''}>
+                          <Input placeholder="Nombre J2" value={customization.playerName2} onChange={e => setCustomization({...customization, playerName2: e.target.value})}/>
+                      </div>
+                      <div className={!customization.includeNumber ? 'opacity-40 pointer-events-none grayscale' : ''}>
+                          <Input placeholder="Dorsal J2" type="number" value={customization.playerNumber2} onChange={e => setCustomization({...customization, playerNumber2: e.target.value})}/>
+                      </div>
                   </div>
               </div>
           )}
+          {/* JUGADOR 3 - AHORA CON SELECTOR DE CATEGORÍA */}
           {isTriple && (
-              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
+              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 relative">
                    <h4 className="font-bold text-purple-800 text-xs uppercase mb-3">Datos Jugador 3</h4>
+                  
+                  {/* Selector Categoría J3 */}
+                  <div className="relative mb-3">
+                      <label className="block text-[10px] font-bold text-purple-600 mb-1 uppercase">Categoría J3</label>
+                      <Input 
+                          placeholder="Buscar categoría J3..." 
+                          value={categoryInput3} 
+                          onChange={e => { 
+                              setCategoryInput3(e.target.value); 
+                              setCustomization({...customization, category3: ''}); 
+                              setShowCategorySuggestions3(true); 
+                          }} 
+                          onFocus={() => setShowCategorySuggestions3(true)} 
+                          onBlur={() => setTimeout(() => setShowCategorySuggestions3(false), 200)} 
+                      />
+                      {showCategorySuggestions3 && categorySuggestions3.length > 0 && (
+                          <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                              {categorySuggestions3.map(cat => (
+                                  <div key={cat} onClick={() => { 
+                                      setCustomization({ ...customization, category3: cat }); 
+                                      setCategoryInput3(cat); 
+                                      setShowCategorySuggestions3(false); 
+                                  }} className="px-4 py-3 hover:bg-purple-50 cursor-pointer text-sm">
+                                      {cat}
+                                  </div>
+                              ))}
+                          </div>
+                      )}
+                  </div>
+
                   <div className="grid grid-cols-2 gap-4">
-                      <Input placeholder="Nombre J3" value={customization.playerName3} onChange={e => setCustomization({...customization, playerName3: e.target.value})}/>
-                      <Input placeholder="Dorsal J3" type="number" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/>
+                      <div className={!customization.includeName ? 'opacity-40 pointer-events-none grayscale' : ''}>
+                          <Input placeholder="Nombre J3" value={customization.playerName3} onChange={e => setCustomization({...customization, playerName3: e.target.value})}/>
+                      </div>
+                      <div className={!customization.includeNumber ? 'opacity-40 pointer-events-none grayscale' : ''}>
+                          <Input placeholder="Dorsal J3" type="number" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/>
+                      </div>
                   </div>
               </div>
           )}
@@ -1849,9 +1947,13 @@ function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig
                                     </div>
                                 )}
                                 {item.details.player2 && (
-                                    <div className="flex items-center gap-1.5 text-slate-600 text-xs">
-                                        <span className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[10px] shrink-0">J2</span>
-                                        <span>{item.details.player2.name} <strong className="ml-0.5">#{item.details.player2.number}</strong></span>
+                                    <div className="flex flex-col gap-1 text-slate-600 text-xs mt-1">
+                                        <div className="flex items-center gap-1.5">
+                                            <span className="w-5 h-5 rounded-full bg-slate-200 flex items-center justify-center font-bold text-[10px] shrink-0">J2</span>
+                                            <span>{item.details.player2.name} <strong className="ml-0.5">#{item.details.player2.number}</strong></span>
+                                        </div>
+                                        {/* Mostrar categoría J2 si existe */}
+                                        {item.details.player2.category && <span className="ml-7 text-[10px] text-slate-400">Cat: {item.details.player2.category}</span>}
                                     </div>
                                 )}
                                 {item.details.player3 && (
@@ -9513,7 +9615,7 @@ export default function App() {
           </p>
 
           <button 
-            onClick={() => setView('landing')}
+            onClick={() => setView('home')}
             className="mt-6 text-green-600 font-medium hover:text-green-800 transition-colors"
           >
             Volver ahora

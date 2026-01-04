@@ -4182,12 +4182,15 @@ const statsData = useMemo(() => {
                   }
 
                   // --- Producto Individual ---
-                  // Nos aseguramos de no contar variantes de error si se colaron
-                  if (!item.name.includes('[REP]')) {
-                      if (!productSales[item.name]) productSales[item.name] = { qty: 0, total: 0 };
-                      productSales[item.name].qty += qty;
-                      productSales[item.name].total += subtotal;
-                  }
+                    // Nos aseguramos de no contar variantes de error si se colaron
+                    if (!item.name.includes('[REP]')) {
+                        // AÑADIDO: Inicializamos cost a 0
+                        if (!productSales[item.name]) productSales[item.name] = { qty: 0, total: 0, cost: 0 };
+                        productSales[item.name].qty += qty;
+                        productSales[item.name].total += subtotal;
+                        // AÑADIDO: Acumulamos el coste real (coste unitario * cantidad)
+                        productSales[item.name].cost += (item.cost || 0) * qty;
+                    }
               });
           }
       });
@@ -4202,10 +4205,17 @@ const statsData = useMemo(() => {
           .sort((a, b) => b.value - a.value)
           .slice(0, 8);
 
-      const sortedProducts = Object.entries(productSales)
-          .map(([name, data]) => ({ name, ...data }))
-          .sort((a, b) => b.qty - a.qty) 
-          .slice(0, 5); 
+        // AÑADIDO: Creamos una lista con TODOS los productos y calculamos su MARGEN
+        const allProductsStats = Object.entries(productSales)
+            .map(([name, data]) => ({ 
+                name, 
+                ...data,
+                margin: data.total - data.cost // Margen = Ventas - Coste
+            }))
+            .sort((a, b) => b.margin - a.margin); // Ordenamos por margen (de mayor a menor)
+
+        // Mantenemos sortedProducts para el widget de "Top 5" original
+        const sortedProducts = allProductsStats.slice(0, 5);
 
       // Ordenar Métodos de Pago
       const sortedPaymentMethods = Object.entries(paymentStats)
@@ -4305,7 +4315,7 @@ const statsData = useMemo(() => {
           }).sort((a, b) => b.grossSales - a.grossSales);
       }
 
-      return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, financialReport: reportRows };
+      return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, financialReport: reportRows, allProductsStats };
   }, [financialOrders, statsClubFilter, clubs, financialConfig, products, seasons, financeSeasonId]);
 
   // Función auxiliar para calcular porcentajes de ancho en gráficas
@@ -8296,6 +8306,51 @@ const statsData = useMemo(() => {
                       </div>
                   </div>
               </div>
+
+              {/* NUEVO: Rentabilidad de Productos (Margen vs Cantidad) */}
+                <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 mb-8">
+                    <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
+                        <BarChart3 className="w-5 h-5 text-purple-600"/> 
+                        Rentabilidad Real por Producto
+                        <span className="text-xs font-normal text-gray-400 ml-auto">Margen Real vs Cantidad Vendida</span>
+                    </h3>
+                    {/* Lista con scroll para ver TODOS los productos */}
+                    <div className="max-h-96 overflow-y-auto pr-2 space-y-4">
+                        {statsData.allProductsStats && statsData.allProductsStats.map((prod, idx) => {
+                            // Calculamos máximos para las barras relativas
+                            const maxMargin = statsData.allProductsStats[0].margin;
+                            const maxQty = Math.max(...statsData.allProductsStats.map(p => p.qty));
+                            
+                            return (
+                                <div key={idx} className="flex items-center gap-4 text-sm">
+                                    <div className="w-48 truncate font-medium text-gray-700" title={prod.name}>{prod.name}</div>
+                                    
+                                    {/* Columna Margen (Barra Verde) */}
+                                    <div className="flex-1">
+                                        <div className="flex justify-between mb-1">
+                                            <span className="text-xs text-gray-500">Margen</span>
+                                            <span className="text-xs font-bold text-emerald-600">{prod.margin.toFixed(2)}€</span>
+                                        </div>
+                                        <div className="w-full bg-gray-100 rounded-full h-2">
+                                            <div className="bg-emerald-500 h-full rounded-full" style={{ width: getWidth(prod.margin, maxMargin) }}></div>
+                                        </div>
+                                    </div>
+
+                                    {/* Columna Cantidad (Barra Azul) */}
+                                    <div className="flex-1">
+                                        <div className="flex justify-between mb-1">
+                                            <span className="text-xs text-gray-500">Ventas</span>
+                                            <span className="text-xs font-bold text-blue-600">{prod.qty} uds</span>
+                                        </div>
+                                        <div className="w-full bg-gray-100 rounded-full h-2">
+                                            <div className="bg-blue-500 h-full rounded-full" style={{ width: getWidth(prod.qty, maxQty) }}></div>
+                                        </div>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                </div>
 
               {/* FILA 3: TABLA FINANCIERA (Igual que antes) */}
               <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">

@@ -4407,6 +4407,7 @@ const statsData = useMemo(() => {
       const responsibility = { internal: 0, club: 0, supplier: 0 };
       const costAssumed = { internal: 0, club: 0, supplier: 0 };
       const productErrors = {};
+      
 
       incidentOrders.forEach(ord => {
           const details = ord.incidentDetails || {};
@@ -5108,18 +5109,16 @@ const statsData = useMemo(() => {
   };
 
 // --- FUNCIÓN EXCEL MEJORADA (COMISIONES EXACTAS POR CLUB + NUEVAS SECCIONES) ---
-    const handleExportSeasonExcel = async (seasonId) => {
+const handleExportSeasonExcel = async (seasonId) => {
         const season = seasons.find(s => s.id === seasonId);
         if (!season) return;
 
         const start = new Date(season.startDate).getTime();
         const end = new Date(season.endDate).getTime();
 
-        // 1. Filtrar pedidos de la temporada (por ID manual o fechas)
         const seasonOrders = orders.filter(o => {
             if (o.manualSeasonId) return o.manualSeasonId === season.id;
             if (o.manualSeasonId && o.manualSeasonId !== season.id) return false;
-            
             const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
             return d >= start && d <= end;
         });
@@ -5129,74 +5128,62 @@ const statsData = useMemo(() => {
             return;
         }
 
-        // Helper para evitar NaN
         const safeNum = (val) => (typeof val === 'number' && !isNaN(val)) ? val : 0;
 
-        // --- CÁLCULO DE ESTADÍSTICAS (PEDIDO A PEDIDO) ---
+        // --- CÁLCULO DE ESTADÍSTICAS ---
         const calculateStats = (ordersToProcess) => {
             let grossSales = 0;
             let supplierCost = 0;
             let gatewayCost = 0;
-            let totalClubComm = 0; // Acumulador exacto de comisiones club
-            let totalCommComm = 0; // Acumulador exacto de comisiones comercial
+            let totalClubComm = 0;
+            let totalCommComm = 0;
 
             const monthly = {};
             const payment = {};
             const categories = {};
-            const productsStats = {};
-
-            // Variables para Incidencias
+            const productsStats = {}; // { qty, total, cost }
+            
+            // Stats Incidencias
             let incidentCount = 0;
             const responsibility = { internal: 0, club: 0, supplier: 0 };
             const costAssumed = { internal: 0, club: 0, supplier: 0 };
+            const productIncidents = {}; 
 
             ordersToProcess.forEach(order => {
-                // DETECTAR TIPO DE PEDIDO (Normal vs Incidencia/Error)
                 const isIncident = order.type === 'replacement' || order.paymentMethod === 'incident' || String(order.globalBatch).startsWith('ERR');
 
                 if (!isIncident) {
-                    // --- A. PROCESAMIENTO DE VENTAS VÁLIDAS ---
+                    // --- VENTAS ---
                     const total = safeNum(order.total);
                     grossSales += total;
 
-                    // 1. Costes de Producto
                     const orderCost = order.items.reduce((sum, item) => sum + (safeNum(item.cost) * (item.quantity || 1)), 0);
                     supplierCost += orderCost;
 
-                    // 2. Método de Pago (Normalizado)
                     let rawMethod = order.paymentMethod || 'card';
                     let methodLabel = 'tarjeta';
-                    
                     if (rawMethod === 'cash') methodLabel = 'efectivo';
                     else if (rawMethod === 'bizum' || rawMethod === 'transfer') methodLabel = 'transferencia/bizum';
-                    else methodLabel = 'tarjeta'; // Default a tarjeta si es desconocido
-
-                    // 3. Coste Pasarela (Solo si es tarjeta)
+                    
                     let orderGatewayFee = 0;
                     if (methodLabel === 'tarjeta') {
                         orderGatewayFee = (total * safeNum(financialConfig.gatewayPercentFee)) + safeNum(financialConfig.gatewayFixedFee);
                         gatewayCost += orderGatewayFee;
                     }
 
-                    // 4. Cálculo de COMISIÓN CLUB (Usando valor específico del club del pedido)
                     const orderClub = clubs.find(c => c.id === order.clubId);
-                    // Si el club tiene comisión definida la usamos, si no 0 (o el default que prefieras, aquí priorizamos el dato del club)
                     const clubPct = orderClub ? (safeNum(orderClub.commission) || 0) : 0; 
                     const currentClubComm = total * clubPct;
                     totalClubComm += currentClubComm;
 
-                    // 5. Cálculo de COMISIÓN COMERCIAL
-                    // Base = Venta - CosteProd - ComisionClub - Pasarela
                     const commBase = total - orderCost - currentClubComm - orderGatewayFee;
                     const currentCommComm = commBase > 0 ? commBase * safeNum(financialConfig.commercialCommissionPct) : 0;
                     totalCommComm += currentCommComm;
 
-                    // 6. Acumuladores de Pago
                     if (!payment[methodLabel]) payment[methodLabel] = { total: 0, count: 0 };
                     payment[methodLabel].total += total;
                     payment[methodLabel].count += 1;
 
-                    // 7. Acumuladores Mensuales
                     const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
                     const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
                     const sortKey = date.getFullYear() * 100 + date.getMonth();
@@ -5204,32 +5191,29 @@ const statsData = useMemo(() => {
                     monthly[monthKey].total += total;
                     monthly[monthKey].count += 1;
 
-                    // 8. Categorías y Productos
                     order.items.forEach(item => {
                         const qty = item.quantity || 1;
                         const subtotal = qty * safeNum(item.price);
+                        const itemTotalCost = qty * safeNum(item.cost); 
 
                         let catName = item.category || 'General';
-                        const normCat = catName.trim().replace(/\s+[A-Z0-9]$/i, ''); // Normalizar
-                        
+                        const normCat = catName.trim().replace(/\s+[A-Z0-9]$/i, '');
                         if (!categories[normCat]) categories[normCat] = { total: 0, subCats: new Set() };
                         categories[normCat].total += subtotal;
-                        categories[normCat].subCats.add(`${order.clubId}-${catName}`);
-
-                        if (!productsStats[item.name]) productsStats[item.name] = { qty: 0, total: 0 };
+                        
+                        if (!productsStats[item.name]) productsStats[item.name] = { qty: 0, total: 0, cost: 0 };
                         productsStats[item.name].qty += qty;
                         productsStats[item.name].total += subtotal;
+                        productsStats[item.name].cost += itemTotalCost;
                     });
 
                 } else {
-                    // --- B. GESTIÓN DE INCIDENCIAS ---
+                    // --- INCIDENCIAS ---
                     incidentCount++;
                     const details = order.incidentDetails || {};
                     const resp = details.responsibility || 'internal';
-                    
                     const incCost = order.items.reduce((sum, i) => sum + ((i.cost || 0) * (i.quantity || 1)), 0);
-                    // Si se cobra (recharge), se suma a ventas en otro lado, pero aquí registramos el coste
-                    const incPrice = order.total; 
+                    const incPrice = order.total; // Si se cobró
 
                     if (responsibility[resp] !== undefined) responsibility[resp]++;
                     else responsibility.internal++;
@@ -5237,6 +5221,13 @@ const statsData = useMemo(() => {
                     if (resp === 'club') costAssumed.club += incPrice;
                     else if (resp === 'supplier') costAssumed.supplier += incCost;
                     else costAssumed.internal += incCost;
+
+                    order.items.forEach(item => {
+                        const qty = item.quantity || 1;
+                        let cleanName = item.name.replace(/\s*\[.*?\]/g, '').trim(); 
+                        if (!productIncidents[cleanName]) productIncidents[cleanName] = 0;
+                        productIncidents[cleanName] += qty;
+                    });
                 }
             });
 
@@ -5244,28 +5235,34 @@ const statsData = useMemo(() => {
             const avgTicket = validOrdersCount > 0 ? grossSales / validOrdersCount : 0;
             const netIncome = grossSales - supplierCost - gatewayCost - totalClubComm - totalCommComm;
 
+            const processedProducts = Object.entries(productsStats).map(([k,v]) => {
+                const profit = v.total - v.cost;
+                const margin = v.total > 0 ? (profit / v.total) : 0;
+                return { name: k, ...v, profit, margin };
+            });
+
             return {
                 count: validOrdersCount,
                 grossSales,
                 supplierCost,
                 gatewayCost,
-                commClub: totalClubComm,      // Total real acumulado
-                commCommercial: totalCommComm,// Total real acumulado
+                commClub: totalClubComm,
+                commCommercial: totalCommComm,
                 netIncome,
                 avgTicket,
-                incidentData: {
-                    count: incidentCount,
-                    responsibility,
-                    costAssumed
-                },
+                incidentData: { count: incidentCount, responsibility, costAssumed },
                 sortedMonths: Object.entries(monthly).map(([k,v]) => ({name: k, ...v})).sort((a,b) => a.sort - b.sort),
                 sortedPayment: Object.entries(payment).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.total - a.total),
                 sortedCats: Object.entries(categories).map(([k,v]) => ({name: k, total: v.total})).sort((a,b) => b.total - a.total),
-                sortedProds: Object.entries(productsStats).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.qty - a.qty).slice(0, 10)
+                sortedProds: processedProducts.sort((a,b) => b.qty - a.qty).slice(0, 10),
+                sortedProdsProfit: processedProducts.sort((a,b) => b.profit - a.profit).slice(0, 20),
+                sortedProductIncidents: Object.entries(productIncidents)
+                    .map(([name, count]) => ({ name, count }))
+                    .sort((a, b) => b.count - a.count)
+                    .slice(0, 10)
             };
         };
 
-        // --- HELPER: AUTOFIT COLUMNAS ---
         const adjustColumnWidths = (worksheet) => {
             worksheet.columns.forEach(column => {
                 let maxLength = 0;
@@ -5278,7 +5275,6 @@ const statsData = useMemo(() => {
             });
         };
 
-        // --- GENERACIÓN DEL LIBRO EXCEL ---
         const workbook = new ExcelJS.Workbook();
         workbook.creator = 'FotoEsport Admin';
         workbook.created = new Date();
@@ -5290,12 +5286,11 @@ const statsData = useMemo(() => {
             sectionTitle: { font: { color: { argb: 'FF10B981' }, bold: true, size: 12 } },
             currency: { numFmt: '#,##0.00 "€"' },
             currencyRed: { numFmt: '#,##0.00 "€"', font: { color: { argb: 'FFDC2626' } } },
-            currencyBold: { numFmt: '#,##0.00 "€"', font: { bold: true } }
+            currencyBold: { numFmt: '#,##0.00 "€"', font: { bold: true } },
+            percent: { numFmt: '0.00%' }
         };
 
-        // ==========================================
-        // HOJA 1: VISTA GLOBAL (RESUMEN COMPLETO)
-        // ==========================================
+        // --- HOJA 1: VISTA GLOBAL ---
         const globalStats = calculateStats(seasonOrders);
         const wsGlobal = workbook.addWorksheet('Vista Global');
         
@@ -5306,10 +5301,8 @@ const statsData = useMemo(() => {
         wsGlobal.mergeCells('A1:H1');
         wsGlobal.addRow([]);
 
-        // 1. RESUMEN GENERAL (Con Ticket Medio)
         wsGlobal.addRow(['Resumen General']);
         wsGlobal.getCell('A3').font = styles.sectionTitle.font;
-        
         wsGlobal.addRow(['Total Pedidos', globalStats.count]);
         const rFact = wsGlobal.addRow(['Facturación Total', globalStats.grossSales]);
         rFact.getCell(2).numFmt = styles.currencyBold.numFmt;
@@ -5317,10 +5310,8 @@ const statsData = useMemo(() => {
         rTicket.getCell(2).numFmt = styles.currency.numFmt;
         const rNet = wsGlobal.addRow(['Beneficio Neto Global', globalStats.netIncome]);
         rNet.getCell(2).numFmt = styles.currencyBold.numFmt;
-        
         wsGlobal.addRow([]);
 
-        // 2. REPORTE FINANCIERO DETALLADO POR CLUB (Igual a Tabla Web)
         wsGlobal.addRow(['Reporte Financiero Detallado por Club']);
         wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
         wsGlobal.mergeCells(`A${wsGlobal.lastRow.number}:H${wsGlobal.lastRow.number}`);
@@ -5331,16 +5322,11 @@ const statsData = useMemo(() => {
         let totalTableGross = 0, totalTableSupp = 0, totalTableGate = 0, totalTableClub = 0, totalTableComm = 0, totalTableNet = 0;
 
         clubs.forEach(c => {
-            // Calculamos stats SOLO para los pedidos de este club
-            // La función calculateStats ya usa la comisión específica de 'c' al iterar estos pedidos
             const cStats = calculateStats(seasonOrders.filter(o => o.clubId === c.id));
-            
-            // Usamos los acumulados exactos que nos devuelve la función
             const commClub = cStats.commClub;
             const commCommercial = cStats.commCommercial;
             const net = cStats.netIncome;
 
-            // Acumular Totales para la fila final
             totalTableGross += cStats.grossSales;
             totalTableSupp += cStats.supplierCost;
             totalTableGate += cStats.gatewayCost;
@@ -5349,27 +5335,19 @@ const statsData = useMemo(() => {
             totalTableNet += net;
 
             const row = wsGlobal.addRow([
-                c.name,
-                cStats.count,
-                cStats.grossSales,
-                -cStats.supplierCost,
-                -cStats.gatewayCost,
-                -commClub,
-                commCommercial,
+                c.name, cStats.count, cStats.grossSales, -cStats.supplierCost, -cStats.gatewayCost, -commClub, 
+                -commCommercial, // <--- CAMBIO: AHORA NEGATIVO
                 net
             ]);
-
-            // Formatos
             row.getCell(3).numFmt = styles.currency.numFmt;
             Object.assign(row.getCell(4), styles.currencyRed);
             Object.assign(row.getCell(5), styles.currencyRed);
             Object.assign(row.getCell(6), styles.currencyRed);
-            row.getCell(7).numFmt = styles.currency.numFmt;
+            Object.assign(row.getCell(7), styles.currencyRed); // Estilo Rojo para Comercial
             Object.assign(row.getCell(8), styles.currencyBold);
         });
 
-        // Fila Totales
-        const totalRow = wsGlobal.addRow(['TOTALES', globalStats.count, totalTableGross, -totalTableSupp, -totalTableGate, -totalTableClub, totalTableComm, totalTableNet]);
+        const totalRow = wsGlobal.addRow(['TOTALES', globalStats.count, totalTableGross, -totalTableSupp, -totalTableGate, -totalTableClub, -totalTableComm, totalTableNet]); // Totales también negativos
         for(let i=1; i<=8; i++) {
             Object.assign(totalRow.getCell(i), styles.subHeader);
             if(i > 2) totalRow.getCell(i).numFmt = styles.currency.numFmt;
@@ -5377,14 +5355,13 @@ const statsData = useMemo(() => {
         
         wsGlobal.addRow([]);
 
-        // 3. SECCIONES ADICIONALES (Meses, Métodos Pago, Categorías)
-        // Títulos
-        const rSecTitle = wsGlobal.addRow(['Evolución Mensual', '', 'Métodos de Pago', '', 'Facturación por Categoría']);
-        [1, 3, 5].forEach(i => rSecTitle.getCell(i).font = styles.sectionTitle.font);
+        // ... (Resto de secciones de Vista Global: Meses, Productos, Incidencias... IGUAL) ...
+        // 3. Tablas Laterales
+        const rSecTitle = wsGlobal.addRow(['Evolución Mensual', '', '', 'Métodos de Pago', '', '', 'Facturación por Categoría']);
+        [1, 4, 7].forEach(i => rSecTitle.getCell(i).font = styles.sectionTitle.font);
         
-        // Cabeceras
-        const rSecHead = wsGlobal.addRow(['Mes', 'Ventas', 'Método', 'Total', 'Categoría', 'Total']);
-        [1,2,3,4,5,6].forEach(i => Object.assign(rSecHead.getCell(i), styles.subHeader));
+        const rSecHead = wsGlobal.addRow(['Mes', 'Ventas', '', 'Método', 'Total', '', 'Categoría', 'Total']);
+        [1,2, 4,5, 7,8].forEach(i => Object.assign(rSecHead.getCell(i), styles.subHeader));
 
         const maxRows = Math.max(globalStats.sortedMonths.length, globalStats.sortedPayment.length, globalStats.sortedCats.length);
 
@@ -5394,66 +5371,86 @@ const statsData = useMemo(() => {
             const c = globalStats.sortedCats[i];
 
             const row = wsGlobal.addRow([
-                m ? m.name : '', m ? m.total : '',
-                p ? p.name.toUpperCase() : '', p ? p.total : '', 
+                m ? m.name : '', m ? m.total : '', '', 
+                p ? p.name.toUpperCase() : '', p ? p.total : '', '', 
                 c ? c.name : '', c ? c.total : ''
             ]);
-
             if(m) row.getCell(2).numFmt = styles.currency.numFmt;
-            if(p) row.getCell(4).numFmt = styles.currency.numFmt;
-            if(c) row.getCell(6).numFmt = styles.currency.numFmt;
+            if(p) row.getCell(5).numFmt = styles.currency.numFmt;
+            if(c) row.getCell(8).numFmt = styles.currency.numFmt;
         }
-
         wsGlobal.addRow([]);
 
-        // 4. PRODUCTOS ESTRELLA (TOP 10)
+        // 4. Productos Estrella
         wsGlobal.addRow(['Productos Estrella (Top Ventas)']);
         wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
-        
         const headProd = wsGlobal.addRow(['Producto', 'Unidades Vendidas', 'Facturación']);
         [1,2,3].forEach(i => Object.assign(headProd.getCell(i), styles.subHeader));
-
         globalStats.sortedProds.forEach(prod => {
             const r = wsGlobal.addRow([prod.name, prod.qty, prod.total]);
             r.getCell(3).numFmt = styles.currency.numFmt;
         });
-
         wsGlobal.addRow([]);
 
-        // 5. CONTROL DE INCIDENCIAS Y CALIDAD
+        // 5. Rentabilidad
+        wsGlobal.addRow(['Rentabilidad Real por Producto (Top Beneficio)']);
+        wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
+        const headRent = wsGlobal.addRow(['Producto', 'Unidades', 'Facturación', 'Coste Total', 'Beneficio Real', 'Margen %']);
+        [1,2,3,4,5,6].forEach(i => Object.assign(headRent.getCell(i), styles.subHeader));
+        globalStats.sortedProdsProfit.forEach(prod => {
+            const r = wsGlobal.addRow([prod.name, prod.qty, prod.total, prod.cost, prod.profit, prod.margin]);
+            r.getCell(3).numFmt = styles.currency.numFmt;
+            r.getCell(4).numFmt = styles.currencyRed.numFmt;
+            r.getCell(5).numFmt = styles.currencyBold.numFmt;
+            r.getCell(6).numFmt = styles.percent.numFmt;
+        });
+        wsGlobal.addRow([]);
+
+        // 6. Incidencias
         wsGlobal.addRow(['Control de Incidencias y Calidad']);
         wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
-
         const incData = globalStats.incidentData;
         const errorRate = (incData.count / (globalStats.count + incData.count)) * 100 || 0;
-
-        wsGlobal.addRow(['Tasa de Incidencias', `${errorRate.toFixed(2)}% (${incData.count} pedidos afectados)`]);
         
+        wsGlobal.addRow(['Tasa de Incidencias', `${errorRate.toFixed(2)}% (${incData.count} pedidos afectados)`]);
         const headInc = wsGlobal.addRow(['Responsabilidad', 'Cantidad', 'Coste Asumido']);
         [1,2,3].forEach(i => Object.assign(headInc.getCell(i), styles.subHeader));
-
+        
         const rInt = wsGlobal.addRow(['Interno / Fábrica', incData.responsibility.internal, incData.costAssumed.internal]);
         rInt.getCell(3).numFmt = styles.currencyRed.numFmt;
-        
         const rClub = wsGlobal.addRow(['Club (Facturable)', incData.responsibility.club, incData.costAssumed.club]);
         rClub.getCell(3).numFmt = styles.currency.numFmt;
-
         const rSupp = wsGlobal.addRow(['Proveedor (Garantía)', incData.responsibility.supplier, incData.costAssumed.supplier]);
         rSupp.getCell(3).numFmt = styles.currency.numFmt;
+        wsGlobal.addRow([]);
+
+        if(globalStats.sortedProductIncidents.length > 0){
+            wsGlobal.addRow(['Productos más Problemáticos (Top Fallos)']);
+            wsGlobal.getCell(`A${wsGlobal.lastRow.number}`).font = styles.sectionTitle.font;
+            const headProb = wsGlobal.addRow(['Producto', 'Unidades Fallidas/Repuestas']);
+            [1,2].forEach(i => Object.assign(headProb.getCell(i), styles.subHeader));
+            globalStats.sortedProductIncidents.forEach(p => wsGlobal.addRow([p.name, p.count]));
+        }
 
         adjustColumnWidths(wsGlobal);
 
-      // ==========================
+// ==========================
       // HOJAS POR CLUB
       // ==========================
       clubs.forEach(club => {
           const clubOrders = seasonOrders.filter(o => o.clubId === club.id);
+          // calculateStats ya devuelve 'commCommercial' sumando pedido a pedido correctamente
           const cStats = calculateStats(clubOrders);
           
           const clubCommPct = safeNum(club.commission) || 0.12;
-          const commClub = cStats.grossSales * clubCommPct;
-          const commComm = cStats.grossSales * safeNum(financialConfig.commercialCommissionPct);
-          const net = cStats.grossSales - cStats.supplierCost - commClub - commComm;
+          
+          // Valores Totales
+          const commClub = cStats.commClub; // Usamos el acumulado real
+          const commComm = cStats.commCommercial; // Usamos el acumulado real (ya tiene en cuenta que Errores = 0)
+          
+          // Neto Total (Ventas - Costes - ComisionClub - ComisionComercial - Pasarela)
+          // Nota: cStats.netIncome ya trae este cálculo, pero si quieres hacerlo explícito aquí:
+          const net = cStats.grossSales - cStats.supplierCost - cStats.gatewayCost - commClub - commComm;
 
           const sheetName = club.name.replace(/[*?:\/\[\]]/g, '').substring(0, 30);
           const ws = workbook.addWorksheet(sheetName);
@@ -5486,12 +5483,16 @@ const statsData = useMemo(() => {
           const finHead = ws.addRow(['Concepto', 'Importe']);
           Object.assign(finHead.getCell(1), styles.subHeader);
           Object.assign(finHead.getCell(2), styles.subHeader);
+          
           const addFin = (label, val, style) => { const r = ws.addRow([label, val]); if(style) Object.assign(r.getCell(2), style); else r.getCell(2).numFmt = styles.currency.numFmt; };
+          
           addFin('Facturación Total', cStats.grossSales);
           addFin('Coste Proveedores', -cStats.supplierCost, styles.currencyRed);
+          addFin('Pasarela/Gastos', -cStats.gatewayCost, styles.currencyRed); // Añadido para cuadrar el neto
           addFin('Comisión Club', -commClub, styles.currencyRed);
-          addFin('Neto Comercial', commComm);
+          addFin('Neto Comercial', -commComm, styles.currencyRed); // En negativo y con el valor correcto
           addFin('Beneficio Neto', net, styles.currencyBold);
+          
           ws.addRow([]);
 
           // Listado Detallado con Contabilidad
@@ -5532,14 +5533,26 @@ const statsData = useMemo(() => {
               const estadoProv = log.supplierPaid ? 'Pagado' : 'Pendiente';
 
               // 3. Comisión Club
+              // Usamos la comisión configurada en el club en el momento del reporte (o podrías guardar la histórica en el pedido si existiera)
               const oCommClub = safeNum(o.total) * clubCommPct;
               const fechaClub = log.clubPaidDate ? new Date(log.clubPaidDate).toLocaleDateString() : '-';
               const estadoClub = log.clubPaid ? 'Pagado' : 'Pendiente';
 
-              // 4. Comisión Comercial (Aprox por pedido)
-              const fees = (o.paymentMethod === 'card') ? (o.total * safeNum(financialConfig.gatewayPercentFee) + safeNum(financialConfig.gatewayFixedFee)) : 0;
-              const baseComm = o.total - oCost - oCommClub - fees;
-              const oCommComm = baseComm * safeNum(financialConfig.commercialCommissionPct);
+              // 4. Comisión Comercial (DETECCIÓN DE ERRORES)
+              // Detectar si es un pedido de error/reposición
+              const isErrorOrder = String(o.globalBatch).startsWith('ERR') || o.type === 'replacement' || ['replacement', 'incident'].includes(o.paymentMethod);
+
+              let oCommComm = 0;
+              if (!isErrorOrder) {
+                  // Solo calculamos comercial si NO es un error
+                  const fees = (o.paymentMethod === 'card') ? (o.total * safeNum(financialConfig.gatewayPercentFee) + safeNum(financialConfig.gatewayFixedFee)) : 0;
+                  const baseComm = o.total - oCost - oCommClub - fees;
+                  // Si la base es positiva, aplicamos el %. Si es negativa (pérdidas), el comercial es 0.
+                  if (baseComm > 0) {
+                      oCommComm = baseComm * safeNum(financialConfig.commercialCommissionPct);
+                  }
+              }
+              
               const fechaComm = log.commercialPaidDate ? new Date(log.commercialPaidDate).toLocaleDateString() : '-';
               const estadoComm = log.commercialPaid ? 'Pagado' : 'Pendiente';
 

@@ -4372,8 +4372,8 @@ const statsData = useMemo(() => {
   }, [financialOrders, statsClubFilter, clubs, financialConfig, products, seasons, financeSeasonId]);
 
 // --- LÓGICA DE ESTADÍSTICAS DE ERRORES (NUEVO) ---
-  const errorStats = useMemo(() => {
-      // 1. Filtrar pedidos por temporada y club (Igual que las finanzas)
+    const errorStats = useMemo(() => {
+      // 1. Filtrar pedidos por temporada y club
       let relevantOrders = orders;
       
       // Filtro Temporada
@@ -4410,41 +4410,40 @@ const statsData = useMemo(() => {
 
       incidentOrders.forEach(ord => {
           const details = ord.incidentDetails || {};
-          const resp = details.responsibility || 'internal'; // Por defecto 'internal' si no existe
+          const resp = details.responsibility || 'internal';
           
-          // Coste de producción de la reposición
-          const cost = ord.items.reduce((sum, i) => sum + (i.cost || 0), 0);
-          // Precio de venta (lo que paga el club si es su culpa)
+          // CORRECCIÓN 1: Calcular coste total multiplicando por cantidad
+          const cost = ord.items.reduce((sum, i) => sum + ((i.cost || 0) * (i.quantity || 1)), 0);
+          
+          // Precio de venta total (ya suele incluir cantidades en ord.total)
           const price = ord.total;
 
           // A) Conteo de Responsabilidad
           if (responsibility[resp] !== undefined) responsibility[resp]++;
-          else responsibility.internal++; // fallback
+          else responsibility.internal++;
 
           // B) Costes Asumidos
           if (resp === 'club') {
-              // Si paga el club, el "coste asumido" es el precio que pagan
               costAssumed.club += price;
           } else if (resp === 'supplier') {
-              // Si es proveedor, asumimos que el coste de fabricación lo cubren ellos
               costAssumed.supplier += cost; 
           } else {
-              // Fallo interno (Nosotros): Asumimos el coste de producción
               costAssumed.internal += cost;
           }
 
           // C) Productos con fallo
           ord.items.forEach(item => {
-              // Limpiamos el nombre por si tiene etiquetas como [REP]
               const name = item.name.replace(/\[REP\]/g, '').trim();
-              productErrors[name] = (productErrors[name] || 0) + 1;
+              // CORRECCIÓN 2: Sumar la cantidad real del producto fallido
+              const qty = item.quantity || 1;
+              productErrors[name] = (productErrors[name] || 0) + qty;
           });
       });
 
       // Ordenar productos con más fallos
       const sortedProductErrors = Object.entries(productErrors)
           .sort((a, b) => b[1] - a[1])
-          .slice(0, 5); // Top 5
+          .slice(0, 5);
 
       return {
           totalOrdersCount,
@@ -5093,7 +5092,7 @@ const statsData = useMemo(() => {
       });
   };
 
-// ---------------------------------------------------------
+  // ---------------------------------------------------------
   // NUEVO: LÓGICA DE GESTIÓN DE DATOS Y EXCEL
   // ---------------------------------------------------------
   
@@ -5108,13 +5107,14 @@ const statsData = useMemo(() => {
       }) : '';
   };
 
+// --- FUNCIÓN EXCEL MEJORADA (CON CONTABILIDAD DETALLADA Y FIX NaN) ---
   const handleExportSeasonExcel = async (seasonId) => {
       const season = seasons.find(s => s.id === seasonId);
       if (!season) return;
 
       const start = new Date(season.startDate).getTime();
       const end = new Date(season.endDate).getTime();
-      
+
       const seasonOrders = orders.filter(o => {
           if (o.manualSeasonId) return o.manualSeasonId === season.id;
           const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
@@ -5126,6 +5126,9 @@ const statsData = useMemo(() => {
           return;
       }
 
+      // --- HELPER: EVITA VALORES "NaN" ---
+      const safeNum = (val) => (typeof val === 'number' && !isNaN(val)) ? val : 0;
+
       // --- CÁLCULO DE ESTADÍSTICAS ---
       const calculateStats = (ordersToProcess) => {
           let grossSales = 0;
@@ -5136,49 +5139,63 @@ const statsData = useMemo(() => {
           const productsStats = {};
 
           ordersToProcess.forEach(order => {
-              grossSales += order.total;
+              const total = safeNum(order.total);
+              grossSales += total;
               
-              const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
-              const incidentCost = order.incidents?.reduce((sum, inc) => sum + (inc.cost || 0), 0) || 0;
+              const orderCost = order.items.reduce((sum, item) => sum + (safeNum(item.cost) * (item.quantity || 1)), 0);
+              const incidentCost = order.incidents?.reduce((sum, inc) => sum + safeNum(inc.cost), 0) || 0;
               supplierCost += (orderCost + incidentCost);
 
               // Mensual
               const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
               const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
               const sortKey = date.getFullYear() * 100 + date.getMonth();
+              
               if (!monthly[monthKey]) monthly[monthKey] = { total: 0, count: 0, sort: sortKey };
-              monthly[monthKey].total += order.total;
+              monthly[monthKey].total += total;
               monthly[monthKey].count += 1;
 
               // Pago
               const method = order.paymentMethod || 'card';
               if (!payment[method]) payment[method] = { total: 0, count: 0 };
-              payment[method].total += order.total;
+              payment[method].total += total;
               payment[method].count += 1;
 
               // Items
               order.items.forEach(item => {
                   const qty = item.quantity || 1;
-                  const subtotal = qty * item.price;
+                  const subtotal = qty * safeNum(item.price);
+                  
                   let catName = item.category || 'General';
                   const normCat = catName.trim().replace(/\s+[A-Z0-9]$/i, '');
+                  
                   if (!categories[normCat]) categories[normCat] = { total: 0, subCats: new Set() };
                   categories[normCat].total += subtotal;
                   categories[normCat].subCats.add(`${order.clubId}-${catName}`);
+
                   if (!productsStats[item.name]) productsStats[item.name] = { qty: 0, total: 0 };
                   productsStats[item.name].qty += qty;
                   productsStats[item.name].total += subtotal;
               });
           });
 
-          const commClub = grossSales * financialConfig.clubCommissionPct;
-          const commCommercial = grossSales * financialConfig.commercialCommissionPct;
+          // Usar valores seguros de configuración
+          const clubCommPct = safeNum(financialConfig.clubCommissionPct) || 0.12; 
+          const commCommPct = safeNum(financialConfig.commercialCommissionPct);
+
+          const commClub = grossSales * clubCommPct; 
+          const commCommercial = grossSales * commCommPct;
           const netIncome = grossSales - supplierCost - commClub - commCommercial;
           const avgTicket = ordersToProcess.length > 0 ? grossSales / ordersToProcess.length : 0;
 
-          return { 
-              count: ordersToProcess.length, 
-              grossSales, supplierCost, commClub, commCommercial, netIncome, avgTicket,
+          return {
+              count: ordersToProcess.length,
+              grossSales,
+              supplierCost,
+              commClub,
+              commCommercial,
+              netIncome,
+              avgTicket,
               sortedMonths: Object.entries(monthly).map(([k,v]) => ({name: k, ...v})).sort((a,b) => a.sort - b.sort),
               sortedPayment: Object.entries(payment).map(([k,v]) => ({name: k, ...v})).sort((a,b) => b.total - a.total),
               sortedCats: Object.entries(categories).map(([k,v]) => ({name: k, total: v.total, count: v.subCats.size})).sort((a,b) => b.total - a.total),
@@ -5191,11 +5208,11 @@ const statsData = useMemo(() => {
           worksheet.columns.forEach(column => {
               let maxLength = 0;
               column.eachCell({ includeEmpty: true }, (cell) => {
-                  if (cell.isMerged) return; 
+                  if (cell.isMerged) return;
                   const v = cell.value ? cell.value.toString() : '';
                   if (v.length > maxLength) maxLength = v.length;
               });
-              column.width = Math.max(maxLength + 2, 15); 
+              column.width = Math.max(maxLength + 2, 15);
           });
       };
 
@@ -5207,30 +5224,32 @@ const statsData = useMemo(() => {
       // Definición de Estilos
       const styles = {
           header: {
-              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } }, 
+              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } },
               font: { color: { argb: 'FFFFFFFF' }, bold: true, size: 11, name: 'Calibri' },
               alignment: { horizontal: 'center', vertical: 'middle' }
           },
           subHeader: {
-              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } }, 
+              fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
               font: { color: { argb: 'FF000000' }, bold: true, size: 11, name: 'Calibri' }
           },
           title: {
-              font: { color: { argb: 'FF000000' }, bold: true, size: 16, name: 'Calibri' } 
+              font: { color: { argb: 'FF000000' }, bold: true, size: 16, name: 'Calibri' }
           },
           sectionTitle: {
-              font: { color: { argb: 'FF10B981' }, bold: true, size: 12, name: 'Calibri' } 
+              font: { color: { argb: 'FF10B981' }, bold: true, size: 12, name: 'Calibri' }
           },
           currency: { numFmt: '#,##0.00 "€"' },
           currencyRed: { numFmt: '#,##0.00 "€"', font: { color: { argb: 'FFDC2626' } } },
           currencyBold: { numFmt: '#,##0.00 "€"', font: { bold: true } },
           subHeaderCurrency: {
               fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
-              font: { bold: true }, numFmt: '#,##0.00 "€"'
+              font: { bold: true },
+              numFmt: '#,##0.00 "€"'
           },
           subHeaderCurrencyRed: {
               fill: { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFE5E7EB' } },
-              font: { bold: true, color: { argb: 'FFDC2626' } }, numFmt: '#,##0.00 "€"'
+              font: { bold: true, color: { argb: 'FFDC2626' } },
+              numFmt: '#,##0.00 "€"'
           }
       };
 
@@ -5240,39 +5259,36 @@ const statsData = useMemo(() => {
       const globalStats = calculateStats(seasonOrders);
       const wsGlobal = workbook.addWorksheet('Vista Global');
       
-      wsGlobal.columns = [
-          { key: 'A' }, { key: 'B' }, { key: 'C' }, 
-          { key: 'D' }, { key: 'E' }, { key: 'F' }, { key: 'G' }
-      ];
-
-      // Título
+      wsGlobal.columns = [{key:'A'},{key:'B'},{key:'C'},{key:'D'},{key:'E'},{key:'F'},{key:'G'}];
       wsGlobal.addRow([`Reporte Global - ${season.name}`]);
       wsGlobal.getCell('A1').font = styles.title.font;
       wsGlobal.mergeCells('A1:G1');
       wsGlobal.addRow([]);
 
-      // KPIs
       wsGlobal.addRow(['Resumen General']);
       wsGlobal.getCell('A3').font = styles.sectionTitle.font;
       const r4 = wsGlobal.addRow(['Facturación Total', globalStats.grossSales]);
-      r4.getCell(2).numFmt = styles.currencyBold.numFmt; r4.getCell(2).font = styles.currencyBold.font;
+      r4.getCell(2).numFmt = styles.currencyBold.numFmt;
       const r5 = wsGlobal.addRow(['Beneficio Neto', globalStats.netIncome]);
-      r5.getCell(2).numFmt = styles.currencyBold.numFmt; r5.getCell(2).font = styles.currencyBold.font;
+      r5.getCell(2).numFmt = styles.currencyBold.numFmt;
       wsGlobal.addRow(['Total Pedidos', globalStats.count]);
       wsGlobal.addRow([]);
 
-      // Tabla Financiera
       wsGlobal.addRow(['Reporte Financiero Detallado por Club']);
       wsGlobal.getCell('A8').font = styles.sectionTitle.font;
       wsGlobal.mergeCells('A8:G8');
-
+      
       const headerRow = wsGlobal.addRow(['Club', 'Pedidos', 'Facturación', 'Coste Prov.', 'Com. Club', 'Neto Comercial', 'Beneficio Neto']);
       for(let i=1; i<=7; i++) Object.assign(headerRow.getCell(i), styles.header);
 
       clubs.forEach(c => {
           const cStats = calculateStats(seasonOrders.filter(o => o.clubId === c.id));
+          const clubComm = cStats.grossSales * (safeNum(c.commission) || 0.12);
+          const commComm = cStats.grossSales * safeNum(financialConfig.commercialCommissionPct);
+          const net = cStats.grossSales - cStats.supplierCost - clubComm - commComm;
+
           const row = wsGlobal.addRow([
-              c.name, cStats.count, cStats.grossSales, -cStats.supplierCost, -cStats.commClub, cStats.commCommercial, cStats.netIncome
+              c.name, cStats.count, cStats.grossSales, -cStats.supplierCost, -clubComm, commComm, net
           ]);
           row.getCell(3).numFmt = styles.currency.numFmt;
           Object.assign(row.getCell(4), styles.currencyRed);
@@ -5280,11 +5296,8 @@ const statsData = useMemo(() => {
           row.getCell(6).numFmt = styles.currency.numFmt;
           Object.assign(row.getCell(7), styles.currencyBold);
       });
-
-      // Totales
-      const totalRow = wsGlobal.addRow([
-          'TOTALES', globalStats.count, globalStats.grossSales, -globalStats.supplierCost, -globalStats.commClub, globalStats.commCommercial, globalStats.netIncome
-      ]);
+      
+      const totalRow = wsGlobal.addRow(['TOTALES', globalStats.count, globalStats.grossSales, -globalStats.supplierCost, -globalStats.commClub, globalStats.commCommercial, globalStats.netIncome]);
       Object.assign(totalRow.getCell(1), styles.subHeader);
       Object.assign(totalRow.getCell(2), styles.subHeader);
       Object.assign(totalRow.getCell(3), styles.subHeaderCurrency);
@@ -5294,51 +5307,23 @@ const statsData = useMemo(() => {
       Object.assign(totalRow.getCell(7), styles.subHeaderCurrency);
       wsGlobal.addRow([]);
 
-      // Tablas Lado a Lado 1
+      // Tablas Lado a Lado (Evolución Mensual / Métodos de Pago)
       const rTitle1 = wsGlobal.addRow(['Evolución Mensual', '', '', 'Métodos de Pago']);
       rTitle1.getCell(1).font = styles.sectionTitle.font;
       rTitle1.getCell(4).font = styles.sectionTitle.font;
       wsGlobal.mergeCells(`A${rTitle1.number}:B${rTitle1.number}`);
       wsGlobal.mergeCells(`D${rTitle1.number}:E${rTitle1.number}`);
-
       const rHead1 = wsGlobal.addRow(['Mes', 'Ventas', '', 'Método', 'Total']);
       [1,2,4,5].forEach(i => Object.assign(rHead1.getCell(i), styles.subHeader));
-
       const max1 = Math.max(globalStats.sortedMonths.length, globalStats.sortedPayment.length);
       for(let i=0; i<max1; i++){
           const m = globalStats.sortedMonths[i];
           const p = globalStats.sortedPayment[i];
-          const row = wsGlobal.addRow([
-              m ? m.name : '', m ? m.total : '',
-              '', 
-              p ? p.name : '', p ? p.total : ''
-          ]);
+          const row = wsGlobal.addRow([ m ? m.name : '', m ? m.total : '', '', p ? p.name : '', p ? p.total : '' ]);
           if(m) row.getCell(2).numFmt = styles.currency.numFmt;
           if(p) row.getCell(5).numFmt = styles.currency.numFmt;
       }
       wsGlobal.addRow([]);
-
-      // Tablas Lado a Lado 2
-      const rTitle2 = wsGlobal.addRow(['Top Categorías', '', '', 'Top Productos']);
-      rTitle2.getCell(1).font = styles.sectionTitle.font;
-      rTitle2.getCell(4).font = styles.sectionTitle.font;
-      wsGlobal.mergeCells(`A${rTitle2.number}:B${rTitle2.number}`);
-      wsGlobal.mergeCells(`D${rTitle2.number}:E${rTitle2.number}`);
-
-      const rHead2 = wsGlobal.addRow(['Nombre', 'Total', '', 'Producto', 'Uds']);
-      [1,2,4,5].forEach(i => Object.assign(rHead2.getCell(i), styles.subHeader));
-
-      const max2 = Math.max(globalStats.sortedCats.length, globalStats.sortedProds.length);
-      for(let i=0; i<max2; i++){
-          const c = globalStats.sortedCats[i];
-          const p = globalStats.sortedProds[i];
-          const row = wsGlobal.addRow([
-              c ? c.name : '', c ? c.total : '',
-              '', 
-              p ? p.name : '', p ? p.qty : ''
-          ]);
-          if(c) row.getCell(2).numFmt = styles.currency.numFmt;
-      }
 
       adjustColumnWidths(wsGlobal);
 
@@ -5348,16 +5333,25 @@ const statsData = useMemo(() => {
       clubs.forEach(club => {
           const clubOrders = seasonOrders.filter(o => o.clubId === club.id);
           const cStats = calculateStats(clubOrders);
+          
+          const clubCommPct = safeNum(club.commission) || 0.12;
+          const commClub = cStats.grossSales * clubCommPct;
+          const commComm = cStats.grossSales * safeNum(financialConfig.commercialCommissionPct);
+          const net = cStats.grossSales - cStats.supplierCost - commClub - commComm;
+
           const sheetName = club.name.replace(/[*?:\/\[\]]/g, '').substring(0, 30);
           const ws = workbook.addWorksheet(sheetName);
           
+          // Definir columnas (Extendidas para incluir contabilidad)
           ws.columns = [
-             { key: 'A' }, { key: 'B' }, { key: 'C' }, 
-             { key: 'D' }, { key: 'E' }, { key: 'F' }, { key: 'G' }, { key: 'H' }, { key: 'I' }, { key: 'J' }
+              { key: 'A' }, { key: 'B' }, { key: 'C' }, { key: 'D' }, { key: 'E' }, 
+              { key: 'F' }, { key: 'G' }, { key: 'H' }, { key: 'I' }, { key: 'J' },
+              { key: 'K' }, { key: 'L' }, { key: 'M' }, { key: 'N' }, { key: 'O' }, 
+              { key: 'P' }, { key: 'Q' }, { key: 'R' }, { key: 'S' }
           ];
 
           ws.addRow([`${club.name} - Resumen`]);
-          ws.getCell('A1').font = styles.title.font; 
+          ws.getCell('A1').font = styles.title.font;
           ws.mergeCells('A1:J1');
           ws.addRow([]);
 
@@ -5373,76 +5367,80 @@ const statsData = useMemo(() => {
           // Reporte Financiero
           ws.addRow(['Reporte Financiero']);
           ws.getCell(`A${ws.lastRow.number}`).font = styles.sectionTitle.font;
-          
           const finHead = ws.addRow(['Concepto', 'Importe']);
           Object.assign(finHead.getCell(1), styles.subHeader);
           Object.assign(finHead.getCell(2), styles.subHeader);
-
-          const addFin = (label, val, style) => {
-              const r = ws.addRow([label, val]);
-              if(style) Object.assign(r.getCell(2), style);
-              else r.getCell(2).numFmt = styles.currency.numFmt;
-          };
+          const addFin = (label, val, style) => { const r = ws.addRow([label, val]); if(style) Object.assign(r.getCell(2), style); else r.getCell(2).numFmt = styles.currency.numFmt; };
           addFin('Facturación Total', cStats.grossSales);
           addFin('Coste Proveedores', -cStats.supplierCost, styles.currencyRed);
-          addFin('Comisión Club', -cStats.commClub, styles.currencyRed);
-          addFin('Neto Comercial', cStats.commCommercial);
-          addFin('Beneficio Neto', cStats.netIncome, styles.currencyBold);
+          addFin('Comisión Club', -commClub, styles.currencyRed);
+          addFin('Neto Comercial', commComm);
+          addFin('Beneficio Neto', net, styles.currencyBold);
           ws.addRow([]);
 
-          // Tablas Top
-          const rTopT = ws.addRow(['Categorías Top', '', '', 'Productos Top']);
-          rTopT.getCell(1).font = styles.sectionTitle.font;
-          rTopT.getCell(4).font = styles.sectionTitle.font;
-          ws.mergeCells(`A${rTopT.number}:B${rTopT.number}`);
-          ws.mergeCells(`D${rTopT.number}:E${rTopT.number}`);
-
-          const topHead = ws.addRow(['Nombre', 'Total', '', 'Producto', 'Uds']);
-          [1,2,4,5].forEach(i => Object.assign(topHead.getCell(i), styles.subHeader));
-
-          const maxC = Math.max(cStats.sortedCats.length, cStats.sortedProds.length, 5);
-          for(let i=0; i<maxC; i++){
-              const c = cStats.sortedCats[i];
-              const p = cStats.sortedProds[i];
-              const r = ws.addRow([
-                  c ? c.name : '', c ? c.total : '',
-                  '',
-                  p ? p.name : '', p ? p.qty : ''
-              ]);
-              if(c) r.getCell(2).numFmt = styles.currency.numFmt;
-          }
-          ws.addRow([]);
-
-          // Listado
-          ws.addRow(['Listado Detallado de Pedidos']);
+          // Listado Detallado con Contabilidad
+          ws.addRow(['Listado Detallado de Pedidos y Contabilidad']);
           ws.getCell(`A${ws.lastRow.number}`).font = styles.title.font;
-          ws.mergeCells(`A${ws.lastRow.number}:J${ws.lastRow.number}`);
-          
-          // --- CAMBIO AQUÍ: Se eliminó la columna 'Estado' ---
-          const headers = ['ID', 'Fecha', 'Cliente', 'Email', 'Teléfono', 'Cant.', 'Productos', 'Total', 'Pago', 'Lote'];
+          ws.mergeCells(`A${ws.lastRow.number}:S${ws.lastRow.number}`);
+
+          const headers = [
+              'ID', 'Fecha', 'Cliente', 'Email', 'Teléfono', 'Cant.', 'Productos', 'Total Venta', 'Método Pago', 'Lote',
+              'Fecha Cobro', 'Estado Cobro', // Caja
+              'Coste Prov.', 'Fecha Pago Prov.', 'Estado Prov.', // Proveedor
+              'Comisión Club', 'Fecha Pago Club', 'Estado Club', // Club
+              'Comisión Com.', 'Fecha Pago Com.', 'Estado Com.' // Comercial
+          ];
           const hRow = ws.addRow(headers);
           hRow.eachCell(c => Object.assign(c, styles.header));
 
           clubOrders.forEach(o => {
               const date = o.createdAt?.seconds ? new Date(o.createdAt.seconds * 1000).toLocaleDateString() : '-';
-              
               const totalItems = o.items.reduce((acc, i) => acc + (i.quantity || 1), 0);
-              
               const productsStr = o.items.map(i => {
-                  const sizeStr = i.size ? `(${i.size})` : ''; 
+                  const sizeStr = i.size ? `(${i.size})` : '';
                   return `${i.name} ${sizeStr}`.trim();
               }).join('; ');
 
+              // Datos Contables del Lote
+              const batchId = o.globalBatch;
+              const log = club.accountingLog?.[batchId] || {};
+              
+              // 1. Cobro (Caja)
+              const isCash = o.paymentMethod === 'cash';
+              let fechaCobro = isCash ? (log.cashCollectedDate ? new Date(log.cashCollectedDate).toLocaleDateString() : '-') : date; 
+              let estadoCobro = isCash ? (log.cashCollected ? 'Recogido' : 'Pdte. Entrega') : 'Pagado TPV';
+              
+              // 2. Costes y Proveedor
+              const oCost = o.items.reduce((s, i) => s + (safeNum(i.cost) * (i.quantity||1)), 0);
+              const fechaProv = log.supplierPaidDate ? new Date(log.supplierPaidDate).toLocaleDateString() : '-';
+              const estadoProv = log.supplierPaid ? 'Pagado' : 'Pendiente';
+
+              // 3. Comisión Club
+              const oCommClub = safeNum(o.total) * clubCommPct;
+              const fechaClub = log.clubPaidDate ? new Date(log.clubPaidDate).toLocaleDateString() : '-';
+              const estadoClub = log.clubPaid ? 'Pagado' : 'Pendiente';
+
+              // 4. Comisión Comercial (Aprox por pedido)
+              const fees = (o.paymentMethod === 'card') ? (o.total * safeNum(financialConfig.gatewayPercentFee) + safeNum(financialConfig.gatewayFixedFee)) : 0;
+              const baseComm = o.total - oCost - oCommClub - fees;
+              const oCommComm = baseComm * safeNum(financialConfig.commercialCommissionPct);
+              const fechaComm = log.commercialPaidDate ? new Date(log.commercialPaidDate).toLocaleDateString() : '-';
+              const estadoComm = log.commercialPaid ? 'Pagado' : 'Pendiente';
+
               const r = ws.addRow([
-                  o.id.slice(0,8), date, o.customer.name, o.customer.email, o.customer.phone,
-                  totalItems, 
-                  productsStr, 
-                  o.total, 
-                  // o.visibleStatus || o.status, // ELIMINADO
-                  o.paymentMethod || 'card', o.globalBatch || 1
+                  o.id.slice(0,8), date, o.customer.name, o.customer.email, o.customer.phone, 
+                  totalItems, productsStr, safeNum(o.total), o.paymentMethod || 'card', batchId,
+                  fechaCobro, estadoCobro,
+                  oCost, fechaProv, estadoProv,
+                  oCommClub, fechaClub, estadoClub,
+                  oCommComm, fechaComm, estadoComm
               ]);
-              // La columna Total ahora es la número 8
-              r.getCell(8).numFmt = styles.currency.numFmt;
+
+              // Formatos Moneda
+              r.getCell(8).numFmt = styles.currency.numFmt; // Total Venta
+              r.getCell(13).numFmt = styles.currency.numFmt; // Coste Prov
+              r.getCell(16).numFmt = styles.currency.numFmt; // Com Club
+              r.getCell(19).numFmt = styles.currency.numFmt; // Com Com
           });
 
           adjustColumnWidths(ws);

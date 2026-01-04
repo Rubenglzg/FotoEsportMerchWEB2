@@ -3895,22 +3895,30 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
   const selectedClub = clubs.find(c => c.id === selectedClubId) || clubs[0];
 
 // --- FILTRADO POR TEMPORADA ---
-  const financialOrders = useMemo(() => {
-      if (financeSeasonId === 'all') return orders;
+    const financialOrders = useMemo(() => {
+      // 1. LIMPIEZA GLOBAL: Excluir Errores, Incidencias y Reposiciones de todas las estadísticas
+      const cleanOrders = orders.filter(o => 
+          o.type !== 'replacement' && 
+          o.paymentMethod !== 'incident' && 
+          !String(o.globalBatch).startsWith('ERR')
+      );
+
+      if (financeSeasonId === 'all') return cleanOrders;
+
       const season = seasons.find(s => s.id === financeSeasonId);
-      if (!season) return orders;
+      if (!season) return cleanOrders;
       
       const start = new Date(season.startDate).getTime();
       const end = new Date(season.endDate).getTime();
       
-      return orders.filter(o => {
-          // 1. Si tiene temporada manual, esta manda sobre la fecha
+      return cleanOrders.filter(o => {
+          // 2. Lógica de Temporada
           if (o.manualSeasonId) return o.manualSeasonId === financeSeasonId;
           
-          // 2. Si tiene temporada manual asignada a OTRA temporada, no debe salir aquí
+          // Si tiene temporada manual asignada a OTRA temporada, no debe salir aquí
           if (o.manualSeasonId && o.manualSeasonId !== financeSeasonId) return false;
           
-          // 3. Si no hay manual, usamos la fecha
+          // Si no hay manual, usamos la fecha
           const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
           return d >= start && d <= end;
       });
@@ -4113,8 +4121,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
   };
   
 
-// --- LÓGICA AVANZADA DE ESTADÍSTICAS (CORREGIDA) ---
-  const statsData = useMemo(() => {
+const statsData = useMemo(() => {
       // 1. Filtrar pedidos por temporada y club
       let filteredOrders = financialOrders;
       if (statsClubFilter !== 'all') {
@@ -4213,57 +4220,93 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
           .map(([name, data]) => ({ name, value: data.total, sort: data.sort }))
           .sort((a, b) => a.sort - b.sort);
 
-      // Tabla Financiera (CORREGIDA: LÓGICA DE NETO COMERCIAL Y EXCLUSIÓN DE ERRORES)
-      const clubFinancials = clubs.map(club => {
-        // 1. Filtramos pedidos VÁLIDOS para el reporte (Sin errores/reposiciones)
-        const clubOrders = financialOrders.filter(o => 
-            o.clubId === club.id && 
+      // --- LOGICA REPORTE FINANCIERO (Separación por Temporada o Club) ---
+      const isComparisonMode = statsClubFilter !== 'all' && financeSeasonId === 'all';
+      
+      let reportRows = [];
+      
+      // Función Helper para calcular métricas de un set de pedidos y un club
+      const calculateMetrics = (ordersList, clubObj, rowId, rowName) => {
+          const validOrders = ordersList.filter(o => 
             o.type !== 'replacement' && 
             o.paymentMethod !== 'incident' &&
-            !String(o.globalBatch).startsWith('ERR') // Excluir lotes de errores enteros
-        );
+            !String(o.globalBatch).startsWith('ERR')
+          );
+          
+          let grossSales = 0;
+          let supplierCost = 0;
+          let gatewayCost = 0;
+          
+          validOrders.forEach(order => {
+             grossSales += order.total;
+             const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
+             supplierCost += orderCost;
+             
+             if ((order.paymentMethod || 'card') === 'card') {
+                 const fee = (order.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee;
+                 gatewayCost += fee;
+             }
+          });
+          
+          const currentClubCommission = clubObj && clubObj.commission !== undefined ? clubObj.commission : 0.12;
+          const commClub = grossSales * currentClubCommission;
+          
+          const commercialBase = grossSales - supplierCost - commClub - gatewayCost;
+          const commCommercial = commercialBase > 0 ? (commercialBase * financialConfig.commercialCommissionPct) : 0;
+          
+          const netIncome = grossSales - supplierCost - commClub - commCommercial - gatewayCost;
+          
+          return {
+              id: rowId,
+              name: rowName,
+              ordersCount: validOrders.length,
+              grossSales,
+              supplierCost,
+              commClub,
+              commCommercial,
+              gatewayCost,
+              netIncome
+          };
+      };
 
-        let grossSales = 0;
-        let supplierCost = 0;
-        let gatewayCost = 0;
+      if (isComparisonMode) {
+          // MODO COMPARACIÓN: Filas son TEMPORADAS para el club seleccionado
+          const selectedClub = clubs.find(c => c.id === statsClubFilter);
+          
+          reportRows = seasons.map(season => {
+              const start = new Date(season.startDate).getTime();
+              const end = new Date(season.endDate).getTime();
+              
+              // Filtramos de financialOrders (que tiene TODO si financeSeasonId es all)
+              const seasonOrders = financialOrders.filter(o => {
+                  if (o.clubId !== statsClubFilter) return false;
+                  
+                  // Lógica Temporada
+                  if (o.manualSeasonId) return o.manualSeasonId === season.id;
+                  if (o.manualSeasonId && o.manualSeasonId !== season.id) return false; // Pertenece a otra
+                  
+                  const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+                  return d >= start && d <= end;
+              });
+              
+              return calculateMetrics(seasonOrders, selectedClub, season.id, season.name);
+          }).sort((a,b) => b.grossSales - a.grossSales); 
+          
+      } else {
+          // MODO STANDARD: Filas son CLUBES (Filtrados o Todos)
+          const relevantClubs = statsClubFilter === 'all' ? clubs : clubs.filter(c => c.id === statsClubFilter);
+          
+          reportRows = relevantClubs.map(club => {
+              // filteredOrders ya está filtrado por club si aplica, pero aquí iteramos clubs.
+              // Usamos financialOrders que ya tiene el filtro de temporada (si aplica)
+              const clubOrders = financialOrders.filter(o => o.clubId === club.id);
+              
+              return calculateMetrics(clubOrders, club, club.id, club.name);
+          }).sort((a, b) => b.grossSales - a.grossSales);
+      }
 
-        clubOrders.forEach(order => {
-            grossSales += order.total;
-            // Coste de productos del pedido
-            const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
-            supplierCost += orderCost;
-
-            // Gasto Pasarela (Solo si es Tarjeta)
-            if ((order.paymentMethod || 'card') === 'card') {
-                const fee = (order.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee;
-                gatewayCost += fee;
-            }
-        });
-
-        // 2. Comisión Club
-        const currentClubCommission = club.commission !== undefined ? club.commission : 0.12;
-        const commClub = grossSales * currentClubCommission;
-
-        // 3. Neto Comercial (CORREGIDO: Calculado sobre el Margen, no sobre el Bruto)
-        // Base = Ventas - Coste - Comisión Club - Pasarela
-        const commercialBase = grossSales - supplierCost - commClub - gatewayCost;
-        // Si la base es negativa, la comisión es 0
-        const commCommercial = commercialBase > 0 ? (commercialBase * financialConfig.commercialCommissionPct) : 0;
-        
-        // 4. Beneficio Neto Real
-        const netIncome = grossSales - supplierCost - commClub - commCommercial - gatewayCost;
-
-        return {
-            id: club.id, name: club.name, 
-            ordersCount: clubOrders.length, // Ahora es el conteo SIN errores
-            grossSales, supplierCost, commClub, commCommercial, 
-            gatewayCost, 
-            netIncome
-        };
-      }).sort((a, b) => b.grossSales - a.grossSales);
-
-      return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, clubFinancials };
-  }, [financialOrders, statsClubFilter, clubs, financialConfig, products]);
+      return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, financialReport: reportRows };
+  }, [financialOrders, statsClubFilter, clubs, financialConfig, products, seasons, financeSeasonId]);
 
   // Función auxiliar para calcular porcentajes de ancho en gráficas
   const getWidth = (val, max) => max > 0 ? `${(val / max) * 100}%` : '0%';
@@ -8265,7 +8308,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                       <table className="w-full text-sm text-left">
                           <thead className="bg-gray-100 text-gray-600 uppercase text-xs font-bold tracking-wider">
                               <tr>
-                                  <th className="px-6 py-4">Club</th>
+                                  <th className="px-6 py-4">{statsClubFilter !== 'all' && financeSeasonId === 'all' ? 'Temporada' : 'Club'}</th>
                                   <th className="px-6 py-4 text-center">Pedidos</th>
                                   <th className="px-6 py-4 text-right text-blue-800">Facturación</th>
                                   <th className="px-6 py-4 text-right text-red-800">Coste Prov.</th>
@@ -8276,7 +8319,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                               </tr>
                           </thead>
                           <tbody className="divide-y divide-gray-100">
-                              {statsData.clubFinancials.map(cf => (
+                              {statsData.financialReport.map(cf => (
                                   <tr key={cf.id} className="hover:bg-gray-50 transition-colors">
                                       <td className="px-6 py-4 font-bold text-gray-800">{cf.name}</td>
                                       <td className="px-6 py-4 text-center"><span className="bg-gray-200 text-gray-700 px-2 py-1 rounded text-xs font-bold">{cf.ordersCount}</span></td>
@@ -8291,12 +8334,12 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                               <tr className="bg-gray-100 font-bold border-t-2 border-gray-300">
                                   <td className="px-6 py-4">TOTALES</td>
                                   <td className="px-6 py-4 text-center">{financialOrders.length}</td>
-                                  <td className="px-6 py-4 text-right">{statsData.clubFinancials.reduce((s, c) => s + c.grossSales, 0).toFixed(2)}€</td>
-                                  <td className="px-6 py-4 text-right text-red-700">-{statsData.clubFinancials.reduce((s, c) => s + c.supplierCost, 0).toFixed(2)}€</td>
-                                  <td className="px-6 py-4 text-right text-purple-700">-{statsData.clubFinancials.reduce((s, c) => s + c.commClub, 0).toFixed(2)}€</td>
-                                  <td className="px-6 py-4 text-right text-orange-700">+{statsData.clubFinancials.reduce((s, c) => s + c.commCommercial, 0).toFixed(2)}€</td>
-                                  <td className="px-6 py-4 text-right text-gray-500">-{statsData.clubFinancials.reduce((s, c) => s + c.gatewayCost, 0).toFixed(2)}€</td>
-                                  <td className="px-6 py-4 text-right text-emerald-700">{statsData.clubFinancials.reduce((s, c) => s + c.netIncome, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right">{statsData.financialReport.reduce((s, c) => s + c.grossSales, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-red-700">-{statsData.financialReport.reduce((s, c) => s + c.supplierCost, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-purple-700">-{statsData.financialReport.reduce((s, c) => s + c.commClub, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-orange-700">+{statsData.financialReport.reduce((s, c) => s + c.commCommercial, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-gray-500">-{statsData.financialReport.reduce((s, c) => s + c.gatewayCost, 0).toFixed(2)}€</td>
+                                  <td className="px-6 py-4 text-right text-emerald-700">{statsData.financialReport.reduce((s, c) => s + c.netIncome, 0).toFixed(2)}€</td>
                               </tr>
                           </tbody>
                       </table>

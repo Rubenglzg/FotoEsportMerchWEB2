@@ -3336,6 +3336,8 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
       modified: null 
   });
 
+
+
   // --- NUEVO ESTADO PARA GESTIÓN AVANZADA DE LOTES ---
     const [manageBatchModal, setManageBatchModal] = useState({
         active: false,
@@ -3870,6 +3872,34 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
     const [manualOrderModal, setManualOrderModal] = useState(false);
     const [manualOrderForm, setManualOrderForm] = useState(INITIAL_MANUAL_FORM_STATE);
 
+// AQUÍ SE DEFINE manualOrderCategories (el nuevo estado)
+    const [manualOrderCategories, setManualOrderCategories] = useState([]);
+
+
+    // 2. SEGUNDO: AHORA sí puedes poner el useEffect (porque manualOrderForm ya existe)
+    // ---------------------------------------------------------------------------
+    useEffect(() => {
+        const fetchManualCategories = async () => {
+            if (manualOrderForm.clubId) {
+                try {
+                    const club = clubs.find(c => c.id === manualOrderForm.clubId);
+                    if (club) {
+                        const clubRef = ref(storage, club.name);
+                        const res = await listAll(clubRef);
+                        const cats = res.prefixes.map(p => p.name);
+                        setManualOrderCategories(cats);
+                    }
+                } catch (error) {
+                    console.error("Error cargando categorías manuales:", error);
+                    setManualOrderCategories([]);
+                }
+            } else {
+                setManualOrderCategories([]);
+            }
+        };
+        fetchManualCategories();
+    }, [manualOrderForm.clubId, clubs]);
+
   // --- FUNCIÓN PARA ABRIR EL MODAL ---
     const handleOpenIncident = (order, item) => {
         // Calculamos el coste inicial (1 unidad * coste unitario del producto)
@@ -3923,6 +3953,29 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
           return d >= start && d <= end;
       });
   }, [orders, financeSeasonId, seasons]);
+
+  // --- NUEVO: LISTA COMPLETA PARA GESTIÓN (INCLUYE ERRORES Y MANUALES) ---
+    const visibleOrders = useMemo(() => {
+        // Usamos 'orders' directamente para NO filtrar errores/reposiciones
+        let list = orders;
+
+        // Aplicamos SOLO el filtro de Temporada
+        if (financeSeasonId !== 'all') {
+            const season = seasons.find(s => s.id === financeSeasonId);
+            if (season) {
+                const start = new Date(season.startDate).getTime();
+                const end = new Date(season.endDate).getTime();
+                list = list.filter(o => {
+                    if (o.manualSeasonId) return o.manualSeasonId === financeSeasonId;
+                    if (o.manualSeasonId && o.manualSeasonId !== financeSeasonId) return false;
+                    
+                    const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+                    return d >= start && d <= end;
+                });
+            }
+        }
+        return list;
+    }, [orders, financeSeasonId, seasons]);
 
 // --- FUNCIÓN: ELIMINAR PEDIDO (Corregida) ---
   const handleDeleteOrder = (orderId) => {
@@ -4411,7 +4464,9 @@ const statsData = useMemo(() => {
         const visibleClubs = filterClubId === 'all' ? clubs : clubs.filter(c => c.id === filterClubId);
 
         return visibleClubs.map(club => {
-            const clubOrders = financialOrders.filter(o => o.clubId === club.id);
+            // USAMOS visibleOrders PARA QUE APAREZCAN LOS ERRORES Y MANUALES
+            const clubOrders = visibleOrders.filter(o => o.clubId === club.id); 
+            
             const batches = {};
             
             clubOrders.forEach(order => {
@@ -6817,13 +6872,20 @@ const statsData = useMemo(() => {
                                                                     {/* Etiquetas de Tipo (MANTENIDAS) */}
                                                                     {order.type === 'special' ? (
                                                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 border border-indigo-200">ESP</span>
+                                                                    ) : (order.type === 'replacement' || (order.type === 'manual' && order.paymentMethod === 'incident')) ? (
+                                                                        /* CASO 1: Es Reposición de sistema O Pedido Manual de Incidencia -> DOBLE ETIQUETA */
+                                                                        <div className="flex gap-1">
+                                                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
+                                                                                <Edit3 className="w-3 h-3"/> MANUAL
+                                                                            </span>
+                                                                            <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 flex items-center gap-1">
+                                                                                <AlertTriangle className="w-3 h-3"/> ERROR
+                                                                            </span>
+                                                                        </div>
                                                                     ) : order.type === 'manual' ? (
+                                                                        /* CASO 2: Pedido Manual Normal (Venta o Regalo) -> Solo etiqueta Manual */
                                                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200 flex items-center gap-1">
                                                                             <Edit3 className="w-3 h-3"/> MANUAL
-                                                                        </span>
-                                                                    ) : order.type === 'replacement' ? (
-                                                                        <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-red-100 text-red-700 border border-red-200 flex items-center gap-1">
-                                                                            <AlertTriangle className="w-3 h-3"/> ERROR
                                                                         </span>
                                                                     ) : order.globalBatch === 'INDIVIDUAL' ? (
                                                                         <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-orange-100 text-orange-700 border border-orange-200">IND</span>
@@ -7295,6 +7357,27 @@ const statsData = useMemo(() => {
                                             <div className="w-16">
                                                 <label className="text-[10px] font-bold text-gray-400 uppercase">Cant.</label>
                                                 <input type="number" min="1" className="w-full border rounded p-1.5 text-sm" value={manualOrderForm.tempItem.quantity} onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, quantity: e.target.value}})} />
+                                            </div>
+
+                                            {/* --- CAMBIO AQUÍ: SELECTOR DE CATEGORÍA DEL CLUB --- */}
+                                            <div className="w-32">
+                                                <label className="text-[10px] font-bold text-gray-400 uppercase">Categoría</label>
+                                                <div className="relative">
+                                                    <select 
+                                                        className="w-full border rounded p-1.5 text-sm bg-white outline-none focus:border-emerald-500 appearance-none"
+                                                        value={manualOrderForm.tempItem.category || ''} 
+                                                        onChange={e => setManualOrderForm({...manualOrderForm, tempItem: {...manualOrderForm.tempItem, category: e.target.value}})}
+                                                    >
+                                                        <option value="">-- Seleccionar --</option>
+                                                        {manualOrderCategories.map(cat => (
+                                                            <option key={cat} value={cat}>{cat}</option>
+                                                        ))}
+                                                    </select>
+                                                    {/* Flechita decorativa */}
+                                                    <div className="absolute right-2 top-2 pointer-events-none text-gray-400">
+                                                        <ChevronRight className="w-3 h-3 rotate-90"/>
+                                                    </div>
+                                                </div>
                                             </div>
 
                                             {/* --- TALLA --- */}

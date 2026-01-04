@@ -786,42 +786,75 @@ const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock }) => {
 const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     
-    // Valores por defecto
-    const features = product.features || { name: true, number: true, photo: true, shield: true, color: true };
-    const defaults = product.defaults || { name: true, number: true, photo: false, shield: true };
+    // --- ESTADO LOCAL PARA TALLAS (Solución comas) ---
+    const [localSizeInput, setLocalSizeInput] = useState(product.sizes ? product.sizes.join(', ') : '');
+
+    // Sincronizar estado local si viene de fuera (pero no mientras editamos)
+    useEffect(() => {
+        if (!isExpanded) { 
+             setLocalSizeInput(product.sizes ? product.sizes.join(', ') : '');
+        }
+    }, [product.sizes, isExpanded]);
+
+    // Guardar tallas solo al salir del input (onBlur)
+    const handleSizeBlur = () => {
+        const newSizes = localSizeInput.split(',')
+            .map(s => s.trim())
+            .filter(s => s !== ''); 
+        updateProduct({ ...product, sizes: newSizes });
+    };
+    // ------------------------------------------------
+
+    const features = product.features || { name: true, number: true, photo: true, shield: true, size: true, color: true };
+    const defaults = product.defaults || { name: false, number: false, photo: false, shield: true };
     const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
-    // Variantes (Para Calendarios y Fotos)
     const variants = product.variants || [];
 
-    const toggleFeature = (key) => updateProduct({ ...product, features: { ...features, [key]: !features[key] } });
+    // --- FUNCIONES DE TOGGLES ---
+    const toggleFeature = (key) => {
+        const newValue = !features[key];
+        let newFeatures = { ...features, [key]: newValue };
+        let newDefaults = { ...defaults };
+        let newModifiable = { ...modifiable };
+
+        // Si activamos FOTO, forzamos default=true y modifiable=false
+        if (key === 'photo' && newValue === true) {
+            newDefaults.photo = true;      
+            newModifiable.photo = false;   
+        }
+
+        updateProduct({ 
+            ...product, 
+            features: newFeatures,
+            defaults: newDefaults,
+            modifiable: newModifiable
+        });
+    };
+
     const toggleDefault = (key) => updateProduct({ ...product, defaults: { ...defaults, [key]: !defaults[key] } });
     const toggleModifiable = (key) => updateProduct({ ...product, modifiable: { ...modifiable, [key]: !modifiable[key] } });
 
-    // Manejo de Variantes
+    // --- FUNCIONES DE VARIANTES (Restauradas) ---
     const addVariant = () => {
         const newVariants = [...variants, { id: Date.now(), name: '', priceMod: 0, image: '' }];
         updateProduct({ ...product, variants: newVariants });
     };
-
     const updateVariant = (id, field, value) => {
         const newVariants = variants.map(v => v.id === id ? { ...v, [field]: value } : v);
         updateProduct({ ...product, variants: newVariants });
     };
-
     const deleteVariant = (id) => {
         const newVariants = variants.filter(v => v.id !== id);
         updateProduct({ ...product, variants: newVariants });
     };
 
-    // Encontrar proveedor actual si existe
     const currentSupplier = suppliers ? suppliers.find(s => s.id === product.supplierId) : null;
 
     return (
         <div className={`bg-white rounded-xl transition-all duration-300 overflow-hidden group mb-3 ${isExpanded ? 'border-2 border-emerald-500 shadow-xl ring-4 ring-emerald-50/50 z-10 transform scale-[1.01]' : 'border border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
             
-            {/* 1. CABECERA (Siempre visible) */}
+            {/* CABECERA RESUMEN */}
             <div className="p-4 flex items-center gap-5 cursor-pointer" onClick={() => setIsExpanded(!isExpanded)}>
-                
                 <div className="relative w-14 h-14 shrink-0 bg-gray-50 rounded-lg overflow-hidden border border-gray-100">
                     {product.image ? (
                         <img src={product.image} className="w-full h-full object-cover" alt="" />
@@ -838,31 +871,24 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                         <span className="bg-emerald-50 text-emerald-700 px-2 py-0.5 rounded border border-emerald-100 font-bold">
                             PVP: {product.price.toFixed(2)}€
                         </span>
-                        {variants.length > 0 && (
-                            <span className="bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-100 font-bold">
-                                {variants.length} Opciones
+                        {product.sizes && product.sizes.length > 0 && (
+                            <span className="bg-gray-100 text-gray-600 px-2 py-0.5 rounded border border-gray-200 font-medium">
+                                {product.sizes.length} Tallas
                             </span>
                         )}
-                        <span className="text-gray-400 flex items-center gap-1">
-                            Coste: {product.cost ? product.cost.toFixed(2) : '0.00'}€
-                            {currentSupplier && <Truck className="w-3 h-3 text-indigo-400" title={`Provisto por ${currentSupplier.name}`}/>}
-                        </span>
+                        {variants.length > 0 && (
+                            <span className="bg-blue-50 text-blue-600 px-2 py-0.5 rounded border border-blue-100 font-medium">
+                                {variants.length} Tipos
+                            </span>
+                        )}
                     </div>
                 </div>
 
                 <div className="flex items-center gap-2 pl-3 border-l border-gray-100">
-                    <button 
-                        className={`p-2 rounded-lg transition-all ${isExpanded ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-50 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600'}`}
-                        title="Configurar"
-                    >
+                    <button className={`p-2 rounded-lg transition-all ${isExpanded ? 'bg-emerald-100 text-emerald-700' : 'bg-gray-50 text-gray-400 hover:bg-emerald-50 hover:text-emerald-600'}`}>
                         {isExpanded ? <ChevronRight className="w-5 h-5 rotate-90"/> : <Settings className="w-5 h-5"/>}
                     </button>
-                    
-                    <button 
-                        onClick={(e) => { e.stopPropagation(); deleteProduct(product.id); }} 
-                        className="p-2 rounded-lg bg-white border border-transparent text-gray-300 hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-colors"
-                        title="Eliminar Producto"
-                    >
+                    <button onClick={(e) => { e.stopPropagation(); deleteProduct(product.id); }} className="p-2 rounded-lg bg-white border border-transparent text-gray-300 hover:bg-red-50 hover:text-red-500 hover:border-red-100 transition-colors">
                         <Trash2 className="w-5 h-5"/>
                     </button>
                 </div>
@@ -1029,33 +1055,47 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                         </div>
                     </div>
 
+                    {/* --- REGLAS DE PERSONALIZACIÓN ACTUALIZADAS --- */}
                     <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm mt-6">
                         <div className="bg-gray-100 px-6 py-3 border-b border-gray-200 flex justify-between items-center">
                             <h4 className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
-                                <Settings className="w-4 h-4"/> Reglas de Personalización
+                                <Settings className="w-4 h-4"/> Opciones y Personalización
                             </h4>
+                            <div className="flex gap-8 text-[9px] font-bold uppercase text-gray-400 pr-2">
+                                <span className="w-12 text-center">Activo</span>
+                                <span className="w-12 text-center">Default</span>
+                                <span className="w-12 text-center">Lock</span>
+                            </div>
                         </div>
 
                         <div className="divide-y divide-gray-50 p-4">
-                            {/* 1. TALLA */}
+                            
+                            {/* 1. TALLA (INPUT MEJORADO CON onBlur) */}
                             <div className="flex flex-col gap-2 py-2">
                                 <div className="flex items-center justify-between">
                                     <div className="flex items-center gap-3">
-                                        <div className={`p-2 rounded-lg ${features.size ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}>
-                                            <Hash className="w-5 h-5"/> 
-                                        </div>
+                                        <div className={`p-2 rounded-lg ${features.size ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><Hash className="w-5 h-5"/></div>
                                         <span className="text-sm font-bold text-gray-700">Talla</span>
                                     </div>
-                                    <div className="flex gap-8 pr-2">
-                                        <div className="flex justify-center w-12"><input type="checkbox" checked={features.size} onChange={() => toggleFeature('size')} className="rounded text-emerald-600 cursor-pointer"/></div>
-                                        <div className="flex justify-center w-12"><input type="checkbox" checked={features.size ? true : defaults.size} disabled className="rounded text-blue-600 opacity-50"/></div>
-                                        <div className="flex justify-center w-12"><button disabled className="opacity-50"><Lock className="w-5 h-5 text-red-400"/></button></div>
+                                    <div className="flex gap-8 pr-2 items-center">
+                                        <div className="w-12 flex justify-center"><input type="checkbox" checked={features.size} onChange={() => toggleFeature('size')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                        <div className="w-12 flex justify-center opacity-20"><input type="checkbox" disabled checked={true}/></div>
+                                        <div className="w-12 flex justify-center opacity-20"><Lock className="w-4 h-4 text-gray-300"/></div>
                                     </div>
                                 </div>
                                 {features.size && (
-                                    <div className="ml-12 bg-gray-50 p-2 rounded border border-gray-200 animate-fade-in">
-                                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Opciones de Talla</label>
-                                        <input type="text" className="w-full border rounded p-1.5 text-xs bg-white focus:ring-1 focus:ring-emerald-500 outline-none" placeholder="Ej: S, M, L, XL, XXL" value={product.sizes ? product.sizes.join(', ') : ''} onChange={(e) => updateProduct({...product, sizes: e.target.value.split(',').map(s => s.trim())})}/>
+                                    <div className="ml-12 bg-blue-50 p-3 rounded-lg border border-blue-100 animate-fade-in">
+                                        <label className="text-[10px] font-bold text-blue-700 uppercase block mb-1">Lista de Tallas (Separadas por comas)</label>
+                                        {/* Aquí usamos localSizeInput para permitir escribir libremente */}
+                                        <input 
+                                            type="text" 
+                                            className="w-full border border-blue-200 rounded p-2 text-xs bg-white focus:ring-2 focus:ring-blue-200 outline-none font-medium text-gray-700" 
+                                            placeholder="Ej: S, M, L, XL, XXL (o dejar vacío para texto libre)" 
+                                            value={localSizeInput} 
+                                            onChange={(e) => setLocalSizeInput(e.target.value)} 
+                                            onBlur={handleSizeBlur}
+                                        />
+                                        <p className="text-[9px] text-blue-400 mt-1">Escribe tallas separadas por comas. Se guardarán al salir del campo.</p>
                                     </div>
                                 )}
                             </div>
@@ -1064,12 +1104,12 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                             <div className="flex items-center justify-between py-2 border-t border-gray-50">
                                 <div className="flex items-center gap-3">
                                     <div className={`p-2 rounded-lg ${features.name ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><FileText className="w-5 h-5"/></div>
-                                    <span className="text-sm font-bold text-gray-700">Nombre</span>
+                                    <span className="text-sm font-bold text-gray-700">Nombre Jugador</span>
                                 </div>
-                                <div className="flex gap-8 pr-2">
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.name} onChange={() => toggleFeature('name')} className="rounded text-emerald-600 cursor-pointer"/></div>
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={defaults.name} onChange={() => toggleDefault('name')} disabled={!features.name} className="rounded text-blue-600 cursor-pointer"/></div>
-                                    <div className="flex justify-center w-12"><button onClick={() => toggleModifiable('name')} disabled={!features.name}>{modifiable.name ? <Unlock className="w-5 h-5 text-emerald-500"/> : <Lock className="w-5 h-5 text-red-400"/>}</button></div>
+                                <div className="flex gap-8 pr-2 items-center">
+                                    <div className="w-12 flex justify-center"><input type="checkbox" checked={features.name} onChange={() => toggleFeature('name')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="w-12 flex justify-center"><input type="checkbox" checked={defaults.name} onChange={() => toggleDefault('name')} disabled={!features.name} className="rounded text-blue-600 cursor-pointer disabled:opacity-30"/></div>
+                                    <div className="w-12 flex justify-center"><button onClick={() => toggleModifiable('name')} disabled={!features.name}>{modifiable.name ? <Unlock className="w-4 h-4 text-emerald-500"/> : <Lock className="w-4 h-4 text-red-500"/>}</button></div>
                                 </div>
                             </div>
 
@@ -1079,10 +1119,10 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                                     <div className={`p-2 rounded-lg ${features.number ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><Hash className="w-5 h-5"/></div>
                                     <span className="text-sm font-bold text-gray-700">Dorsal</span>
                                 </div>
-                                <div className="flex gap-8 pr-2">
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.number} onChange={() => toggleFeature('number')} className="rounded text-emerald-600 cursor-pointer"/></div>
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={defaults.number} onChange={() => toggleDefault('number')} disabled={!features.number} className="rounded text-blue-600 cursor-pointer"/></div>
-                                    <div className="flex justify-center w-12"><button onClick={() => toggleModifiable('number')} disabled={!features.number}>{modifiable.number ? <Unlock className="w-5 h-5 text-emerald-500"/> : <Lock className="w-5 h-5 text-red-400"/>}</button></div>
+                                <div className="flex gap-8 pr-2 items-center">
+                                    <div className="w-12 flex justify-center"><input type="checkbox" checked={features.number} onChange={() => toggleFeature('number')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="w-12 flex justify-center"><input type="checkbox" checked={defaults.number} onChange={() => toggleDefault('number')} disabled={!features.number} className="rounded text-blue-600 cursor-pointer disabled:opacity-30"/></div>
+                                    <div className="w-12 flex justify-center"><button onClick={() => toggleModifiable('number')} disabled={!features.number}>{modifiable.number ? <Unlock className="w-4 h-4 text-emerald-500"/> : <Lock className="w-4 h-4 text-red-500"/>}</button></div>
                                 </div>
                             </div>
 
@@ -1092,10 +1132,10 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                                     <div className={`p-2 rounded-lg ${features.shield ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><ShieldCheck className="w-5 h-5"/></div>
                                     <span className="text-sm font-bold text-gray-700">Escudo</span>
                                 </div>
-                                <div className="flex gap-8 pr-2">
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.shield} onChange={() => toggleFeature('shield')} className="rounded text-emerald-600 cursor-pointer"/></div>
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={defaults.shield} onChange={() => toggleDefault('shield')} disabled={!features.shield} className="rounded text-blue-600 cursor-pointer"/></div>
-                                    <div className="flex justify-center w-12"><button onClick={() => toggleModifiable('shield')} disabled={!features.shield}>{modifiable.shield ? <Unlock className="w-5 h-5 text-emerald-500"/> : <Lock className="w-5 h-5 text-red-400"/>}</button></div>
+                                <div className="flex gap-8 pr-2 items-center">
+                                    <div className="w-12 flex justify-center"><input type="checkbox" checked={features.shield} onChange={() => toggleFeature('shield')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="w-12 flex justify-center"><input type="checkbox" checked={defaults.shield} onChange={() => toggleDefault('shield')} disabled={!features.shield} className="rounded text-blue-600 cursor-pointer disabled:opacity-30"/></div>
+                                    <div className="w-12 flex justify-center"><button onClick={() => toggleModifiable('shield')} disabled={!features.shield}>{modifiable.shield ? <Unlock className="w-4 h-4 text-emerald-500"/> : <Lock className="w-4 h-4 text-red-500"/>}</button></div>
                                 </div>
                             </div>
 
@@ -1103,14 +1143,24 @@ const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) 
                             <div className="flex items-center justify-between py-2 border-t border-gray-50">
                                 <div className="flex items-center gap-3">
                                     <div className={`p-2 rounded-lg ${features.photo ? 'bg-white text-emerald-600 border border-emerald-100' : 'bg-gray-100 text-gray-400'}`}><ImageIcon className="w-5 h-5"/></div>
-                                    <span className="text-sm font-bold text-gray-700">Foto</span>
+                                    <div>
+                                        <span className="text-sm font-bold text-gray-700 block">Foto Personal</span>
+                                        <span className="text-[9px] text-gray-400">Si se activa, es obligatoria.</span>
+                                    </div>
                                 </div>
-                                <div className="flex gap-8 pr-2">
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={features.photo} onChange={() => toggleFeature('photo')} className="rounded text-emerald-600 cursor-pointer"/></div>
-                                    <div className="flex justify-center w-12"><input type="checkbox" checked={true} disabled className="rounded text-blue-600 opacity-50"/></div>
-                                    <div className="flex justify-center w-12"><button disabled className="opacity-50"><Lock className="w-5 h-5 text-red-400"/></button></div>
+                                <div className="flex gap-8 pr-2 items-center">
+                                    <div className="w-12 flex justify-center"><input type="checkbox" checked={features.photo} onChange={() => toggleFeature('photo')} className="rounded text-emerald-600 cursor-pointer"/></div>
+                                    <div className="w-12 flex justify-center">
+                                        <input type="checkbox" checked={features.photo ? true : defaults.photo} disabled className="rounded text-blue-600 opacity-50 cursor-not-allowed"/>
+                                    </div>
+                                    <div className="w-12 flex justify-center">
+                                        <button disabled className="opacity-50 cursor-not-allowed">
+                                            {features.photo ? <Lock className="w-4 h-4 text-red-500"/> : <Unlock className="w-4 h-4 text-gray-300"/>}
+                                        </button>
+                                    </div>
                                 </div>
                             </div>
+
                         </div>
                     </div>
                 </div>
@@ -1256,34 +1306,35 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
   const variants = product.variants || []; 
+  const sizeOptions = product.sizes && product.sizes.length > 0 ? product.sizes : null;
 
-  // Estados Inputs
   const [clubInput, setClubInput] = useState('');
   const [categoryInput, setCategoryInput] = useState('');
   const [showClubSuggestions, setShowClubSuggestions] = useState(false);
   const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
   const [availableCategories, setAvailableCategories] = useState([]);
 
-  // Estado principal de personalización
+  // Inicialización correcta de estados basada en defaults
   const [customization, setCustomization] = useState({ 
       clubId: '', 
       category: '', 
       playerName: '', 
       playerNumber: '', 
       playerName2: '',
-      playerNumber2: '',
+      playerNumber2: '', 
       playerName3: '',
       playerNumber3: '',
-      color: 'white', 
+      color: 'white',
+      size: sizeOptions ? sizeOptions[0] : '', 
       selectedPhoto: '',
-      includeName: defaults.name ?? true, 
-      includeNumber: defaults.number ?? true, 
+      // Si el default es undefined, asumimos false para ser seguros, excepto shield que suele ser true
+      includeName: defaults.name ?? false, 
+      includeNumber: defaults.number ?? false, 
       includePhoto: defaults.photo ?? false, 
       includeShield: defaults.shield ?? true,
       selectedVariantId: null 
   });
 
-  // --- NUEVO: Estado para la cantidad ---
   const [quantity, setQuantity] = useState(1);
 
   const isPhotoProduct = product.name.toLowerCase().includes('foto');
@@ -1293,7 +1344,7 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   const isTriple = activeVariant && activeVariant.name.toLowerCase().includes('triple');
   const isTeamPhoto = isPhotoProduct && activeVariant && activeVariant.name.toLowerCase().includes('equipo');
 
-  // Efecto para cargar categorías (Sin cambios)
+  // ... (Efectos de categorías y sugerencias se mantienen igual) ...
   useEffect(() => {
         const fetchCategories = async () => {
             if (customization.clubId) {
@@ -1305,12 +1356,9 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                         setAvailableCategories(res.prefixes.map(p => p.name));
                     }
                 } catch (error) {
-                    console.error("Error cargando categorías:", error);
                     setAvailableCategories([]);
                 }
-            } else {
-                setAvailableCategories([]);
-            }
+            } else { setAvailableCategories([]); }
         };
         fetchCategories();
     }, [customization.clubId, clubs]);
@@ -1326,56 +1374,55 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   }, [categoryInput, availableCategories]);
 
   const handleSelectClub = (club) => {
-      setCustomization({ 
-          ...customization, 
-          clubId: club.id, 
-          category: '',
-          color: club.color || 'white'
-      });
-      setClubInput(club.name);
-      setCategoryInput(''); 
-      setShowClubSuggestions(false);
+      setCustomization({ ...customization, clubId: club.id, category: '', color: club.color || 'white' });
+      setClubInput(club.name); setCategoryInput(''); setShowClubSuggestions(false);
   };
 
+    // --- LÓGICA DE COBRO ACTUALIZADA: Cualquier diferencia con el default se cobra ---
     const modificationCount = useMemo(() => {
         let count = 0;
-        const checkDiff = (key) => {
-            if (!features[key]) return false; 
-            if (!modifiable[key]) return false; 
-            return customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`] !== defaults[key];
+        const checkExtra = (key) => {
+            if (!features[key]) return false; // Si no existe, no cuenta
+            if (!modifiable[key]) return false; // Si no se puede tocar, no cuenta
+            
+            // Valores actuales (seleccionados por usuario)
+            const isSelected = customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`];
+            // Valores por defecto (del producto)
+            const isDefault = !!defaults[key];
+
+            // SI HAY DIFERENCIA, HAY COBRO.
+            // Caso 1: Default OFF, Usuario ON -> Cobra
+            // Caso 2: Default ON, Usuario OFF -> Cobra
+            if (isSelected !== isDefault) {
+                return true;
+            }
+            return false;
         };
-        if (checkDiff('name')) count++;
-        if (checkDiff('number')) count++;
-        if (checkDiff('shield')) count++;
+        
+        if (checkExtra('name')) count++;
+        if (checkExtra('number')) count++;
+        if (checkExtra('shield')) count++;
+        
         return count;
     }, [customization, defaults, features, modifiable]);
 
     const isModified = modificationCount > 0;
-    
-    // PRECIO UNITARIO
     const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
-    const unitPrice = product.price + variantPrice + (modificationCount * modificationFee);
-    
-    // PRECIO TOTAL (Unitario * Cantidad)
+    const unitPrice = product.price + variantPrice + (modificationCount * (modificationFee || 0));
     const totalPrice = unitPrice * quantity;
   
   const handleSubmit = (e) => { 
       e.preventDefault(); 
       if (!storeConfig.isOpen) return; 
-      
       if (!customization.clubId) { alert("Debes seleccionar un club."); return; }
       
       if (!isTeamPhoto) {
-          if (customization.includeName && !customization.playerName) { alert("El nombre del jugador 1 es obligatorio."); return; }
-          if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal del jugador 1 es obligatorio."); return; }
+          if (customization.includeName && !customization.playerName) { alert("El nombre es obligatorio."); return; }
+          if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal es obligatorio."); return; }
       }
-      
-      if (isDouble || isTriple) {
-           if (!customization.playerName2 || !customization.playerNumber2) { alert("Datos del 2º jugador obligatorios."); return; }
-      }
-      if (isTriple) {
-           if (!customization.playerName3 || !customization.playerNumber3) { alert("Datos del 3er jugador obligatorios."); return; }
-      }
+      if (features.size && !customization.size) { alert("Debes seleccionar una talla."); return; }
+      if ((isDouble || isTriple) && (!customization.playerName2 || !customization.playerNumber2)) { alert("Datos del J2 obligatorios."); return; }
+      if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { alert("Datos del J3 obligatorios."); return; }
 
       let extendedName = product.name;
       if (activeVariant) extendedName += ` (${activeVariant.name})`;
@@ -1383,10 +1430,11 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
       let fullDetails = `Jugador 1: ${customization.playerName} #${customization.playerNumber}`;
       if(isDouble || isTriple) fullDetails += ` | J2: ${customization.playerName2} #${customization.playerNumber2}`;
       if(isTriple) fullDetails += ` | J3: ${customization.playerName3} #${customization.playerNumber3}`;
-      if(isTeamPhoto) fullDetails = "Foto de Equipo (Solo Categoría)";
+      if(isTeamPhoto) fullDetails = "Foto de Equipo";
+      if(features.size) fullDetails += ` | Talla: ${customization.size}`;
 
-      // Mensaje de confirmación incluyendo la cantidad
-      let confirmMsg = `Confirma tu pedido:\n\n• Producto: ${extendedName}\n• Cantidad: ${quantity}\n• Club: ${clubInput}\n• Categoría: ${customization.category}\n\n${fullDetails}`;
+      let confirmMsg = `Producto: ${extendedName}\nCantidad: ${quantity}\nClub: ${clubInput}\n${fullDetails}`;
+      if (modificationCount > 0) confirmMsg += `\n\n(Incluye ${modificationCount} modificación/es)`;
 
       setConfirmation({
           msg: confirmMsg,
@@ -1396,15 +1444,14 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
                   name: extendedName,
                   playerName: isTeamPhoto ? '' : customization.playerName,
                   playerNumber: isTeamPhoto ? '' : customization.playerNumber,
-                  // --- AÑADIMOS LA CANTIDAD AL OBJETO ---
                   quantity: quantity, 
+                  size: customization.size,
                   details: {
                       player2: (isDouble || isTriple) ? { name: customization.playerName2, number: customization.playerNumber2 } : null,
                       player3: (isTriple) ? { name: customization.playerName3, number: customization.playerNumber3 } : null,
                       variant: activeVariant ? activeVariant.name : 'Standard'
                   }
               };
-              // Pasamos el precio UNITARIO a onAdd, ya que el carrito multiplica por quantity
               onAdd(finalItem, customization, unitPrice); 
               onBack(); 
           }
@@ -1416,187 +1463,145 @@ function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, sto
   return (
     <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col md:flex-row">
       <div className="md:w-1/2 bg-gray-100 p-8 flex items-center justify-center relative">
-          <img src={displayImage} className="max-w-full h-auto rounded-lg shadow-md transition-all duration-300" />
+          <img src={displayImage} className="max-w-full h-auto rounded-lg shadow-md" />
       </div>
       <div className="md:w-1/2 p-8 overflow-y-auto max-h-[90vh]">
         <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1"><ChevronLeft className="rotate-180 w-4 h-4" /> Volver</button>
         <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
         
-        {/* PRECIO UNITARIO */}
         <div className="flex items-end gap-2 mb-6">
             <p className="text-emerald-600 font-bold text-3xl">{unitPrice.toFixed(2)}€</p>
             <span className="text-gray-400 text-sm mb-1">/ unidad</span>
-            {activeVariant && (
-                <span className="text-xs text-blue-600 font-bold bg-blue-100 px-2 py-1 rounded mb-1 border border-blue-200">
-                   {activeVariant.name}
+            {modificationCount > 0 && (
+                <span className="text-[10px] bg-orange-100 text-orange-700 border border-orange-200 px-2 py-1 rounded mb-1 font-bold">
+                   +{modificationCount} Modificación/es (+{modificationCount * modificationFee}€)
                 </span>
             )}
         </div>
         
         <form onSubmit={handleSubmit} className="space-y-6">
-          
-          {/* SELECCIÓN DE VARIANTE */}
           {(variants.length > 0 || isPhotoProduct || isCalendarProduct) && (
               <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                  <label className="block text-sm font-bold text-blue-800 mb-2 uppercase">Selecciona Tipo</label>
+                  <label className="block text-sm font-bold text-blue-800 mb-2 uppercase">Tipo</label>
                   <div className="flex flex-wrap gap-2">
-                      <button
-                          type="button"
-                          onClick={() => setCustomization({...customization, selectedVariantId: null})}
-                          className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${!customization.selectedVariantId ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}`}
-                      >
-                          Individual / Estándar
-                      </button>
+                      <button type="button" onClick={() => setCustomization({...customization, selectedVariantId: null})} className={`px-4 py-2 rounded-lg text-sm font-bold border ${!customization.selectedVariantId ? 'bg-blue-600 text-white' : 'bg-white'}`}>Estándar</button>
                       {variants.map(v => (
-                          <button
-                              key={v.id}
-                              type="button"
-                              onClick={() => setCustomization({...customization, selectedVariantId: v.id})}
-                              className={`px-4 py-2 rounded-lg text-sm font-bold border transition-all ${customization.selectedVariantId === v.id ? 'bg-blue-600 text-white border-blue-600 shadow-md' : 'bg-white text-gray-600 border-gray-200 hover:border-blue-300'}`}
-                          >
-                              {v.name}
-                          </button>
+                          <button key={v.id} type="button" onClick={() => setCustomization({...customization, selectedVariantId: v.id})} className={`px-4 py-2 rounded-lg text-sm font-bold border ${customization.selectedVariantId === v.id ? 'bg-blue-600 text-white' : 'bg-white'}`}>{v.name}</button>
                       ))}
                   </div>
               </div>
           )}
 
-          {/* BUSCADOR CLUB */}
           <div className="relative">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona tu Club <span className="text-red-500">*</span></label>
-              <Input 
-                  placeholder="Escribe para buscar club..." 
-                  value={clubInput} 
-                  onChange={e => { setClubInput(e.target.value); setCustomization({...customization, clubId: ''}); setShowClubSuggestions(true); }}
-                  onFocus={() => setShowClubSuggestions(true)}
-                  onBlur={() => setTimeout(() => setShowClubSuggestions(false), 200)}
-              />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Club <span className="text-red-500">*</span></label>
+              <Input placeholder="Buscar club..." value={clubInput} onChange={e => { setClubInput(e.target.value); setCustomization({...customization, clubId: ''}); setShowClubSuggestions(true); }} onFocus={() => setShowClubSuggestions(true)} onBlur={() => setTimeout(() => setShowClubSuggestions(false), 200)} />
               {showClubSuggestions && clubSuggestions.length > 0 && (
-                  <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                      {clubSuggestions.map(c => (
-                          <div key={c.id} onClick={() => handleSelectClub(c)} className={`px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group ${c.blocked ? 'opacity-50 cursor-not-allowed' : ''}`}>
-                              <span className="font-medium text-gray-700 group-hover:text-emerald-700">{c.name}</span>
-                              <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
-                          </div>
-                      ))}
+                  <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                      {clubSuggestions.map(c => <div key={c.id} onClick={() => handleSelectClub(c)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer">{c.name}</div>)}
                   </div>
               )}
           </div>
 
-          {/* BUSCADOR CATEGORÍA */}
           {customization.clubId && (
                 <div className="relative animate-fade-in">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Selecciona Categoría <span className="text-red-500">*</span></label>
-                    <Input 
-                        placeholder="Escribe para buscar categoría..." 
-                        value={categoryInput}
-                        onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: ''}); setShowCategorySuggestions(true); }}
-                        onFocus={() => setShowCategorySuggestions(true)}
-                        onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)}
-                    />
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
+                    <Input placeholder="Buscar categoría..." value={categoryInput} onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: ''}); setShowCategorySuggestions(true); }} onFocus={() => setShowCategorySuggestions(true)} onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)} />
                     {showCategorySuggestions && categorySuggestions.length > 0 && (
-                        <div className="absolute top-full left-0 right-0 bg-white border border-gray-200 rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                            {categorySuggestions.map(cat => (
-                                <div key={cat} onClick={() => { setCustomization({ ...customization, category: cat }); setCategoryInput(cat); setShowCategorySuggestions(false); }} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer flex justify-between items-center group">
-                                    <span className="font-medium text-gray-700 group-hover:text-emerald-700">{cat}</span>
-                                    <ChevronRight className="w-4 h-4 text-gray-400 group-hover:text-emerald-500"/>
-                                </div>
-                            ))}
+                        <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                            {categorySuggestions.map(cat => <div key={cat} onClick={() => { setCustomization({ ...customization, category: cat }); setCategoryInput(cat); setShowCategorySuggestions(false); }} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer">{cat}</div>)}
                         </div>
                     )}
                 </div>
             )}
 
-          {/* DATOS JUGADOR 1 */}
+            {features.size && (
+                <div className="animate-fade-in">
+                    <label className="block text-sm font-medium text-gray-700 mb-1">Talla <span className="text-red-500">*</span></label>
+                    {sizeOptions ? (
+                        <select className="w-full px-3 py-2 border rounded-md bg-white" value={customization.size} onChange={(e) => setCustomization({...customization, size: e.target.value})}>
+                            <option value="">-- Selecciona Talla --</option>
+                            {sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                        </select>
+                    ) : (
+                        <Input placeholder="Tu talla..." value={customization.size} onChange={e => setCustomization({...customization, size: e.target.value})}/>
+                    )}
+                </div>
+            )}
+
           {!isTeamPhoto && (
               <div className="space-y-4 border-t pt-4 border-gray-100">
-                  <h4 className="font-bold text-gray-600 text-xs uppercase">Datos Jugador 1</h4>
+                  <h4 className="font-bold text-gray-600 text-xs uppercase">Datos Personalización</h4>
+                  <div className="flex gap-4 flex-wrap">
+                      {features.name && modifiable.name && (
+                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
+                              <input type="checkbox" className="accent-emerald-600" checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})}/>
+                              <span className="text-sm">Incluir Nombre</span>
+                              {customization.includeName !== !!defaults.name && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
+                          </label>
+                      )}
+                      {features.number && modifiable.number && (
+                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
+                              <input type="checkbox" className="accent-emerald-600" checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})}/>
+                              <span className="text-sm">Incluir Dorsal</span>
+                              {customization.includeNumber !== !!defaults.number && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
+                          </label>
+                      )}
+                      {features.shield && modifiable.shield && (
+                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
+                              <input type="checkbox" className="accent-emerald-600" checked={customization.includeShield} onChange={e => setCustomization({...customization, includeShield: e.target.checked})}/>
+                              <span className="text-sm">Incluir Escudo</span>
+                              {customization.includeShield !== !!defaults.shield && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
+                          </label>
+                      )}
+                  </div>
                   <div className="grid grid-cols-2 gap-4">
                     {features.name && (
-                        <div className={`${!customization.includeName ? 'opacity-50' : ''}`}>
-                            <label className="text-sm font-medium text-gray-700 block mb-1">Nombre <span className="text-red-500">*</span></label>
-                            <Input disabled={!customization.includeName} required={customization.includeName} placeholder="Ej. García" value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/>
+                        <div className={!customization.includeName ? 'opacity-30 pointer-events-none' : ''}>
+                            <label className="text-sm font-medium mb-1 block">Nombre</label>
+                            <Input value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/>
                         </div>
                     )}
                     {features.number && (
-                        <div className={`${!customization.includeNumber ? 'opacity-50' : ''}`}>
-                            <label className="text-sm font-medium text-gray-700 block mb-1">Dorsal <span className="text-red-500">*</span></label>
-                            <Input disabled={!customization.includeNumber} required={customization.includeNumber} type="number" placeholder="10" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/>
+                        <div className={!customization.includeNumber ? 'opacity-30 pointer-events-none' : ''}>
+                            <label className="text-sm font-medium mb-1 block">Dorsal</label>
+                            <Input type="number" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/>
                         </div>
                     )}
                   </div>
               </div>
           )}
 
-          {/* DATOS JUGADOR 2 */}
           {(isDouble || isTriple) && (
-              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 animate-fade-in">
-                  <h4 className="font-bold text-blue-800 text-xs uppercase mb-3 flex items-center gap-2">
-                      <Users className="w-4 h-4"/> Datos Jugador 2
-                  </h4>
+              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
+                  <h4 className="font-bold text-blue-800 text-xs uppercase mb-3">Datos Jugador 2</h4>
                   <div className="grid grid-cols-2 gap-4">
-                      <Input label="Nombre J2" required placeholder="Nombre 2º Jugador" value={customization.playerName2} onChange={e => setCustomization({...customization, playerName2: e.target.value})}/>
-                      <Input label="Dorsal J2" required type="number" placeholder="#" value={customization.playerNumber2} onChange={e => setCustomization({...customization, playerNumber2: e.target.value})}/>
+                      <Input placeholder="Nombre J2" value={customization.playerName2} onChange={e => setCustomization({...customization, playerName2: e.target.value})}/>
+                      <Input placeholder="Dorsal J2" type="number" value={customization.playerNumber2} onChange={e => setCustomization({...customization, playerNumber2: e.target.value})}/>
                   </div>
               </div>
           )}
-
-          {/* DATOS JUGADOR 3 */}
           {isTriple && (
-              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 animate-fade-in">
-                   <h4 className="font-bold text-purple-800 text-xs uppercase mb-3 flex items-center gap-2">
-                      <Users className="w-4 h-4"/> Datos Jugador 3
-                  </h4>
+              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100">
+                   <h4 className="font-bold text-purple-800 text-xs uppercase mb-3">Datos Jugador 3</h4>
                   <div className="grid grid-cols-2 gap-4">
-                      <Input label="Nombre J3" required placeholder="Nombre 3er Jugador" value={customization.playerName3} onChange={e => setCustomization({...customization, playerName3: e.target.value})}/>
-                      <Input label="Dorsal J3" required type="number" placeholder="#" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/>
+                      <Input placeholder="Nombre J3" value={customization.playerName3} onChange={e => setCustomization({...customization, playerName3: e.target.value})}/>
+                      <Input placeholder="Dorsal J3" type="number" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/>
                   </div>
               </div>
           )}
           
-          {/* SECCIÓN DE COLOR */}
-          {features.color && (
-              <div className="animate-fade-in">
-                  <label className="block text-sm font-medium text-gray-700 mb-2">Color Oficial del Club</label>
-                  <div className="flex items-center gap-3 bg-gray-50 p-3 rounded-lg border border-gray-200">
-                      {customization.clubId ? (
-                          (() => {
-                              const colorInfo = AVAILABLE_COLORS.find(c => c.id === customization.color) || { label: customization.color, hex: customization.color, border: 'border-gray-300' };
-                              return (
-                                  <>
-                                      <div className={`w-10 h-10 rounded-full border-2 ${colorInfo.border} shadow-sm`} style={{ backgroundColor: colorInfo.hex }} />
-                                      <div><p className="text-sm font-bold text-gray-800 capitalize">{colorInfo.label}</p><p className="text-xs text-gray-500">Asignado automáticamente</p></div>
-                                  </>
-                              );
-                          })()
-                      ) : (
-                          <>
-                              <div className="w-10 h-10 rounded-full border-2 border-gray-300 bg-gray-100 flex items-center justify-center shadow-inner"><span className="text-gray-400 font-bold text-lg">?</span></div>
-                              <div><p className="text-sm font-bold text-gray-600">Pendiente de Club</p><p className="text-xs text-gray-500 font-medium">Selecciona tu club</p></div>
-                          </>
-                      )}
-                      <Lock className="w-4 h-4 text-gray-400 ml-auto" />
-                  </div>
-              </div>
-          )}
-
-            {/* --- SECCIÓN CANTIDAD (ESTILOS ACTUALIZADOS) --- */}
-          <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border border-gray-200 mt-6">
-              <label className="font-bold text-gray-700 text-sm uppercase">Cantidad:</label>
+          <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border mt-6">
+              <label className="font-bold text-gray-700 text-sm">CANTIDAD:</label>
               <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-10 h-10 rounded-full bg-white border border-gray-300 flex items-center justify-center font-bold text-gray-600 hover:bg-gray-100 shadow-sm transition-colors active:scale-95 text-lg">-</button>
-                  <span className="text-xl font-bold text-gray-800 w-12 text-center">{quantity}</span>
-                  <button type="button" onClick={() => setQuantity(quantity + 1)} className="w-10 h-10 rounded-full bg-white border border-gray-300 flex items-center justify-center font-bold text-emerald-600 hover:bg-emerald-50 shadow-sm transition-colors active:scale-95 text-lg">+</button>
+                  <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className="w-10 h-10 rounded-full bg-white border font-bold">-</button>
+                  <span className="text-xl font-bold w-12 text-center">{quantity}</span>
+                  <button type="button" onClick={() => setQuantity(quantity + 1)} className="w-10 h-10 rounded-full bg-white border font-bold">+</button>
               </div>
           </div>
 
           <div className="pt-2 border-t">
-              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg shadow-lg shadow-emerald-200">
-                  {storeConfig.isOpen ? (
-                      <span className="flex items-center justify-center gap-2">
-                          Añadir al Carrito <span className="bg-white/20 px-2 py-0.5 rounded text-sm">({totalPrice.toFixed(2)}€)</span>
-                      </span>
-                  ) : 'TIENDA CERRADA'}
+              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg">
+                  {storeConfig.isOpen ? `Añadir al Carrito (${totalPrice.toFixed(2)}€)` : 'TIENDA CERRADA'}
               </Button>
           </div>
         </form>

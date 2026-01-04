@@ -4113,7 +4113,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
   };
   
 
-// --- LÓGICA AVANZADA DE ESTADÍSTICAS ---
+// --- LÓGICA AVANZADA DE ESTADÍSTICAS (CORREGIDA) ---
   const statsData = useMemo(() => {
       // 1. Filtrar pedidos por temporada y club
       let filteredOrders = financialOrders;
@@ -4121,58 +4121,76 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
           filteredOrders = filteredOrders.filter(o => o.clubId === statsClubFilter);
       }
 
-      const categorySales = {}; // Ahora guardará { total, subCats: Set }
+      const categorySales = {}; 
       const productSales = {};  
       const monthlySales = {};  
       const paymentStats = {}; 
 
       filteredOrders.forEach(order => {
-          // A. Métodos de Pago
-          const pMethod = order.paymentMethod || 'card';
-          if (!paymentStats[pMethod]) paymentStats[pMethod] = { amount: 0, count: 0 };
-          paymentStats[pMethod].amount += order.total;
-          paymentStats[pMethod].count += 1;
+          // --- FILTRO DE SEGURIDAD: EXCLUIR ERRORES Y REPOSICIONES DE LAS ESTADÍSTICAS DE PRODUCTO ---
+          const isIncident = order.type === 'replacement' || order.paymentMethod === 'incident' || String(order.globalBatch).startsWith('ERR');
 
-          // B. Acumular por Mes
-          const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
-          const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
-          const sortKey = date.getFullYear() * 100 + date.getMonth();
-          
-          if (!monthlySales[monthKey]) monthlySales[monthKey] = { total: 0, sort: sortKey };
-          monthlySales[monthKey].total += order.total;
-
-          // C. Items del pedido
-          order.items.forEach(item => {
-              const qty = item.quantity || 1;
-              const subtotal = qty * item.price;
-
-              // --- Categoría Equipo ---
-              let teamCat = item.category || 'General';
-              // Normalizamos: "Alevin A" -> "Alevin"
-              const normalizedTeamCat = teamCat.trim().replace(/\s+[A-Z0-9]$/i, ''); 
+          // A. Métodos de Pago (SOLO VENTAS REALES)
+          if (!isIncident) {
+              let pMethod = order.paymentMethod || 'card';
               
-              if (!categorySales[normalizedTeamCat]) {
-                  // Usamos un Set para contar categorías únicas (ej: Alevin A Demo, Alevin B Demo, Alevin Atletico...)
-                  categorySales[normalizedTeamCat] = { total: 0, subCats: new Set() };
+              // AGRUPACIÓN SOLICITADA: Transferencia y Bizum juntos
+              if (pMethod === 'bizum' || pMethod === 'transfer') {
+                  pMethod = 'transfer_bizum'; 
               }
-              
-              categorySales[normalizedTeamCat].total += subtotal;
-              // Añadimos identificador único: Club + NombreCarpetaReal
-              categorySales[normalizedTeamCat].subCats.add(`${order.clubId}-${teamCat}`);
 
-              // --- Producto Individual ---
-              if (!productSales[item.name]) productSales[item.name] = { qty: 0, total: 0 };
-              productSales[item.name].qty += qty;
-              productSales[item.name].total += subtotal;
-          });
+              if (!paymentStats[pMethod]) paymentStats[pMethod] = { amount: 0, count: 0 };
+              paymentStats[pMethod].amount += order.total;
+              paymentStats[pMethod].count += 1;
+          }
+
+          // B. Acumular por Mes (SOLO VENTAS REALES)
+          if (!isIncident) {
+              const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
+              const monthKey = date.toLocaleString('es-ES', { month: 'short', year: '2-digit' });
+              const sortKey = date.getFullYear() * 100 + date.getMonth();
+              
+              if (!monthlySales[monthKey]) monthlySales[monthKey] = { total: 0, sort: sortKey };
+              monthlySales[monthKey].total += order.total;
+          }
+
+          // C. Items del pedido (PRODUCTOS Y CATEGORÍAS)
+          if (!isIncident) { // NO CONTABILIZAR PRODUCTOS SI ES REPOSICIÓN (Evita duplicados)
+              order.items.forEach(item => {
+                  const qty = item.quantity || 1;
+                  const subtotal = qty * item.price;
+
+                  // --- Categoría Equipo (CORRECCIÓN: FILTRAR GENERAL) ---
+                  let teamCat = item.category;
+                  // Si no tiene categoría o es 'General' o 'Servicios', NO lo mostramos en el gráfico de equipos
+                  if (teamCat && teamCat !== 'General' && teamCat !== 'Servicios') {
+                      const normCat = teamCat.trim().replace(/\s+[A-Z0-9]$/i, ''); 
+                      
+                      if (!categorySales[normCat]) {
+                          categorySales[normCat] = { total: 0, subCats: new Set() };
+                      }
+                      
+                      categorySales[normCat].total += subtotal;
+                      categorySales[normCat].subCats.add(`${order.clubId}-${teamCat}`);
+                  }
+
+                  // --- Producto Individual ---
+                  // Nos aseguramos de no contar variantes de error si se colaron
+                  if (!item.name.includes('[REP]')) {
+                      if (!productSales[item.name]) productSales[item.name] = { qty: 0, total: 0 };
+                      productSales[item.name].qty += qty;
+                      productSales[item.name].total += subtotal;
+                  }
+              });
+          }
       });
 
-      // Procesar Arrays
+      // Procesar Arrays para Gráficos
       const sortedCategories = Object.entries(categorySales)
           .map(([name, data]) => ({ 
               name, 
               value: data.total,
-              count: data.subCats.size // Cantidad de categorías reales
+              count: data.subCats.size 
           }))
           .sort((a, b) => b.value - a.value)
           .slice(0, 8);
@@ -4186,7 +4204,8 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
       const sortedPaymentMethods = Object.entries(paymentStats)
           .map(([name, data]) => ({ name, ...data }))
           .sort((a, b) => {
-              const priorities = { card: 1, cash: 2 };
+              // Orden personalizado: Tarjeta, Efectivo, Transferencia
+              const priorities = { card: 1, cash: 2, transfer_bizum: 3 };
               return (priorities[a.name] || 99) - (priorities[b.name] || 99);
           });
 
@@ -4194,38 +4213,51 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
           .map(([name, data]) => ({ name, value: data.total, sort: data.sort }))
           .sort((a, b) => a.sort - b.sort);
 
-      // Tabla Financiera (ACTUALIZADA con comisión individual)
+      // Tabla Financiera (CORREGIDA: LÓGICA DE NETO COMERCIAL Y EXCLUSIÓN DE ERRORES)
       const clubFinancials = clubs.map(club => {
-        const clubOrders = financialOrders.filter(o => o.clubId === club.id);
+        // 1. Filtramos pedidos VÁLIDOS para el reporte (Sin errores/reposiciones)
+        const clubOrders = financialOrders.filter(o => 
+            o.clubId === club.id && 
+            o.type !== 'replacement' && 
+            o.paymentMethod !== 'incident' &&
+            !String(o.globalBatch).startsWith('ERR') // Excluir lotes de errores enteros
+        );
+
         let grossSales = 0;
         let supplierCost = 0;
-        let gatewayCost = 0; // NUEVA VARIABLE ACUMULADORA
+        let gatewayCost = 0;
 
         clubOrders.forEach(order => {
             grossSales += order.total;
+            // Coste de productos del pedido
             const orderCost = order.items.reduce((sum, item) => sum + ((item.cost || 0) * (item.quantity || 1)), 0);
-            const incidentCost = order.incidents?.reduce((sum, inc) => sum + (inc.cost || 0), 0) || 0;
-            supplierCost += (orderCost + incidentCost);
+            supplierCost += orderCost;
 
-            // CÁLCULO GASTO PASARELA
-            // Si no tiene método definido, asumimos tarjeta ('card')
+            // Gasto Pasarela (Solo si es Tarjeta)
             if ((order.paymentMethod || 'card') === 'card') {
                 const fee = (order.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee;
                 gatewayCost += fee;
             }
         });
 
+        // 2. Comisión Club
         const currentClubCommission = club.commission !== undefined ? club.commission : 0.12;
         const commClub = grossSales * currentClubCommission;
-        const commCommercial = grossSales * financialConfig.commercialCommissionPct; 
+
+        // 3. Neto Comercial (CORREGIDO: Calculado sobre el Margen, no sobre el Bruto)
+        // Base = Ventas - Coste - Comisión Club - Pasarela
+        const commercialBase = grossSales - supplierCost - commClub - gatewayCost;
+        // Si la base es negativa, la comisión es 0
+        const commCommercial = commercialBase > 0 ? (commercialBase * financialConfig.commercialCommissionPct) : 0;
         
-        // RESTAR GASTO DE PASARELA AL NETO
+        // 4. Beneficio Neto Real
         const netIncome = grossSales - supplierCost - commClub - commCommercial - gatewayCost;
 
         return {
-            id: club.id, name: club.name, ordersCount: clubOrders.length,
+            id: club.id, name: club.name, 
+            ordersCount: clubOrders.length, // Ahora es el conteo SIN errores
             grossSales, supplierCost, commClub, commCommercial, 
-            gatewayCost, // RETORNAR ESTE VALOR
+            gatewayCost, 
             netIncome
         };
       }).sort((a, b) => b.grossSales - a.grossSales);
@@ -8112,7 +8144,7 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                       </div>
                   </div>
 
-                  {/* GRÁFICO MÉTODOS DE PAGO (CAJONES) */}
+                {/* GRÁFICO MÉTODOS DE PAGO (CAJONES) */}
                   <div className="bg-white p-6 rounded-xl shadow-sm border border-gray-100 flex flex-col">
                       <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2">
                           <CreditCard className="w-5 h-5 text-purple-600"/> Métodos de Pago
@@ -8132,13 +8164,15 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                                           method.name === 'card' ? 'text-blue-700' :
                                           method.name === 'cash' ? 'text-green-700' : 'text-gray-600'
                                       }`}>
+                                          {/* ETIQUETAS CORREGIDAS */}
                                           {method.name === 'card' ? 'Pago con Tarjeta' : 
                                            method.name === 'cash' ? 'Pago en Efectivo' : 
-                                           method.name === 'transfer' ? 'Transferencia' : 
-                                           method.name === 'invoice' ? 'Factura' : method.name}
+                                           method.name === 'transfer_bizum' ? 'Transferencia / Bizum' : // <--- NUEVA ETIQUETA
+                                           method.name}
                                       </span>
                                       {method.name === 'card' && <CreditCard className="w-8 h-8 text-blue-300"/>}
                                       {method.name === 'cash' && <Banknote className="w-8 h-8 text-green-300"/>}
+                                      {method.name === 'transfer_bizum' && <Landmark className="w-8 h-8 text-gray-300"/>}
                                   </div>
                                   <div className="flex items-baseline gap-3">
                                       <span className={`text-3xl font-black ${

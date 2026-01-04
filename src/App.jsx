@@ -507,7 +507,119 @@ const generateEmailHTML = (order, newStatus, clubName) => {
     `;
 };
 
+// --- NUEVO HELPER: PLANTILLA FACTURA / CONFIRMACIÓN ---
+const generateInvoiceEmailHTML = (order, clubName) => {
+    const LOGO_FULL_URL = "https://raw.githubusercontent.com/Rubenglzg/FotoEsportMerchWEB2/b740c87f99da10c1044474dbfdc8993c413347ff/public/logo.png"; 
+    const orderDate = new Date().toLocaleDateString();
 
+    return `
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <style>
+            body { font-family: 'Helvetica', Arial, sans-serif; color: #333; line-height: 1.6; }
+            .container { max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
+            .header { background: #000; padding: 20px; text-align: center; border-bottom: 4px solid #10b981; }
+            .content { padding: 30px; background: #fff; }
+            .invoice-box { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb; }
+            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
+            th { text-align: left; padding: 10px; background: #f3f4f6; color: #666; text-transform: uppercase; font-size: 11px; }
+            td { padding: 10px; border-bottom: 1px solid #eee; vertical-align: top; }
+            .total-row td { border-top: 2px solid #333; font-weight: bold; font-size: 16px; color: #10b981; }
+            .meta-info { font-size: 11px; color: #666; display: block; margin-top: 2px; }
+            .footer { text-align: center; padding: 20px; font-size: 11px; color: #999; background: #f9fafb; }
+        </style>
+    </head>
+    <body>
+        <div class="container">
+            <div class="header">
+                <img src="${LOGO_FULL_URL}" alt="FotoEsport" style="height: 160px;" />
+            </div>
+            <div class="content">
+                <h2 style="color: #111; margin-top: 0;">Confirmación de Pedido</h2>
+                <p>Hola <strong>${order.customer.name}</strong>,</p>
+                <p>Tu pedido para el club <strong>${clubName}</strong> ha sido registrado correctamente.</p>
+                
+                <div class="invoice-box">
+                    <p style="margin: 5px 0;"><strong>Referencia:</strong> #${order.id.slice(0,8)}</p>
+                    <p style="margin: 5px 0;"><strong>Fecha:</strong> ${orderDate}</p>
+                    <p style="margin: 5px 0;"><strong>Método de Pago:</strong> ${order.paymentMethod === 'cash' ? 'Efectivo (Validado)' : 'Tarjeta / Online'}</p>
+                </div>
+
+                <table>
+                    <thead>
+                        <tr>
+                            <th width="60%">Producto / Detalles</th>
+                            <th width="15%" style="text-align:center">Cant.</th>
+                            <th width="25%" style="text-align:right">Precio</th>
+                        </tr>
+                    </thead>
+                    <tbody>
+                        ${order.items.map(item => {
+                            // 1. Datos Jugador 1 (Raíz)
+                            const p1Name = item.playerName || item.name1;
+                            const p1Num = item.playerNumber || item.number1;
+
+                            // 2. Datos Jugador 2 (Dentro de details.player2 O en raíz)
+                            const p2Obj = item.details?.player2 || {};
+                            const p2Name = p2Obj.name || item.player2Name || item.name2;
+                            const p2Num = p2Obj.number || item.player2Number || item.number2;
+
+                            // 3. Datos Jugador 3 (Dentro de details.player3 O en raíz)
+                            const p3Obj = item.details?.player3 || {};
+                            const p3Name = p3Obj.name || item.player3Name || item.name3;
+                            const p3Num = p3Obj.number || item.player3Number || item.number3;
+
+                            return `
+                            <tr>
+                                <td>
+                                    <strong>${item.name}</strong>
+                                    ${item.category ? `<span class="meta-info">Categoría: ${item.category}</span>` : ''}
+
+                                    <div style="margin-top: 4px; font-size: 12px; color: #555;">
+                                        ${item.size ? `• Talla: <strong>${item.size}</strong><br>` : ''}
+                                        
+                                        ${p1Name ? `• Nombre: <strong>${p1Name}</strong><br>` : ''}
+                                        ${p1Num ? `• Número: <strong>${p1Num}</strong>` : ''}
+
+                                        ${(p2Name || p2Num) ? `
+                                            <div class="sub-player">
+                                                <strong>Jugador 2:</strong><br>
+                                                ${p2Name ? `• Nombre: <strong>${p2Name}</strong><br>` : ''}
+                                                ${p2Num ? `• Número: <strong>${p2Num}</strong>` : ''}
+                                            </div>
+                                        ` : ''}
+
+                                        ${(p3Name || p3Num) ? `
+                                            <div class="sub-player">
+                                                <strong>Jugador 3:</strong><br>
+                                                ${p3Name ? `• Nombre: <strong>${p3Name}</strong><br>` : ''}
+                                                ${p3Num ? `• Número: <strong>${p3Num}</strong>` : ''}
+                                            </div>
+                                        ` : ''}
+                                    </div>
+                                </td>
+                                <td style="text-align:center">${item.quantity || 1}</td>
+                                <td style="text-align:right">${item.price.toFixed(2)}€</td>
+                            </tr>
+                            `;
+                        }).join('')}
+                        <tr class="total-row">
+                            <td colspan="2" style="text-align:right">TOTAL</td>
+                            <td style="text-align:right">${order.total.toFixed(2)}€</td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+            <div class="footer">
+                <p>Gracias por confiar en FotoEsport Merch.</p>
+                <p>Recibirás un nuevo aviso cuando tu pedido esté listo o cambie de estado.</p>
+            </div>
+        </div>
+    </body>
+    </html>
+    `;
+};
 
 // --- COMPONENTES AUXILIARES Y VISTAS (Definidos ANTES de App) ---
 
@@ -8830,6 +8942,21 @@ export default function App() {
   const [storeConfig, setStoreConfig] = useState({ isOpen: true, closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." });
 
   useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } }; initAuth(); const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); return () => unsubscribe(); }, []);
+  
+  // --- NUEVO: Redirección automática tras éxito ---
+  useEffect(() => {
+    let timer;
+    if (view === 'success') {
+      // Esperar 5 segundos y volver al inicio (landing)
+      timer = setTimeout(() => {
+        setView('home'); 
+        // Opcional: Si quieres que vuelva a la tienda del club:
+        // setView('club-store'); 
+      }, 10000);
+    }
+    return () => clearTimeout(timer);
+  }, [view]);
+
   useEffect(() => { if (!user) return; const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); setOrders(ordersData); }, (err) => console.error("Error fetching orders:", err)); return () => unsubOrders(); }, [user]);
 
     // --- NUEVO: Cargar PROVEEDORES ---
@@ -8911,7 +9038,58 @@ export default function App() {
 
   const addToCart = (product, customization, finalPrice) => { if (!storeConfig.isOpen) { showNotification('La tienda está cerrada temporalmente.', 'error'); return; } setCart([...cart, { ...product, ...customization, price: finalPrice, cartId: Date.now() }]); showNotification('Producto añadido al carrito'); };
   const removeFromCart = (cartId) => { setCart(cart.filter(item => item.cartId !== cartId)); };
-  const createOrder = async (orderData) => { if (!user) return; const targetClub = clubs.find(c => c.id === orderData.clubId); const activeGlobalBatch = targetClub ? targetClub.activeGlobalOrderId : 1; try { await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { ...orderData, createdAt: serverTimestamp(), globalBatch: activeGlobalBatch, status: orderData.paymentMethod === 'cash' ? 'pendiente_validacion' : 'recopilando', visibleStatus: orderData.paymentMethod === 'cash' ? 'Pendiente pago en Club' : 'Recopilando Pedidos', type: 'standard', incidents: [] }); setCart([]); setView('order-success'); } catch (e) { showNotification('Error al crear el pedido', 'error'); } };
+  
+  // --- FUNCIÓN CREAR PEDIDO (ACTUALIZADA CON EMAIL FACTURA) ---
+  const createOrder = async (orderData) => {
+      try {
+          // 1. Determinar estado inicial
+          // Si es efectivo, nace como "pendiente_validacion"
+          // Si es tarjeta, nace como "recopilando"
+          const initialStatus = orderData.paymentMethod === 'cash' ? 'pendiente_validacion' : 'recopilando';
+          const visibleStatus = orderData.paymentMethod === 'cash' ? 'Pendiente Pago' : 'Recopilando';
+
+          // 2. Buscar lote activo del club
+          const club = clubs.find(c => c.id === orderData.clubId);
+          const activeBatch = club ? (club.activeGlobalOrderId || 1) : 1;
+
+          // 3. Crear documento en Firestore
+          const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
+              ...orderData,
+              status: initialStatus,
+              visibleStatus: visibleStatus,
+              createdAt: serverTimestamp(),
+              globalBatch: activeBatch,
+              manualSeasonId: seasons.length > 0 ? seasons[seasons.length - 1].id : 'default' // Asigna temporada actual
+          });
+
+          // 4. LÓGICA DE EMAIL DE FACTURA
+          // Si NO es efectivo (es tarjeta), enviamos factura YA.
+          if (orderData.paymentMethod !== 'cash') {
+              if (orderData.customer.email) {
+                  const mailRef = doc(collection(db, 'mail'));
+                  // Añadimos el ID generado al objeto para la plantilla
+                  const orderWithId = { ...orderData, id: docRef.id };
+                  
+                  await setDoc(mailRef, {
+                      to: [orderData.customer.email],
+                      message: {
+                          subject: `✅ Recibo de Pedido: ${orderData.clubName}`,
+                          html: generateInvoiceEmailHTML(orderWithId, orderData.clubName),
+                          text: `Tu pedido ha sido confirmado. Importe: ${orderData.total}€`
+                      }
+                  });
+              }
+          }
+
+          // 5. Limpiezas finales
+          setCart([]);
+          setView('success');
+          
+      } catch (error) {
+          console.error("Error creando pedido:", error);
+          alert("Hubo un error al procesar el pedido. Inténtalo de nuevo.");
+      }
+  };
   const createSpecialOrder = async (orderData) => { 
       try { 
           await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { 
@@ -8928,7 +9106,43 @@ export default function App() {
           showNotification('Error al crear pedido especial', 'error'); 
       } 
   };
-  const updateOrderStatus = async (orderId, newStatus, newVisibleStatus) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { status: newStatus, visibleStatus: newVisibleStatus || 'Actualizado' }); showNotification('Estado actualizado'); } catch (e) { showNotification('Error actualizando pedido', 'error'); } };
+
+  // --- FUNCIÓN ACTUALIZAR ESTADO (ACTUALIZADA CON EMAIL AL VALIDAR EFECTIVO) ---
+  const updateOrderStatus = async (orderId, newStatus, visibleStatus, orderData) => {
+      try {
+          const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId);
+          
+          // 1. Actualizar Estado
+          await updateDoc(orderRef, { 
+              status: newStatus, 
+              visibleStatus: visibleStatus 
+          });
+
+          // 2. LÓGICA ESPECIAL: VALIDACIÓN DE EFECTIVO
+          // Si el pedido era efectivo Y el nuevo estado es 'recopilando' (significa que el club lo ha validado)
+          if (orderData && orderData.paymentMethod === 'cash' && newStatus === 'recopilando') {
+              if (orderData.customer && orderData.customer.email) {
+                  const mailRef = doc(collection(db, 'mail'));
+                  await setDoc(mailRef, {
+                      to: [orderData.customer.email],
+                      message: {
+                          subject: `✅ Pago Recibido - Factura Pedido ${orderData.clubName || 'Club'}`,
+                          html: generateInvoiceEmailHTML(orderData, orderData.clubName || 'Tu Club'),
+                          text: `El club ha validado tu pago en efectivo. Tu pedido entra en fase de recopilación.`
+                      }
+                  });
+                  showNotification(`Pedido validado y factura enviada al cliente.`);
+                  return; // Salimos para no enviar doble notificación si hubiera
+              }
+          }
+
+          showNotification('Estado del pedido actualizado');
+      } catch (error) {
+          console.error("Error actualizando estado:", error);
+          showNotification('Error al actualizar el estado', 'error');
+      }
+  };
+
   const addIncident = async (orderId, incidentData) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents: arrayUnion(incidentData) }); showNotification('Incidencia/Reimpresión registrada'); } catch (e) { showNotification('Error registrando incidencia', 'error'); } };
   const updateIncidentStatus = async (orderId, incidents) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents }); showNotification('Estado de incidencia actualizado'); } catch(e) { showNotification('Error actualizando incidencia', 'error'); } };
   // --- ACTUALIZAR ESTADO DE LOTE GLOBAL (CON CONFIRMACIÓN DE CIERRE) ---
@@ -9247,6 +9461,41 @@ export default function App() {
           } 
       } 
   };
+
+  if (view === 'success') {
+    return (
+      <div className="min-h-screen bg-gray-50 flex flex-col items-center justify-center p-4 text-center">
+        <div className="bg-white p-8 rounded-2xl shadow-xl max-w-md w-full border border-green-100">
+          <div className="mx-auto flex items-center justify-center h-20 w-20 rounded-full bg-green-100 mb-6">
+            <Check className="h-10 w-10 text-green-600" />
+          </div>
+          
+          <h2 className="text-3xl font-bold text-gray-900 mb-4">¡Pedido Realizado!</h2>
+          
+          <p className="text-gray-600 mb-6">
+            Hemos recibido tu pedido correctamente.
+            <br/><br/>
+            <span className="font-semibold text-gray-800">Te acabamos de enviar un email con la factura y el recibo de tu compra.</span>
+          </p>
+          
+          <div className="w-full bg-gray-200 rounded-full h-1.5 mb-4 overflow-hidden">
+            <div className="bg-green-500 h-1.5 rounded-full animate-[pulse_1s_ease-in-out_infinite]" style={{width: '100%'}}></div>
+          </div>
+
+          <p className="text-sm text-gray-400">
+            Volviendo al inicio en unos segundos...
+          </p>
+
+          <button 
+            onClick={() => setView('landing')}
+            className="mt-6 text-green-600 font-medium hover:text-green-800 transition-colors"
+          >
+            Volver ahora
+          </button>
+        </div>
+      </div>
+    );
+  }
   
   return (
     <div className="min-h-screen bg-gray-50 font-sans text-gray-800">

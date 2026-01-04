@@ -146,9 +146,24 @@ const generateBatchExcel = (batchId, orders, clubName) => {
                     let extras = [];
                     if (item.details) {
                          if (item.details.variant) extras.push(`[${item.details.variant}]`);
-                         if (item.details.player2) extras.push(`J2: ${item.details.player2.name} #${item.details.player2.number}`);
-                         if (item.details.player3) extras.push(`J3: ${item.details.player3.name} #${item.details.player3.number}`);
+                         
+                         // JUGADOR 2
+                         if (item.details.player2) {
+                             let p2Str = `J2: ${item.details.player2.name} #${item.details.player2.number}`;
+                             if (item.details.player2.category) p2Str += ` (Cat: ${item.details.player2.category})`;
+                             extras.push(p2Str);
+                         }
+                         
+                         // JUGADOR 3
+                         if (item.details.player3) {
+                             let p3Str = `J3: ${item.details.player3.name} #${item.details.player3.number}`;
+                             if (item.details.player3.category) p3Str += ` (Cat: ${item.details.player3.category})`;
+                             extras.push(p3Str);
+                         }
                     }
+                    // Añadir también la categoría principal si existe
+                    if (item.category) extras.unshift(`Cat J1: ${item.category}`);
+
                     const extrasStr = extras.join(' | ');
 
                     const row = [
@@ -279,8 +294,21 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                             let extraInfo = '';
                             if (item.details) {
                                  const parts = [];
-                                 if (item.details.player2) parts.push(`J2: ${item.details.player2.name} #${item.details.player2.number}`);
-                                 if (item.details.player3) parts.push(`J3: ${item.details.player3.name} #${item.details.player3.number}`);
+                                 
+                                 // J2
+                                 if (item.details.player2) {
+                                     let txt = `J2: ${item.details.player2.name} #${item.details.player2.number}`;
+                                     if(item.details.player2.category) txt += ` [${item.details.player2.category}]`;
+                                     parts.push(txt);
+                                 }
+                                 
+                                 // J3
+                                 if (item.details.player3) {
+                                     let txt = `J3: ${item.details.player3.name} #${item.details.player3.number}`;
+                                     if(item.details.player3.category) txt += ` [${item.details.player3.category}]`;
+                                     parts.push(txt);
+                                 }
+                                 
                                  if (parts.length > 0) extraInfo = parts.join(' | ');
                             }
 
@@ -288,6 +316,7 @@ const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
                             <tr>
                                 <td style="padding-left: 20px;">
                                     ${item.name}
+                                    ${item.category ? `<br><span style="font-size:10px;color:#666;">Cat: ${item.category}</span>` : ''}
                                     ${item.details?.variant ? `<br><span style="font-size:10px;color:#059669;font-weight:bold;">[${item.details.variant}]</span>` : ''}
                                 </td>
                                 <td style="color: #555; font-size: 11px;">
@@ -5266,22 +5295,50 @@ const statsData = useMemo(() => {
       }
   };
 
-  const renderProductDetails = (item) => {
-      const details = [];
-      if(item.playerName && item.includeName) details.push(`Nombre: ${item.playerName}`);
-      if(item.playerNumber && item.includeNumber) details.push(`Dorsal: ${item.playerNumber}`);
-      if(item.color) details.push(`Color: ${item.color}`);
-      if(item.size) details.push(`Talla: ${item.size}`); // Me he asegurado de añadir Talla también
+ const renderProductDetails = (item) => {
+        const parts = [];
+        
+        // 1. Categoría Principal (Jugador 1)
+        if (item.category) parts.push(`Cat: ${item.category}`);
 
-      // LÓGICA DE DETALLES EXTRA (J2/J3)
-      if (item.details) {
-          if (item.details.player2) details.push(`(J2: ${item.details.player2.name} #${item.details.player2.number})`);
-          if (item.details.player3) details.push(`(J3: ${item.details.player3.name} #${item.details.player3.number})`);
-          if (item.details.variant) details.push(`[${item.details.variant}]`);
-      }
+        // Datos Jugador 1
+        if (item.playerName) parts.push(`Nombre: ${item.playerName}`);
+        if (item.playerNumber) parts.push(`Dorsal: ${item.playerNumber}`);
+        
+        // Color (Intentamos mostrar la etiqueta bonita si existe)
+        if (item.color) {
+            const colorLabel = AVAILABLE_COLORS.find(c => c.id === item.color)?.label || item.color;
+            if (item.color !== 'white') parts.push(`Color: ${colorLabel}`);
+        }
+        
+        if (item.size) parts.push(`Talla: ${item.size}`);
 
-      return details.join(', ');
-  };
+        // Datos Extra (J2, J3, Variante)
+        if (item.details) {
+            // Jugador 2
+            if (item.details.player2) {
+                let p2Txt = `J2: ${item.details.player2.name} #${item.details.player2.number}`;
+                // Añadir Categoría J2 si existe
+                if (item.details.player2.category) p2Txt += ` [Cat: ${item.details.player2.category}]`;
+                parts.push(`(${p2Txt})`);
+            }
+            
+            // Jugador 3
+            if (item.details.player3) {
+                let p3Txt = `J3: ${item.details.player3.name} #${item.details.player3.number}`;
+                // Añadir Categoría J3 si existe
+                if (item.details.player3.category) p3Txt += ` [Cat: ${item.details.player3.category}]`;
+                parts.push(`(${p3Txt})`);
+            }
+            
+            // Variante (Doble, Triple, etc.)
+            if (item.details.variant && item.details.variant !== 'Standard') {
+                parts.push(`[${item.details.variant}]`);
+            }
+        }
+
+        return parts.join(', ');
+    };
 
 // --- FUNCIÓN MODIFICADA: Ahora guarda FECHA y maneja el estado ---
   const toggleBatchPaymentStatus = (club, batchId, field) => {

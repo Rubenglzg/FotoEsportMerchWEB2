@@ -572,6 +572,27 @@ const Badge = ({ status }) => {
   return <span className={`px-2 py-1 rounded-full text-xs font-semibold ${styles[status] || 'bg-gray-100'}`}>{status.replace(/_/g, ' ').toUpperCase()}</span>;
 };
 
+// --- COMPONENTE AUXILIAR: INPUT CON GUARDADO AL SALIR (Para evitar cortes al escribir) ---
+const DelayedInput = ({ value, onSave, className, placeholder, type = "text" }) => {
+    const [localValue, setLocalValue] = useState(value || '');
+
+    // Sincronizar estado local si el valor externo cambia (ej. al cargar)
+    useEffect(() => {
+        setLocalValue(value || '');
+    }, [value]);
+
+    return (
+        <input 
+            type={type}
+            placeholder={placeholder}
+            className={className}
+            value={localValue}
+            onChange={(e) => setLocalValue(e.target.value)}
+            onBlur={() => onSave(localValue)} // Guarda solo al perder el foco (salir del input)
+        />
+    );
+};
+
 const StatCard = ({ title, value, color, highlight }) => (
     <div className={`bg-white p-4 md:p-6 rounded-xl shadow border-l-4 ${highlight ? 'ring-2 ring-emerald-500' : ''}`} style={{ borderLeftColor: color }}>
         <p className="text-gray-500 text-xs md:text-sm mb-1 uppercase tracking-wide font-bold">{title}</p>
@@ -4785,13 +4806,24 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
       return details.join(', ');
   };
 
+// --- FUNCIÓN MODIFICADA: Ahora guarda FECHA y maneja el estado ---
   const toggleBatchPaymentStatus = (club, batchId, field) => {
       const currentLog = club.accountingLog || {};
-      const batchLog = currentLog[batchId] || { supplierPaid: false, clubPaid: false, commercialPaid: false, fullCollection: false };
+      const batchLog = currentLog[batchId] || { 
+          supplierPaid: false, clubPaid: false, commercialPaid: false, cashCollected: false 
+      };
       
+      const currentValue = batchLog[field];
+      const newValue = !currentValue;
+      
+      // Definimos el nombre del campo de fecha (ej: supplierPaid -> supplierPaidDate)
+      const dateField = `${field}Date`;
+
       const newBatchLog = { 
           ...batchLog, 
-          [field]: !batchLog[field] 
+          [field]: newValue,
+          // Si se marca como pagado/cobrado, guardamos fecha ISO. Si se desmarca, null.
+          [dateField]: newValue ? new Date().toISOString() : null 
       };
 
       updateClub({
@@ -4800,6 +4832,25 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
               ...currentLog,
               [batchId]: newBatchLog
           }
+      });
+  };
+
+  // --- NUEVA FUNCIÓN: Pide confirmación antes de cambiar el estado ---
+  const handlePaymentChange = (club, batchId, field, currentStatus) => {
+      const fieldLabels = {
+          'cashCollected': 'Recogida de Efectivo',
+          'supplierPaid': 'Pago a Proveedor',
+          'commercialPaid': 'Pago a Comercial',
+          'clubPaid': 'Pago al Club'
+      };
+
+      const action = currentStatus ? 'marcar como PENDIENTE' : 'marcar como COMPLETADO';
+      const label = fieldLabels[field] || field;
+
+      setConfirmation({
+          title: "Confirmar Movimiento Contable",
+          msg: `Vas a ${action} el concepto:\n\n👉 ${label}\nClub: ${club.name}\nLote: #${batchId}\n\n¿Confirmar cambio?`,
+          onConfirm: () => toggleBatchPaymentStatus(club, batchId, field)
       });
   };
 
@@ -7578,80 +7629,177 @@ function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, upda
                                               </div>
                                           );
 
-                                          return (
-                                              <tr key={batch.id} className={`align-top hover:bg-gray-50 transition-colors`}>
-                                                  <td className="px-4 py-4">
-                                                      <div className="flex flex-col">
-                                                          <span className={`font-bold px-2 py-1 rounded w-fit ${isErrorBatch ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
-                                                              {isErrorBatch ? `Lote Errores #${batch.id.split('-')[1]}` : batch.id === 'INDIVIDUAL' ? 'Individual' : batch.id === 'SPECIAL' ? 'Especial' : `Lote #${batch.id}`}
-                                                          </span>
-                                                          {isCommissionExempt && <span className="text-[9px] font-bold text-orange-500 mt-1 uppercase">Sin Comisión</span>}
-                                                          <span className="text-[10px] text-gray-400 mt-1">{batch.orders.length} pedidos</span>
-                                                      </div>
-                                                  </td>
-                                                  
-                                                  <td className="px-4 py-4 text-right bg-blue-50/30">
-                                                      <div className="flex flex-col items-end">
-                                                          <span className="font-mono font-bold text-blue-700">{(revenueNonCash - totalFees).toFixed(2)}€</span>
-                                                          <span className="text-[9px] text-gray-400">Bruto: {revenueNonCash.toFixed(2)}€</span>
-                                                          {totalFees > 0 && <span className="text-[9px] text-red-400">(-{totalFees.toFixed(2)}€ fees)</span>}
-                                                      </div>
-                                                  </td>
-                                                  
-                                                  <td className="px-4 py-4 text-right bg-orange-50/30"><span className="font-mono font-bold text-orange-700">{revenueCash.toFixed(2)}€</span></td>
-                                                  
-                                                  <td className="px-4 py-4 bg-orange-50/30">
-                                                      {revenueCash > 0 ? (
-                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'cashCollected')} className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all mb-1 ${status.cashCollected ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}>
-                                                              {status.cashCollected ? 'RECOGIDO' : 'PENDIENTE'}
-                                                          </button>
-                                                      ) : <div className="text-center text-xs text-gray-300">-</div>}
-                                                      <AdjustmentInputs fieldOver="cashOver" fieldUnder="cashUnder" />
-                                                  </td>
+                                            return (
+                                                <tr key={batch.id} className={`align-top hover:bg-gray-50 transition-colors`}>
+                                                    
+                                                    {/* COLUMNA 0: INFO LOTE (Sin cambios) */}
+                                                    <td className="px-4 py-4">
+                                                        <div className="flex flex-col">
+                                                            <span className={`font-bold px-2 py-1 rounded w-fit ${isErrorBatch ? 'bg-red-100 text-red-800' : 'bg-gray-100 text-gray-800'}`}>
+                                                                {isErrorBatch ? `Lote Errores #${batch.id.split('-')[1]}` : batch.id === 'INDIVIDUAL' ? 'Individual' : batch.id === 'SPECIAL' ? 'Especial' : `Lote #${batch.id}`}
+                                                            </span>
+                                                            {isCommissionExempt && <span className="text-[9px] font-bold text-orange-500 mt-1 uppercase">Sin Comisión</span>}
+                                                            <span className="text-[10px] text-gray-400 mt-1">{batch.orders.length} pedidos</span>
+                                                        </div>
+                                                    </td>
+                                                    
+                                                    {/* BANCO Y EFECTIVO (Sin cambios) */}
+                                                    <td className="px-4 py-4 text-right bg-blue-50/30">
+                                                        <div className="flex flex-col items-end">
+                                                            <span className="font-mono font-bold text-blue-700">{(revenueNonCash - totalFees).toFixed(2)}€</span>
+                                                            <span className="text-[9px] text-gray-400">Bruto: {revenueNonCash.toFixed(2)}€</span>
+                                                            {totalFees > 0 && <span className="text-[9px] text-red-400">(-{totalFees.toFixed(2)}€ fees)</span>}
+                                                        </div>
+                                                    </td>
+                                                    <td className="px-4 py-4 text-right bg-orange-50/30"><span className="font-mono font-bold text-orange-700">{revenueCash.toFixed(2)}€</span></td>
+                                                    
+                                                    {/* --- COLUMNA 1: CONTROL CAJA --- */}
+                                                    <td className="px-4 py-4 bg-orange-50/30">
+                                                        {revenueCash > 0 ? (
+                                                            <div className="flex flex-col items-center">
+                                                                <button 
+                                                                    onClick={() => handlePaymentChange(club, batch.id, 'cashCollected', status.cashCollected)} 
+                                                                    className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all ${status.cashCollected ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}
+                                                                >
+                                                                    {status.cashCollected ? 'RECOGIDO' : 'PENDIENTE'}
+                                                                </button>
+                                                                {/* FECHA AUMENTADA */}
+                                                                {status.cashCollected && status.cashCollectedDate && (
+                                                                    <span className="text-[11px] text-emerald-600 mt-1 font-mono font-bold">
+                                                                        {new Date(status.cashCollectedDate).toLocaleDateString()}
+                                                                    </span>
+                                                                )}
+                                                            </div>
+                                                        ) : <div className="text-center text-xs text-gray-300">-</div>}
+                                                        
+                                                        {/* INPUTS DE AJUSTE (USANDO DELAYED INPUT) */}
+                                                        <div className="flex gap-2 mt-2">
+                                                            <div className="flex-1">
+                                                                <label className="text-[9px] text-gray-400 block mb-0.5">De más</label>
+                                                                <DelayedInput 
+                                                                    type="number" 
+                                                                    placeholder="0" 
+                                                                    className="w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300" 
+                                                                    value={status.cashOver} 
+                                                                    onSave={(val) => updateBatchValue(club, batch.id, 'cashOver', val)}
+                                                                />
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <label className="text-[9px] text-gray-400 block mb-0.5">De menos</label>
+                                                                <DelayedInput 
+                                                                    type="number" 
+                                                                    placeholder="0" 
+                                                                    className="w-full text-right text-xs border rounded px-1 py-0.5 bg-red-50 border-red-100 focus:border-red-300" 
+                                                                    value={status.cashUnder} 
+                                                                    onSave={(val) => updateBatchValue(club, batch.id, 'cashUnder', val)}
+                                                                />
+                                                            </div>
+                                                        </div>
+                                                    </td>
 
-                                                  <td className="px-4 py-4">
-                                                      <div className="flex justify-between items-center mb-1">
-                                                          <span className="text-xs text-red-500 font-bold">-{totalCost.toFixed(2)}€</span>
-                                                          <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'supplierPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                              {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                          </button>
-                                                      </div>
-                                                      <AdjustmentInputs fieldOver="supplierOver" fieldUnder="supplierUnder" />
-                                                  </td>
+                                                    {/* --- COLUMNA 2: PAGO PROVEEDOR --- */}
+                                                    <td className="px-4 py-4">
+                                                        <div className="flex flex-col mb-1">
+                                                            <div className="flex justify-between items-center mb-1">
+                                                                <span className="text-xs text-red-500 font-bold">-{totalCost.toFixed(2)}€</span>
+                                                                <button 
+                                                                    onClick={() => handlePaymentChange(club, batch.id, 'supplierPaid', status.supplierPaid)} 
+                                                                    className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                                                >
+                                                                    {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                </button>
+                                                            </div>
+                                                            {/* FECHA AUMENTADA */}
+                                                            {status.supplierPaid && status.supplierPaidDate && (
+                                                                <div className="text-right text-[11px] text-green-600 font-mono font-bold -mt-1 mb-1">
+                                                                    {new Date(status.supplierPaidDate).toLocaleDateString()}
+                                                                </div>
+                                                            )}
+                                                        </div>
+                                                        
+                                                        <div className="flex gap-2 mt-2">
+                                                            <div className="flex-1">
+                                                                <DelayedInput type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300" value={status.supplierOver} onSave={(val) => updateBatchValue(club, batch.id, 'supplierOver', val)}/>
+                                                            </div>
+                                                            <div className="flex-1">
+                                                                <DelayedInput type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-red-50 border-red-100 focus:border-red-300" value={status.supplierUnder} onSave={(val) => updateBatchValue(club, batch.id, 'supplierUnder', val)}/>
+                                                            </div>
+                                                        </div>
+                                                    </td>
 
-                                                  <td className="px-4 py-4">
-                                                      {isCommissionExempt ? <div className="text-center text-gray-300 text-xs">-</div> : (
-                                                          <>
-                                                              <div className="flex justify-between items-center mb-1">
-                                                                  <span className="text-xs text-blue-500 font-bold">+{commComm.toFixed(2)}€</span>
-                                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'commercialPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                                      {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                                  </button>
-                                                              </div>
-                                                              <AdjustmentInputs fieldOver="commercialOver" fieldUnder="commercialUnder" />
-                                                          </>
-                                                      )}
-                                                  </td>
+                                                    {/* --- COLUMNA 3: PAGO COMERCIAL --- */}
+                                                    <td className="px-4 py-4">
+                                                        {isCommissionExempt ? <div className="text-center text-gray-300 text-xs">-</div> : (
+                                                            <>
+                                                                <div className="flex flex-col mb-1">
+                                                                    <div className="flex justify-between items-center mb-1">
+                                                                        <span className="text-xs text-blue-500 font-bold">+{commComm.toFixed(2)}€</span>
+                                                                        <button 
+                                                                            onClick={() => handlePaymentChange(club, batch.id, 'commercialPaid', status.commercialPaid)} 
+                                                                            className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                                                        >
+                                                                            {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                        </button>
+                                                                    </div>
+                                                                    {/* FECHA AUMENTADA */}
+                                                                    {status.commercialPaid && status.commercialPaidDate && (
+                                                                        <div className="text-right text-[11px] text-green-600 font-mono font-bold -mt-1 mb-1">
+                                                                            {new Date(status.commercialPaidDate).toLocaleDateString()}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                
+                                                                <div className="flex gap-2 mt-2">
+                                                                    <div className="flex-1">
+                                                                        <DelayedInput type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300" value={status.commercialOver} onSave={(val) => updateBatchValue(club, batch.id, 'commercialOver', val)}/>
+                                                                    </div>
+                                                                    <div className="flex-1">
+                                                                        <DelayedInput type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-red-50 border-red-100 focus:border-red-300" value={status.commercialUnder} onSave={(val) => updateBatchValue(club, batch.id, 'commercialUnder', val)}/>
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </td>
 
-                                                  <td className="px-4 py-4">
-                                                      {isCommissionExempt ? <div className="text-center text-gray-300 text-xs">-</div> : (
-                                                          <>
-                                                              <div className="flex justify-between items-center mb-1">
-                                                                  <span className="text-xs text-purple-500 font-bold">-{commClub.toFixed(2)}€</span>
-                                                                  <button onClick={() => toggleBatchPaymentStatus(club, batch.id, 'clubPaid')} className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200'}`}>
-                                                                      {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                                  </button>
-                                                              </div>
-                                                              <AdjustmentInputs fieldOver="clubOver" fieldUnder="clubUnder" />
-                                                          </>
-                                                      )}
-                                                  </td>
+                                                    {/* --- COLUMNA 4: PAGO CLUB --- */}
+                                                    <td className="px-4 py-4">
+                                                        {isCommissionExempt ? <div className="text-center text-gray-300 text-xs">-</div> : (
+                                                            <>
+                                                                <div className="flex flex-col mb-1">
+                                                                    <div className="flex justify-between items-center mb-1">
+                                                                        <span className="text-xs text-purple-500 font-bold">-{commClub.toFixed(2)}€</span>
+                                                                        <button 
+                                                                            onClick={() => handlePaymentChange(club, batch.id, 'clubPaid', status.clubPaid)} 
+                                                                            className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                                                        >
+                                                                            {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                        </button>
+                                                                    </div>
+                                                                    {/* FECHA AUMENTADA */}
+                                                                    {status.clubPaid && status.clubPaidDate && (
+                                                                        <div className="text-right text-[11px] text-green-600 font-mono font-bold -mt-1 mb-1">
+                                                                            {new Date(status.clubPaidDate).toLocaleDateString()}
+                                                                        </div>
+                                                                    )}
+                                                                </div>
+                                                                
+                                                                <div className="flex gap-2 mt-2">
+                                                                    <div className="flex-1">
+                                                                        <DelayedInput type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-blue-50 border-blue-100 focus:border-blue-300" value={status.clubOver} onSave={(val) => updateBatchValue(club, batch.id, 'clubOver', val)}/>
+                                                                    </div>
+                                                                    <div className="flex-1">
+                                                                        <DelayedInput type="number" placeholder="0" className="w-full text-right text-xs border rounded px-1 py-0.5 bg-red-50 border-red-100 focus:border-red-300" value={status.clubUnder} onSave={(val) => updateBatchValue(club, batch.id, 'clubUnder', val)}/>
+                                                                    </div>
+                                                                </div>
+                                                            </>
+                                                        )}
+                                                    </td>
 
-                                                  <td className="px-4 py-4 text-right font-black text-emerald-600 bg-emerald-50/30 border-l border-emerald-100">
-                                                      {netProfit.toFixed(2)}€
-                                                  </td>
-                                              </tr>
-                                          );
+                                                    <td className="px-4 py-4 text-right font-black text-emerald-600 bg-emerald-50/30 border-l border-emerald-100">
+                                                        {netProfit.toFixed(2)}€
+                                                    </td>
+                                                </tr>
+                                            );
                                       })}
                                   </tbody>
                               </table>

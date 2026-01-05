@@ -1415,6 +1415,67 @@ const ProtectedWatermarkImage = ({ imageUrl, logoUrl, fileName }) => {
     );
 };
 
+// --- NUEVO: COMPONENTE DE DECORACIÓN DE CAMPAÑAS (POSICIONES CORREGIDAS) ---
+const CampaignDecorations = ({ config }) => {
+    if (!config?.active) return null;
+
+    // 1. NAVIDAD: Emojis flotantes y ambiente festivo
+    if (config.type === 'christmas') {
+        return (
+            <div className="fixed inset-0 pointer-events-none z-[5] overflow-hidden">
+                {/* Elementos decorativos en las esquinas (BAJADOS para no chocar con el header) */}
+                <div className="absolute top-44 left-5 text-6xl animate-bounce opacity-80 filter drop-shadow-lg">🎅</div>
+                <div className="absolute top-52 right-10 text-5xl animate-pulse opacity-90 filter drop-shadow-lg">🎄</div>
+                
+                <div className="absolute bottom-10 left-10 text-5xl animate-bounce" style={{ animationDuration: '3s' }}>🎁</div>
+                <div className="absolute bottom-20 right-5 text-6xl rotate-12 opacity-80">🦌</div>
+                
+                {/* Nieve sutil */}
+                <div className="absolute top-1/4 left-1/4 text-2xl opacity-20 animate-pulse">❄️</div>
+                <div className="absolute top-1/2 left-3/4 text-3xl opacity-20 animate-pulse" style={{ animationDelay: '1s' }}>❄️</div>
+            </div>
+        );
+    }
+
+    // 2. BLACK FRIDAY: Cinta roja cruzada y oscurecimiento
+    if (config.type === 'black_friday') {
+        return (
+            <div className="fixed inset-0 pointer-events-none z-[60] overflow-hidden">
+                {/* Cinta Roja (Esta se queda arriba porque tiene z-60 y debe tapar el menú) */}
+                <div className="absolute top-0 right-0 w-64 h-64 overflow-hidden">
+                    <div className="absolute top-[40px] right-[-60px] w-[280px] transform rotate-45 bg-red-600 text-white font-black py-2 text-center shadow-xl border-y-4 border-black tracking-widest text-sm z-50">
+                        BLACK FRIDAY
+                        <span className="block text-[10px] font-medium text-yellow-300">-{config.discount}% DTO</span>
+                    </div>
+                </div>
+                
+                {/* Etiqueta flotante inferior */}
+                <div className="absolute bottom-5 right-5 bg-black text-white px-4 py-2 rounded-lg font-bold border-2 border-red-600 shadow-2xl animate-bounce">
+                    💣 ¡OFERTA LÍMITE!
+                </div>
+            </div>
+        );
+    }
+
+    // 3. FIN DE TEMPORADA / VERANO
+    if (config.type === 'summer') {
+        return (
+            <div className="fixed inset-0 pointer-events-none z-[5] overflow-hidden">
+                {/* Sol (BAJADO para no chocar con el header) */}
+                <div className="absolute top-48 right-10 text-7xl opacity-90 animate-spin-slow" style={{ animationDuration: '10s' }}>☀️</div>
+                
+                <div className="absolute bottom-5 left-5 text-5xl animate-bounce">🏖️</div>
+                <div className="absolute bottom-20 right-20 text-4xl opacity-80">🍦</div>
+                <div className="absolute top-60 left-10 bg-orange-500 text-white text-xs font-black px-2 py-1 rounded rotate-[-10deg] shadow-lg">
+                    LIQUIDACIÓN
+                </div>
+            </div>
+        );
+    }
+
+    return null;
+};
+
 // --- NUEVO COMPONENTE HOME MEJORADO ---
 function HomeView({ setView }) {
   const [currentSlide, setCurrentSlide] = useState(0);
@@ -1600,7 +1661,7 @@ function HomeView({ setView }) {
 }
 
 // --- VISTA TIENDA MEJORADA (UX/UI PREMIUM) - IMÁGENES COMPLETAS ---
-function ShopView({ products, addToCart, clubs, modificationFee, storeConfig, setConfirmation }) {
+function ShopView({ products, addToCart, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig }) {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todas');
@@ -1717,11 +1778,27 @@ function ShopView({ products, addToCart, clubs, modificationFee, storeConfig, se
 
                     {/* Footer Tarjeta */}
                     <div className="flex items-center justify-between pt-4 border-t border-gray-50 mt-auto">
-                      <div className="flex flex-col justify-center">
-                        <span className="text-2xl font-black text-gray-900">
-                          {product.price.toFixed(2)}<span className="text-sm align-top">€</span>
-                        </span>
-                      </div>
+                    {/* --- INICIO LÓGICA PRECIO CAMPAÑA --- */}
+                    {(() => {
+                        // Calculamos precio
+                        const isPack = product.category === 'Packs' || product.category === 'Ofertas';
+                        const hasDiscount = campaignConfig?.active && campaignConfig?.discount > 0 && !isPack;
+                        const finalPrice = hasDiscount ? product.price * (1 - campaignConfig.discount / 100) : product.price;
+
+                        return (
+                            <div className="flex flex-col justify-center">
+                                {hasDiscount && (
+                                    <span className="text-xs text-red-400 line-through font-bold">
+                                        {product.price.toFixed(2)}€
+                                    </span>
+                                )}
+                                <span className={`text-2xl font-black ${hasDiscount ? 'text-red-600' : 'text-gray-900'}`}>
+                                    {finalPrice.toFixed(2)}<span className="text-sm align-top">€</span>
+                                </span>
+                            </div>
+                        );
+                    })()}
+                    {/* --- FIN LÓGICA --- */}
                       
                       <button className="bg-emerald-50 text-emerald-700 p-2.5 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors shadow-sm">
                         <ShoppingBag className="w-5 h-5" />
@@ -4382,7 +4459,7 @@ const SupplierStockModal = ({ active, onClose, batchId, orders, suppliers, produ
     );
 };
 
-function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch}) {
+function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch, campaignConfig, setCampaignConfig,}) {
   const [tab, setTab] = useState('management');
   const [showNewClubPass, setShowNewClubPass] = useState(false);
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
@@ -6777,6 +6854,72 @@ const handleExportSeasonExcel = async (seasonId) => {
 {/* --- PESTAÑA DE GESTIÓN (ADMIN DASHBOARD) --- */}
 {tab === 'management' && (
     <div className="space-y-8 animate-fade-in">
+
+        {/* --- NUEVO: PANEL DE CAMPAÑAS --- */}
+        <div className="md:col-span-2 bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-xl border border-purple-100 shadow-sm mb-6">
+            <h3 className="font-bold text-lg text-purple-800 flex items-center gap-2 mb-4">
+                <Award className="w-5 h-5"/> Campañas y Ofertas
+            </h3>
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
+                <div>
+                    <label className="text-xs font-bold text-purple-600 uppercase block mb-1">Tipo Campaña</label>
+                    <select 
+                        className="w-full border rounded-lg p-2 text-sm"
+                        value={campaignConfig?.type || 'none'}
+                        onChange={async (e) => {
+                            const newConfig = { ...campaignConfig, type: e.target.value };
+                            await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
+                        }}
+                    >
+                        <option value="none">Sin Campaña</option>
+                        <option value="christmas">Navidad 🎄</option>
+                        <option value="black_friday">Black Friday 🖤</option>
+                        <option value="summer">Fin de Temporada ☀️</option>
+                    </select>
+                </div>
+                <div>
+                    <label className="text-xs font-bold text-purple-600 uppercase block mb-1">% Descuento Global</label>
+                    <input 
+                        type="number" 
+                        className="w-full border rounded-lg p-2 text-sm"
+                        placeholder="0"
+                        value={campaignConfig?.discount || 0}
+                        onChange={async (e) => {
+                            const newConfig = { ...campaignConfig, discount: parseInt(e.target.value) || 0 };
+                            await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
+                        }}
+                    />
+                </div>
+                <div className="md:col-span-2">
+                    <label className="text-xs font-bold text-purple-600 uppercase block mb-1">Mensaje Banner</label>
+                    <div className="flex gap-2">
+                        <input 
+                            className="w-full border rounded-lg p-2 text-sm"
+                            placeholder="Ej: ¡Solo hoy! Precios locos."
+                            value={campaignConfig?.bannerMessage || ''}
+                            onChange={(e) => setCampaignConfig({ ...campaignConfig, bannerMessage: e.target.value })} 
+                        />
+                        <Button size="sm" onClick={async () => {
+                            await setDoc(doc(db, 'settings', 'campaigns'), campaignConfig);
+                            showNotification('Campaña guardada');
+                        }}>Guardar</Button>
+                    </div>
+                </div>
+            </div>
+            <div className="mt-2 flex items-center gap-2">
+                <input 
+                    type="checkbox" 
+                    id="campActive"
+                    className="accent-purple-600"
+                    checked={campaignConfig?.active || false}
+                    onChange={async (e) => {
+                        const newConfig = { ...campaignConfig, active: e.target.checked };
+                        await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
+                    }}
+                />
+                <label htmlFor="campActive" className="text-sm font-bold text-purple-700 cursor-pointer">Activar Campaña en la Web</label>
+            </div>
+        </div>
         
         {/* 1. FILA SUPERIOR: CONFIGURACIONES GLOBALES */}
         <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -10224,6 +10367,24 @@ export default function App() {
 
   const [storeConfig, setStoreConfig] = useState({ isOpen: true, closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." });
 
+    // --- NUEVO: ESTADO PARA CAMPAÑAS ---
+    const [campaignConfig, setCampaignConfig] = useState({ 
+        active: false, 
+        type: 'none', // 'christmas', 'black_friday', 'summer'
+        discount: 0, 
+        bannerMessage: '' 
+    });
+
+    // Cargar configuración de campaña al iniciar
+    useEffect(() => {
+        const unsub = onSnapshot(doc(db, 'settings', 'campaigns'), (docSnap) => {
+            if (docSnap.exists()) {
+                setCampaignConfig(docSnap.data());
+            }
+        });
+        return () => unsub();
+    }, []);
+
   useEffect(() => { const initAuth = async () => { if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { await signInWithCustomToken(auth, __initial_auth_token); } else { await signInAnonymously(auth); } }; initAuth(); const unsubscribe = onAuthStateChanged(auth, (u) => setUser(u)); return () => unsubscribe(); }, []);
   
 // Detectar si venimos desde un email con ID de ticket
@@ -10240,6 +10401,13 @@ export default function App() {
        // El usuario verá el formulario, pondrá su email y le saldrá el ticket directo.
     }
   }, []);
+
+    const getThemeClass = () => {
+        if (!campaignConfig?.active) return 'bg-gray-50';
+        if (campaignConfig.type === 'black_friday') return 'bg-slate-900 text-slate-100'; 
+        if (campaignConfig.type === 'christmas') return 'bg-red-50';
+        return 'bg-gray-50';
+    };
 
   // --- NUEVO: Redirección automática tras éxito ---
   useEffect(() => {
@@ -10796,7 +10964,48 @@ export default function App() {
   }
   
   return (
-    <div className="min-h-screen bg-gray-50 font-sans text-gray-800">
+    <div className={`min-h-screen font-sans text-gray-800 transition-colors duration-500 ${getThemeClass()}`}>
+        <CampaignDecorations config={campaignConfig} />
+        {/* --- BANNER DE CAMPAÑA PRO --- */}
+      {campaignConfig?.active && campaignConfig?.bannerMessage && (
+        <div 
+            className={`
+                w-full py-3 px-4 text-center font-bold text-sm sticky z-[70] shadow-lg backdrop-blur-md
+                flex justify-center items-center gap-3 overflow-hidden
+                transition-all duration-500 ease-in-out border-b
+                
+                /* Estilos por tipo de campaña */
+                ${campaignConfig.type === 'black_friday' 
+                    ? 'bg-gradient-to-r from-gray-900 via-black to-gray-900 text-yellow-400 border-yellow-900/50' 
+                    : ''}
+                ${campaignConfig.type === 'christmas' 
+                    ? 'bg-gradient-to-r from-red-800 via-red-600 to-red-800 text-white border-red-900 shadow-red-900/20' 
+                    : ''}
+                ${campaignConfig.type === 'summer' 
+                    ? 'bg-gradient-to-r from-orange-500 via-amber-500 to-yellow-500 text-white border-orange-400' 
+                    : ''}
+                ${campaignConfig.type === 'none' || !campaignConfig.type
+                    ? 'bg-gradient-to-r from-emerald-700 to-teal-600 text-white border-emerald-800' 
+                    : ''}
+            `} 
+            style={{top: !storeConfig.isOpen ? '48px' : '0'}}
+        >
+            {/* Decoración izquierda */}
+            {campaignConfig.type === 'christmas' && <span className="text-lg animate-bounce">🎄</span>}
+            {campaignConfig.type === 'black_friday' && <span className="text-lg animate-pulse">🖤</span>}
+            {campaignConfig.type === 'summer' && <span className="text-lg animate-spin-slow">☀️</span>}
+
+            {/* Mensaje central */}
+            <span className="tracking-wide drop-shadow-md uppercase text-xs md:text-sm">
+                {campaignConfig.bannerMessage}
+            </span>
+
+            {/* Decoración derecha */}
+            {campaignConfig.type === 'christmas' && <span className="text-lg animate-bounce" style={{animationDelay: '0.1s'}}>🎄</span>}
+            {campaignConfig.type === 'black_friday' && <span className="text-[10px] bg-yellow-400 text-black px-2 py-0.5 rounded font-black transform -rotate-3 shadow-sm">OFICIAL</span>}
+            {campaignConfig.type === 'summer' && <span className="text-lg">🏖️</span>}
+        </div>
+      )}
       {!storeConfig.isOpen && <div className="bg-red-600 text-white p-3 text-center font-bold sticky top-0 z-[60] shadow-md flex items-center justify-center gap-2"><Ban className="w-5 h-5"/>{storeConfig.closedMessage}</div>}
       <header className="sticky top-0 z-50 bg-white shadow-sm border-b border-gray-200" style={{top: !storeConfig.isOpen ? '48px' : '0'}}>
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -10838,7 +11047,7 @@ export default function App() {
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 min-h-[calc(100vh-200px)]">
         {notification && <div className={`fixed top-20 right-4 z-50 px-6 py-4 rounded-xl shadow-2xl text-white flex items-center gap-3 ${notification.type === 'error' ? 'bg-red-500' : 'bg-gray-800'} transition-all animate-fade-in-down`}>{notification.type === 'success' && <Check className="w-5 h-5 text-emerald-400" />}{notification.type === 'error' && <AlertCircle className="w-5 h-5 text-white" />}<span className="font-medium">{notification.msg}</span></div>}
         {view === 'home' && <HomeView setView={setView} />}
-        {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={financialConfig.modificationFee} storeConfig={storeConfig} setConfirmation={setConfirmation} />}
+        {view === 'shop' && <ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={financialConfig.modificationFee} storeConfig={storeConfig} setConfirmation={setConfirmation} campaignConfig={campaignConfig}/>}
         {view === 'cart' && <CartView 
             cart={cart} 
             removeFromCart={removeFromCart} 
@@ -10855,7 +11064,7 @@ export default function App() {
         {view === 'right-to-forget' && <RightToForgetView setView={setView} />}
         {view === 'incident-report' && <IncidentReportView setView={setView} db={db} storage={storage} />}
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
-        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} incrementClubErrorBatch={incrementClubErrorBatch} /> }
+        {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} incrementClubErrorBatch={incrementClubErrorBatch} campaignConfig={campaignConfig} setCampaignConfig={setCampaignConfig} /> }
         {view === 'privacy' && <PrivacyPolicyView setView={setView} />}
         {view === 'legal' && <LegalNoticeView setView={setView} />}
 

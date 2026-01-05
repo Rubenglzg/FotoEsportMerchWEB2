@@ -10020,6 +10020,185 @@ function OrderSuccessView({ setView }) {
     );
 }
 
+// --- COMPONENTES NUEVOS PARA EL FOOTER ---
+
+function PrivacyPolicyView({ setView }) {
+  return (
+    <div className="max-w-4xl mx-auto py-12 px-6 animate-fade-in">
+      <button onClick={() => setView('home')} className="mb-6 flex items-center gap-2 text-gray-500 hover:text-emerald-600 transition-colors font-medium">
+        <ChevronLeft className="w-4 h-4" /> Volver al Inicio
+      </button>
+      
+      <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+        <h1 className="text-3xl font-black text-gray-900 mb-8 border-b pb-4">Política de Privacidad</h1>
+        
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">1. Responsable del Tratamiento</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            El responsable del tratamiento de sus datos personales es <strong>FOTOESPORT MERCH</strong> (en adelante, "el Prestador"), comprometido con la protección de la privacidad y el uso correcto de los datos personales.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">2. Finalidad del Tratamiento</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            Sus datos personales serán tratados con las siguientes finalidades:
+          </p>
+          <ul className="list-disc pl-5 mt-2 text-gray-600 text-sm space-y-1">
+            <li>Gestión de pedidos y compras realizadas en la plataforma.</li>
+            <li>Atención de consultas, incidencias y solicitudes de soporte.</li>
+            <li>Envío de comunicaciones relacionadas con el estado de sus pedidos.</li>
+            <li>Cumplimiento de obligaciones legales y fiscales.</li>
+          </ul>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">3. Legitimación</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            La base legal para el tratamiento de sus datos es la ejecución del contrato de compraventa al realizar un pedido y el consentimiento expreso del usuario al contactar o registrarse.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">4. Destinatarios de los datos</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            Sus datos no serán cedidos a terceros salvo obligación legal o cuando sea necesario para la prestación del servicio (ej. proveedores de logística o su propio Club deportivo para la entrega).
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">5. Derechos del Usuario</h2>
+          <p className="text-gray-600 text-sm leading-relaxed mb-2">
+            Puede ejercer sus derechos de acceso, rectificación, supresión, limitación y oposición enviando una solicitud a través de nuestro formulario de contacto o al email de soporte.
+          </p>
+          <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
+            <p className="text-xs text-blue-800">
+              <strong>Derecho al Olvido (RGPD):</strong> Disponemos de una herramienta específica para solicitar el borrado de sus imágenes y datos. <button onClick={() => setView('right-to-forget')} className="underline font-bold hover:text-blue-600">Acceder aquí</button>.
+            </p>
+          </div>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function LegalNoticeView({ setView }) {
+  return (
+    <div className="max-w-4xl mx-auto py-12 px-6 animate-fade-in">
+      <button onClick={() => setView('home')} className="mb-6 flex items-center gap-2 text-gray-500 hover:text-emerald-600 transition-colors font-medium">
+        <ChevronLeft className="w-4 h-4" /> Volver al Inicio
+      </button>
+
+      <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 space-y-6">
+        <h1 className="text-3xl font-black text-gray-900 mb-8 border-b pb-4">Aviso Legal</h1>
+        
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">1. Datos Identificativos</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            En cumplimiento con el deber de información recogido en la Ley 34/2002, de Servicios de la Sociedad de la Información y del Comercio Electrónico (LSSI), se informa que el titular de este sitio web es <strong>FOTOESPORT MERCH</strong>.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">2. Usuarios</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            El acceso y/o uso de este portal atribuye la condición de USUARIO, que acepta, desde dicho acceso y/o uso, las Condiciones Generales de Uso aquí reflejadas.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">3. Uso del Portal</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            El sitio web proporciona el acceso a multitud de informaciones, servicios, programas o datos (en adelante, "los contenidos") en Internet pertenecientes a FOTOESPORT MERCH o a sus licenciantes. El USUARIO asume la responsabilidad del uso del portal y se compromete a hacer un uso adecuado de los contenidos.
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">4. Propiedad Intelectual e Industrial</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            FOTOESPORT MERCH es titular de todos los derechos de propiedad intelectual e industrial de su página web, así como de los elementos contenidos en la misma (imágenes, sonido, audio, vídeo, software o textos; marcas o logotipos, combinaciones de colores, estructura y diseño, etc.). <strong>Queda expresamente prohibida la reproducción, distribución y comunicación pública de las imágenes sin autorización.</strong>
+          </p>
+        </section>
+
+        <section>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">5. Exclusión de Garantías y Responsabilidad</h2>
+          <p className="text-gray-600 text-sm leading-relaxed">
+            FOTOESPORT MERCH no se hace responsable, en ningún caso, de los daños y perjuicios de cualquier naturaleza que pudieran ocasionar, a título enunciativo: errores u omisiones en los contenidos, falta de disponibilidad del portal o la transmisión de virus o programas maliciosos o lesivos en los contenidos, a pesar de haber adoptado todas las medidas tecnológicas necesarias para evitarlo.
+          </p>
+        </section>
+      </div>
+    </div>
+  );
+}
+
+function Footer({ setView }) {
+  const currentYear = new Date().getFullYear();
+  
+  return (
+    <footer className="bg-white border-t border-gray-200 mt-auto">
+      <div className="max-w-7xl mx-auto py-12 px-4 sm:px-6 lg:px-8">
+        <div className="grid grid-cols-1 md:grid-cols-4 gap-8 mb-8">
+          {/* Columna 1: Marca */}
+          <div className="col-span-1 md:col-span-1">
+            <div className="flex items-center gap-2 mb-4">
+               {/* Usamos un logo simple o el componente CompanyLogo si está disponible en el scope */}
+               <div className="font-black text-xl tracking-tighter text-gray-900">
+                  FOTOESPORT<span className="text-emerald-600">MERCH</span>
+               </div>
+            </div>
+            <p className="text-gray-500 text-sm leading-relaxed">
+              Capturando la pasión del deporte. Tienda oficial de merchandising personalizado para clubes y eventos deportivos.
+            </p>
+          </div>
+
+          {/* Columna 2: Enlaces Rápidos */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-900 tracking-wider uppercase mb-4">Tienda</h3>
+            <ul className="space-y-2">
+              <li><button onClick={() => setView('home')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Inicio</button></li>
+              <li><button onClick={() => setView('shop')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Catálogo</button></li>
+              <li><button onClick={() => setView('photo-search')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Buscar Fotos</button></li>
+              <li><button onClick={() => setView('tracking')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Seguimiento</button></li>
+            </ul>
+          </div>
+
+          {/* Columna 3: Soporte */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-900 tracking-wider uppercase mb-4">Ayuda</h3>
+            <ul className="space-y-2">
+              <li><button onClick={() => setView('incident-report')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Reportar Incidencia</button></li>
+              <li><button onClick={() => setView('right-to-forget')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Derecho al Olvido</button></li>
+              <li><button onClick={() => setView('login')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Acceso Clubes</button></li>
+            </ul>
+          </div>
+
+          {/* Columna 4: Legal */}
+          <div>
+            <h3 className="text-sm font-bold text-gray-900 tracking-wider uppercase mb-4">Legal</h3>
+            <ul className="space-y-2">
+              <li><button onClick={() => setView('privacy')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Política de Privacidad</button></li>
+              <li><button onClick={() => setView('legal')} className="text-gray-500 hover:text-emerald-600 text-sm transition-colors">Aviso Legal</button></li>
+            </ul>
+          </div>
+        </div>
+        
+        <div className="border-t border-gray-100 pt-8 flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-sm text-gray-400">
+            &copy; {currentYear} FotoEsport Merch. Todos los derechos reservados.
+          </p>
+          <div className="flex gap-4">
+            {/* Iconos sociales de ejemplo */}
+            <div className="flex gap-4 text-gray-400">
+                <Globe className="w-5 h-5 hover:text-gray-600 cursor-pointer"/>
+                <Mail className="w-5 h-5 hover:text-gray-600 cursor-pointer"/>
+            </div>
+          </div>
+        </div>
+      </div>
+    </footer>
+  );
+}
+
 export default function App() {
   const [user, setUser] = useState(null); 
   const [view, setView] = useState('home'); 
@@ -10677,46 +10856,58 @@ export default function App() {
         {view === 'incident-report' && <IncidentReportView setView={setView} db={db} storage={storage} />}
         {view === 'club-dashboard' && role === 'club' && <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} />}
         {view === 'admin-dashboard' && role === 'admin' && <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} incrementClubErrorBatch={incrementClubErrorBatch} /> }
+        {view === 'privacy' && <PrivacyPolicyView setView={setView} />}
+        {view === 'legal' && <LegalNoticeView setView={setView} />}
+
       </main>
         <footer className="bg-gray-900 text-white py-12 mt-auto">
         <div className="max-w-7xl mx-auto px-4 grid grid-cols-1 md:grid-cols-3 gap-8">
             
             {/* Columna 1: Logo y Descripción */}
             <div>
-            <div className="mb-4 text-white">
+                <div className="mb-4 text-white">
                 <CompanyLogo className="h-40" />
-            </div>
-            <p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p>
+                </div>
+                <p className="text-gray-400">Merchandising personalizado para clubes deportivos. Calidad profesional y gestión integral.</p>
             </div>
 
-            {/* Columna 2: Legal */}
+            {/* Columna 2: Legal (MODIFICADA) */}
             <div>
-            <h3 className="text-lg font-semibold mb-4">Legal</h3>
-            <ul className="space-y-2 text-gray-400 cursor-pointer">
-                <li>Política de Privacidad</li>
-                <li>Aviso Legal</li>
-                <li 
-                onClick={() => setView('right-to-forget')} 
-                className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2"
+                <h3 className="text-lg font-semibold mb-4">Legal</h3>
+                <ul className="space-y-2 text-gray-400">
+                    <li 
+                    onClick={() => setView('privacy')}
+                    className="hover:text-emerald-400 cursor-pointer transition-colors"
+                    >
+                    Política de Privacidad
+                    </li>
+                    <li 
+                    onClick={() => setView('legal')}
+                    className="hover:text-emerald-400 cursor-pointer transition-colors"
+                    >
+                    Aviso Legal
+                    </li>
+                    <li 
+                    onClick={() => setView('right-to-forget')} 
+                    className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2 cursor-pointer transition-colors"
+                    >
+                    <UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)
+                    </li>
+                </ul>
+            </div>
+
+            {/* Columna 3: Contacto y Soporte */}
+            <div>
+                <h3 className="text-lg font-semibold mb-4">Contacto y Soporte</h3>
+                <p className="text-gray-400 mb-6">info@fotoesportmerch.es</p>
+                
+                <button 
+                    onClick={() => setView('incident-report')} 
+                    className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm font-semibold border border-gray-700 hover:border-gray-500 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700"
                 >
-                <UserX className="w-4 h-4"/> Derecho al Olvido (RGPD)
-                </li>
-            </ul>
-            </div>
-
-            {/* Columna 3: Contacto y Soporte (Aquí va el botón) */}
-            <div>
-            <h3 className="text-lg font-semibold mb-4">Contacto y Soporte</h3>
-            <p className="text-gray-400 mb-6">info@fotoesportmerch.es</p>
-            
-            {/* --- BOTÓN DE INCIDENCIAS AÑADIDO AQUÍ --- */}
-            <button 
-                onClick={() => setView('incident-report')} 
-                className="flex items-center gap-2 text-gray-400 hover:text-white transition-colors text-sm font-semibold border border-gray-700 hover:border-gray-500 px-4 py-2 rounded-lg bg-gray-800 hover:bg-gray-700"
-            >
-                <AlertTriangle className="w-4 h-4 text-red-500" />
-                Reportar Incidencia
-            </button>
+                    <AlertTriangle className="w-4 h-4 text-red-500" />
+                    Reportar Incidencia
+                </button>
             </div>
 
         </div>

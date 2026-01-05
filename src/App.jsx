@@ -10,7 +10,7 @@ import {
   Layers, Archive, Globe, AlertTriangle, RefreshCw, Briefcase, RotateCcw, MoveLeft, NotebookText,
   Landmark, Printer, FileDown, Users, Table,
   Hash, Factory, MapPin, Contact, Phone,
-  Camera, Star, Award
+  Camera, Star, Award, ShoppingBag 
 } from 'lucide-react';
 import { initializeApp } from 'firebase/app';
 import { 
@@ -1599,32 +1599,170 @@ function HomeView({ setView }) {
   );
 }
 
+// --- VISTA TIENDA MEJORADA (UX/UI PREMIUM) - IMÁGENES COMPLETAS ---
 function ShopView({ products, addToCart, clubs, modificationFee, storeConfig, setConfirmation }) {
   const [selectedProduct, setSelectedProduct] = useState(null);
-  return (
-    <div>
-      <h2 className="text-3xl font-bold mb-6">Tienda Oficial</h2>
-      {!selectedProduct ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-6">
-          {products.map(product => (
-            <div key={product.id} className="bg-white rounded-xl shadow-sm border border-gray-100 overflow-hidden hover:shadow-md transition-shadow cursor-pointer group" onClick={() => setSelectedProduct(product)}>
-              <div className="h-48 overflow-hidden bg-gray-100 relative"><img src={product.image} alt={product.name} className="w-full h-full object-cover group-hover:scale-110 transition-transform duration-500" /></div>
-              <div className="p-4"><h3 className="font-bold text-lg">{product.name}</h3><div className="flex justify-between items-center mt-4"><span className="text-xl font-bold">{product.price.toFixed(2)}€</span></div></div>
-            </div>
-          ))}
-        </div>
-      ) : (
+  const [searchTerm, setSearchTerm] = useState('');
+  const [selectedCategory, setSelectedCategory] = useState('Todas');
 
-        // Pasar setConfirmation al ProductCustomizer
-        <ProductCustomizer 
-            product={selectedProduct} 
-            onBack={() => setSelectedProduct(null)} 
-            onAdd={addToCart} 
-            clubs={clubs} 
-            modificationFee={modificationFee} 
-            storeConfig={storeConfig} 
-            setConfirmation={setConfirmation} 
-        />
+  // 1. Obtener categorías únicas dinámicamente
+  const categories = useMemo(() => {
+    const cats = products.map(p => p.category || 'General');
+    return ['Todas', ...new Set(cats)].sort();
+  }, [products]);
+
+  // 2. Filtrado de productos
+  const filteredProducts = useMemo(() => {
+    return products.filter(p => {
+      const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
+      const matchesCategory = selectedCategory === 'Todas' || (p.category || 'General') === selectedCategory;
+      return matchesSearch && matchesCategory;
+    });
+  }, [products, searchTerm, selectedCategory]);
+
+  return (
+    <div className="animate-fade-in min-h-screen pb-12">
+      {!selectedProduct ? (
+        <>
+          {/* CABECERA Y FILTROS */}
+          <div className="mb-8 space-y-6">
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+              <div>
+                <h2 className="text-4xl font-black text-gray-900 tracking-tight">
+                  Catálogo Oficial
+                </h2>
+                <p className="text-gray-500 mt-1">Personaliza tus productos para hacerlos aún más únicos.</p>
+              </div>
+              
+              {/* Buscador */}
+              <div className="relative w-full md:w-72 group">
+                <div className="absolute inset-y-0 left-0 pl-3 flex items-center pointer-events-none">
+                  <Search className="h-5 w-5 text-gray-400 group-focus-within:text-emerald-500 transition-colors" />
+                </div>
+                <input
+                  type="text"
+                  className="block w-full pl-10 pr-3 py-2.5 border border-gray-200 rounded-xl leading-5 bg-white placeholder-gray-400 focus:outline-none focus:ring-2 focus:ring-emerald-500 focus:border-transparent transition-all shadow-sm group-hover:shadow-md"
+                  placeholder="Buscar producto..."
+                  value={searchTerm}
+                  onChange={(e) => setSearchTerm(e.target.value)}
+                />
+              </div>
+            </div>
+
+            {/* Filtros de Categoría (Píldoras) */}
+            <div className="flex flex-wrap gap-2">
+              {categories.map(cat => (
+                <button
+                  key={cat}
+                  onClick={() => setSelectedCategory(cat)}
+                  className={`px-4 py-2 rounded-full text-sm font-bold transition-all transform active:scale-95 ${
+                    selectedCategory === cat
+                      ? 'bg-gray-900 text-white shadow-lg shadow-gray-900/20'
+                      : 'bg-white text-gray-600 border border-gray-200 hover:border-gray-300 hover:bg-gray-50'
+                  }`}
+                >
+                  {cat}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* GRID DE PRODUCTOS */}
+          {filteredProducts.length > 0 ? (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
+              {filteredProducts.map(product => (
+                <div 
+                  key={product.id} 
+                  className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-xl hover:border-emerald-100 transition-all duration-300 cursor-pointer group flex flex-col h-full transform hover:-translate-y-1" 
+                  onClick={() => setSelectedProduct(product)}
+                >
+                  {/* Imagen - CORREGIDA: object-contain + p-4 */}
+                  <div className="aspect-[4/3] bg-gray-50 relative overflow-hidden flex items-center justify-center">
+                    <div className="absolute inset-0 bg-gray-200 animate-pulse" />
+                    <img 
+                      src={product.image} 
+                      alt={product.name} 
+                      loading="lazy"
+                      className="absolute inset-0 w-full h-full object-contain p-4 group-hover:scale-110 transition-transform duration-700 ease-out z-10" 
+                    />
+                    
+                    {/* Etiqueta Categoría Flotante */}
+                    <div className="absolute top-3 left-3 z-20">
+                      <span className="bg-white/90 backdrop-blur-sm text-xs font-bold px-2 py-1 rounded-md text-gray-700 shadow-sm border border-white/50">
+                        {product.category || 'General'}
+                      </span>
+                    </div>
+                  </div>
+
+                  {/* Contenido */}
+                  <div className="p-5 flex flex-col flex-1">
+                    <div className="flex-1">
+                      <h3 className="font-bold text-lg text-gray-900 leading-tight mb-2 group-hover:text-emerald-700 transition-colors">
+                        {product.name}
+                      </h3>
+                      
+                      {/* Características pequeñas */}
+                      <div className="flex flex-wrap gap-2 mb-4">
+                        {product.features?.name && (
+                          <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">Nombre</span>
+                        )}
+                        {product.features?.number && (
+                          <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">Dorsal</span>
+                        )}
+                        {product.sizes && product.sizes.length > 0 && (
+                          <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{product.sizes.length} Tallas</span>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* Footer Tarjeta */}
+                    <div className="flex items-center justify-between pt-4 border-t border-gray-50 mt-auto">
+                      <div className="flex flex-col justify-center">
+                        <span className="text-2xl font-black text-gray-900">
+                          {product.price.toFixed(2)}<span className="text-sm align-top">€</span>
+                        </span>
+                      </div>
+                      
+                      <button className="bg-emerald-50 text-emerald-700 p-2.5 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors shadow-sm">
+                        <ShoppingBag className="w-5 h-5" />
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              ))}
+            </div>
+          ) : (
+            /* ESTADO VACÍO */
+            <div className="flex flex-col items-center justify-center py-24 px-4 text-center bg-gray-50 rounded-3xl border-2 border-dashed border-gray-200">
+              <div className="bg-white p-4 rounded-full shadow-sm mb-4">
+                <Search className="w-8 h-8 text-gray-400" />
+              </div>
+              <h3 className="text-lg font-bold text-gray-900">No encontramos productos</h3>
+              <p className="text-gray-500 text-sm max-w-xs mx-auto mt-2">
+                Intenta buscar con otro término o selecciona la categoría "Todas".
+              </p>
+              <button 
+                onClick={() => { setSearchTerm(''); setSelectedCategory('Todas'); }}
+                className="mt-6 text-emerald-600 font-bold text-sm hover:underline"
+              >
+                Limpiar filtros
+              </button>
+            </div>
+          )}
+        </>
+      ) : (
+        // Vista de Personalización
+        <div className="animate-fade-in-up">
+          <ProductCustomizer 
+              product={selectedProduct} 
+              onBack={() => setSelectedProduct(null)} 
+              onAdd={addToCart} 
+              clubs={clubs} 
+              modificationFee={modificationFee} 
+              storeConfig={storeConfig} 
+              setConfirmation={setConfirmation} 
+          />
+        </div>
       )}
     </div>
   );

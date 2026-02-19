@@ -12,15 +12,13 @@ import {
   Hash, Factory, MapPin, Contact, Phone,
   Camera, Star, Award, ShoppingBag 
 } from 'lucide-react';
-import { initializeApp } from 'firebase/app';
-import { 
-  getAuth, 
+
+import {  
   signInAnonymously, 
   onAuthStateChanged,
   signInWithCustomToken
 } from 'firebase/auth';
 import { 
-  getFirestore, 
   collection, 
   addDoc, 
   query, 
@@ -37,8 +35,7 @@ import {
   where
 } from 'firebase/firestore';
 
-import { 
-  getStorage, 
+import {  
   ref, 
   uploadBytes, 
   getDownloadURL,
@@ -48,46 +45,25 @@ import {
 
 import ExcelJS from 'exceljs';
 
+// --- Logo y colores ---
+import { LOGO_URL, appId, AVAILABLE_COLORS } from './config/constants';
 
+// Importamos nuestras herramientas de Firebase desde el archivo independiente
+import { auth, db, storage } from './config/firebase';
 
-// --- 1. CONFIGURACIÓN FIREBASE CON TUS DATOS ---
-const firebaseConfig = {
-    apiKey: import.meta.env.VITE_FIREBASE_API_KEY,
-    authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN,
-    projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID,
-    storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET,
-    messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID,
-    appId: import.meta.env.VITE_FIREBASE_APP_ID
-};
+// Importamos plantillas de emails desde el archivo independiente
+import { generateStockEmailHTML, generateEmailHTML, generateInvoiceEmailHTML } from './utils/emailTemplates';
 
-// Inicialización segura
-let app, auth, db, storage;
-try {
-    app = initializeApp(firebaseConfig);
-    auth = getAuth(app);
-    db = getFirestore(app);
-    storage = getStorage(app);
-} catch (error) {
-    console.error("Error inicializando Firebase:", error);
-}
+// Importamos plantillas de Excel y Pdf desde el archivo independiente
+import { generateBatchExcel } from './utils/excelExport';
+import { printBatchAlbaran } from './utils/printTemplates';
 
-// --- CONFIGURACIÓN GLOBAL ---
-const LOGO_URL = '/logo.png'; 
-const appId = 'fotoesport-merch'; // Usamos tu ID de proyecto como referencia
-
-// --- CONSTANTE DE COLORES VISUALES (NUEVO) ---
-const AVAILABLE_COLORS = [
-  { id: 'white', label: 'Blanco', hex: '#FFFFFF', border: 'border-gray-300' },
-  { id: 'black', label: 'Negro', hex: '#000000', border: 'border-black' },
-  { id: 'red', label: 'Rojo', hex: '#DC2626', border: 'border-red-600' },
-  { id: 'blue', label: 'Azul', hex: '#2563EB', border: 'border-blue-600' },
-  { id: 'green', label: 'Verde', hex: '#16A34A', border: 'border-green-600' },
-  { id: 'yellow', label: 'Amarillo', hex: '#FACC15', border: 'border-yellow-400' },
-  { id: 'orange', label: 'Naranja', hex: '#EA580C', border: 'border-orange-500' },
-  { id: 'purple', label: 'Morado', hex: '#9333EA', border: 'border-purple-600' },
-  { id: 'navy', label: 'Marino', hex: '#1E3A8A', border: 'border-blue-900' },
-  { id: 'gray', label: 'Gris', hex: '#4B5563', border: 'border-gray-500' },
-];
+// --- 🧩 COMPONENTES VISUALES (Nuestras "piezas de Lego" de diseño) ---
+// Importamos los botones y etiquetas genéricas. Al estar separados, 
+// mantenemos este archivo principal mucho más limpio y enfocado en la lógica.
+import { Button } from './components/ui/Button';
+import { Badge } from './components/ui/Badge';
+import { Input } from './components/ui/Input';
 
 // --- HELPER FUNCTIONS ---
 const getClubFolders = (clubId) => {
@@ -111,545 +87,16 @@ const normalizeText = (text) => {
     .trim();
 };
 
-const generateBatchExcel = (batchId, orders, clubName) => {
-    try {
-        const today = new Date().toLocaleDateString();
-        
-        // Usamos \ufeff para BOM (Byte Order Mark) para que Excel reconozca acentos correctamente
-        let csvBody = '\ufeff'; 
-        
-        // Encabezado
-        csvBody += `REPORTE DETALLADO DE PEDIDO GLOBAL\n`;
-        csvBody += `LOTE NUMERO:;${batchId || 'N/A'}\n`;
-        csvBody += `CLUB:;${clubName || 'Desconocido'}\n`;
-        csvBody += `FECHA EMISION:;${today}\n`;
-        csvBody += `TOTAL PEDIDOS:;${orders ? orders.length : 0}\n\n`;
 
-        // Columnas (Añadida "Detalles Extra")
-        csvBody += "ID Pedido;Fecha Pedido;Cliente;Tipo Pedido;Producto;Cantidad;Precio Unit.;Subtotal;Pers. Nombre;Pers. Dorsal;Talla;Color;Detalles Extra;Estado Actual\n";
 
-        let grandTotal = 0;
 
-        if (orders && orders.length > 0) {
-            orders.forEach(order => {
-                const orderDate = order.createdAt?.seconds ? new Date(order.createdAt.seconds * 1000).toLocaleDateString() : '-';
-                
-                order.items.forEach(item => {
-                    const quantity = item.quantity || 1;
-                    const price = item.price || 0;
-                    const lineTotal = quantity * price;
-                    grandTotal += lineTotal;
 
-                    // Limpieza de datos
-                    const clean = (txt) => `"${(txt || '').toString().replace(/"/g, '""')}"`;
 
-                    // --- LÓGICA DE EXTRAS ---
-                    let extras = [];
-                    if (item.details) {
-                         if (item.details.variant) extras.push(`[${item.details.variant}]`);
-                         
-                         // JUGADOR 2
-                         if (item.details.player2) {
-                             let p2Str = `J2: ${item.details.player2.name} #${item.details.player2.number}`;
-                             if (item.details.player2.category) p2Str += ` (Cat: ${item.details.player2.category})`;
-                             extras.push(p2Str);
-                         }
-                         
-                         // JUGADOR 3
-                         if (item.details.player3) {
-                             let p3Str = `J3: ${item.details.player3.name} #${item.details.player3.number}`;
-                             if (item.details.player3.category) p3Str += ` (Cat: ${item.details.player3.category})`;
-                             extras.push(p3Str);
-                         }
-                    }
-                    // Añadir también la categoría principal si existe
-                    if (item.category) extras.unshift(`Cat J1: ${item.category}`);
 
-                    const extrasStr = extras.join(' | ');
 
-                    const row = [
-                        clean(order.id ? order.id.slice(0,8) : 'ID-ERROR'),
-                        clean(orderDate),
-                        clean(order.customer ? order.customer.name : 'Sin Nombre'),
-                        clean(order.type === 'special' ? 'ESPECIAL' : 'WEB'),
-                        clean(item.name),
-                        quantity,
-                        price.toFixed(2).replace('.', ','), 
-                        lineTotal.toFixed(2).replace('.', ','),
-                        clean(item.playerName),
-                        clean(item.playerNumber),
-                        clean(item.size),
-                        clean(item.color),
-                        clean(extrasStr), // <--- Nueva columna
-                        clean(order.status)
-                    ].join(";");
-                    csvBody += row + "\n";
-                });
-            });
-        }
 
-        csvBody += `\n;;;;;;;TOTAL LOTE:;${grandTotal.toFixed(2).replace('.', ',')} €\n`;
 
-        const blob = new Blob([csvBody], { type: 'text/csv;charset=utf-8;' });
-        const url = URL.createObjectURL(blob);
-        const link = document.createElement("a");
-        link.setAttribute("href", url);
-        link.setAttribute("download", `Lote_Global_${batchId}_${clubName ? clubName.replace(/\s+/g, '_') : 'Club'}.csv`);
-        document.body.appendChild(link);
-        link.click();
-        document.body.removeChild(link);
-        URL.revokeObjectURL(url); 
 
-    } catch (e) {
-        console.error("Error generando Excel:", e);
-        alert("Hubo un error al generar el Excel. Por favor revisa la consola.");
-    }
-};
-
-// --- FUNCIÓN ALBARÁN LOTE (CORREGIDA - EVITA NaN) ---
-const printBatchAlbaran = (batchId, orders, clubName, commissionPct) => {
-    const safeCommission = (typeof commissionPct === 'number' && !isNaN(commissionPct)) ? commissionPct : 0;
-    const printWindow = window.open('', '_blank');
-    const today = new Date().toLocaleDateString();
-    
-    const totalAmount = orders.reduce((sum, o) => sum + o.total, 0);
-    const totalItems = orders.reduce((sum, o) => sum + o.items.reduce((s, i) => s + (i.quantity || 1), 0), 0);
-    
-    const commissionAmount = totalAmount * safeCommission;
-    const netAmount = totalAmount - commissionAmount;
-
-    const htmlContent = `
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <title>Albarán Lote Global #${batchId}</title>
-            <style>
-                body { font-family: 'Helvetica', 'Arial', sans-serif; padding: 40px; color: #111; max-width: 900px; margin: 0 auto; }
-                .header { display: flex; justify-content: space-between; align-items: start; margin-bottom: 30px; border-bottom: 3px solid #10b981; padding-bottom: 20px; }
-                .logo-text { font-size: 28px; font-weight: 900; letter-spacing: -1px; }
-                .logo-sub { color: #10b981; }
-                .batch-title { text-align: right; }
-                .batch-title h1 { margin: 0; font-size: 22px; color: #111; text-transform: uppercase; }
-                .batch-title p { margin: 5px 0 0; font-size: 14px; color: #666; }
-                .summary-box { background: #f3f4f6; padding: 15px; border-radius: 8px; margin-bottom: 30px; display: flex; justify-content: space-between; border: 1px solid #e5e7eb; }
-                .summary-item strong { display: block; font-size: 11px; text-transform: uppercase; color: #6b7280; margin-bottom: 2px; }
-                .summary-item span { font-size: 16px; font-weight: bold; color: #111; }
-                table { width: 100%; border-collapse: collapse; font-size: 13px; margin-bottom: 30px; }
-                th { background: #10b981; color: white; padding: 10px; text-align: left; text-transform: uppercase; font-size: 11px; }
-                td { padding: 8px 10px; border-bottom: 1px solid #eee; }
-                .order-sep { background-color: #f0fdf4; font-weight: bold; color: #064e3b; border-top: 2px solid #ccc; }
-                .text-right { text-align: right; }
-                .financial-section { display: flex; justify-content: flex-end; margin-bottom: 50px; }
-                .financial-table { width: 400px; border-collapse: collapse; border: 1px solid #ddd; }
-                .financial-table td { padding: 12px; border-bottom: 1px solid #eee; }
-                .f-label { text-align: left; color: #555; }
-                .f-value { text-align: right; font-weight: bold; font-family: monospace; font-size: 14px; }
-                .f-row-total td { border-top: 2px solid #333; font-weight: 900; font-size: 18px; background: #ecfdf5; color: #047857; }
-                .f-subtext { display: block; font-size: 10px; color: #999; font-weight: normal; margin-top: 2px;}
-                .signature-section { margin-top: 20px; page-break-inside: avoid; border: 2px dashed #9ca3af; border-radius: 8px; padding: 30px; height: 100px; position: relative; }
-                .signature-label { font-weight: bold; text-transform: uppercase; font-size: 12px; color: #6b7280; position: absolute; top: 10px; left: 10px; }
-                .signature-line { position: absolute; bottom: 30px; left: 30px; right: 30px; border-bottom: 1px solid #333; }
-                .signature-text { position: absolute; bottom: 10px; width: 100%; text-align: center; font-size: 11px; color: #6b7280; }
-                @media print { body { -webkit-print-color-adjust: exact; padding: 0; } }
-            </style>
-        </head>
-        <body>
-            <div class="header">
-                <div>
-                    <div class="logo-text">FOTOESPORT<span class="logo-sub">MERCH</span></div>
-                    <p style="font-size: 12px; margin: 5px 0 0; color: #666;">Albarán de Entrega y Liquidación</p>
-                </div>
-                <div class="batch-title">
-                    <h1>Lote Global #${batchId}</h1>
-                    <p><strong>${clubName}</strong></p>
-                    <p style="font-size: 12px;">Fecha Emisión: ${today}</p>
-                </div>
-            </div>
-
-            <div class="summary-box">
-                <div class="summary-item"><strong>Club Destino</strong><span>${clubName}</span></div>
-                <div class="summary-item"><strong>Pedidos Totales</strong><span>${orders.length}</span></div>
-                <div class="summary-item"><strong>Artículos</strong><span>${totalItems}</span></div>
-                <div class="summary-item text-right"><strong>Valor Mercancía</strong><span>${totalAmount.toFixed(2)}€</span></div>
-            </div>
-
-            <table>
-                <thead>
-                    <tr>
-                        <th width="40%">Producto</th>
-                        <th width="40%">Detalle / Personalización</th>
-                        <th width="5%" class="text-right">Cant.</th>
-                        <th width="15%" class="text-right">Subtotal</th>
-                    </tr>
-                </thead>
-                <tbody>
-                    ${orders.map(order => `
-                        <tr class="order-sep">
-                            <td colspan="4">
-                                🔹 Pedido Ref: <strong>#${order.id.slice(0,6)}</strong> - ${order.customer.name}
-                                <span style="font-size:10px; color:#666; margin-left:10px;">(${order.type === 'special' ? 'Especial' : 'Web'})</span>
-                            </td>
-                        </tr>
-                        ${order.items.map(item => {
-                            // EXTRAER DATOS EXTRA PARA IMPRESIÓN
-                            let extraInfo = '';
-                            if (item.details) {
-                                 const parts = [];
-                                 
-                                 // J2
-                                 if (item.details.player2) {
-                                     let txt = `J2: ${item.details.player2.name} #${item.details.player2.number}`;
-                                     if(item.details.player2.category) txt += ` [${item.details.player2.category}]`;
-                                     parts.push(txt);
-                                 }
-                                 
-                                 // J3
-                                 if (item.details.player3) {
-                                     let txt = `J3: ${item.details.player3.name} #${item.details.player3.number}`;
-                                     if(item.details.player3.category) txt += ` [${item.details.player3.category}]`;
-                                     parts.push(txt);
-                                 }
-                                 
-                                 if (parts.length > 0) extraInfo = parts.join(' | ');
-                            }
-
-                            return `
-                            <tr>
-                                <td style="padding-left: 20px;">
-                                    ${item.name}
-                                    ${item.category ? `<br><span style="font-size:10px;color:#666;">Cat: ${item.category}</span>` : ''}
-                                    ${item.details?.variant ? `<br><span style="font-size:10px;color:#059669;font-weight:bold;">[${item.details.variant}]</span>` : ''}
-                                </td>
-                                <td style="color: #555; font-size: 11px;">
-                                    ${[
-                                        item.playerName ? `Nom: ${item.playerName}` : '',
-                                        item.playerNumber ? `Num: ${item.playerNumber}` : '',
-                                        item.size ? `Talla: ${item.size}` : '',
-                                        item.color ? `Color: ${item.color}` : '',
-                                        extraInfo ? `<strong style="color:#000;">${extraInfo}</strong>` : ''
-                                    ].filter(Boolean).join(' | ')}
-                                </td>
-                                <td class="text-right">${item.quantity || 1}</td>
-                                <td class="text-right">${((item.quantity || 1) * item.price).toFixed(2)}€</td>
-                            </tr>
-                        `}).join('')}
-                    `).join('')}
-                </tbody>
-            </table>
-
-            <div class="financial-section">
-                <table class="financial-table">
-                    <tr>
-                        <td class="f-label">Importe Total Pedido</td>
-                        <td class="f-value">${totalAmount.toFixed(2)}€</td>
-                    </tr>
-                    <tr>
-                        <td class="f-label" style="color: #dc2626;">(-) Retención / Comisión Club (${(safeCommission * 100).toFixed(0)}%)</td>
-                        <td class="f-value" style="color: #dc2626;">-${commissionAmount.toFixed(2)}€</td>
-                    </tr>
-                    <tr class="f-row-total">
-                        <td class="f-label" style="color: #065f46;">IMPORTE A COBRAR</td>
-                        <td class="f-value">${netAmount.toFixed(2)}€</td>
-                    </tr>
-                </table>
-            </div>
-
-            <div class="signature-section">
-                <div class="signature-label">Conformidad de Entrega (Sello y Firma):</div>
-                <div class="signature-line"></div>
-                <div class="signature-text">Recibido por: _____________________________ Fecha: ___/___/_____</div>
-            </div>
-            <script>window.onload = () => window.print();</script>
-        </body>
-        </html>
-    `;
-    printWindow.document.write(htmlContent);
-    printWindow.document.close();
-};
-
-// --- HELPER: PLANTILLA EMAIL PREVISIÓN STOCK ---
-const generateStockEmailHTML = (supplierName, batchId, clubName, productsList) => {
-    const rows = productsList.map(p => `
-        <tr>
-            <td style="padding: 8px; border-bottom: 1px solid #eee;">${p.name}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center;">${p.size || 'Única'}</td>
-            <td style="padding: 8px; border-bottom: 1px solid #eee; text-align: center; font-weight: bold;">${p.qty}</td>
-        </tr>
-    `).join('');
-
-    return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body { font-family: sans-serif; color: #333; }
-            table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-            th { background: #f3f4f6; padding: 10px; text-align: left; font-size: 12px; text-transform: uppercase; }
-        </style>
-    </head>
-    <body>
-        <h2 style="color: #059669;">Previsión de Stock - ${clubName}</h2>
-        <p>Buenas <strong>${supplierName}</strong>,</p>
-        <p>Adjuntamos la previsión de productos necesarios para el <strong>Pedido Global #${batchId}</strong> del club <strong>${clubName}</strong>.</p>
-        <p>Por favor, revisad si disponéis de stock mientras preparamos los diseños.</p>
-        
-        <table border="0" cellpadding="0" cellspacing="0">
-            <thead>
-                <tr>
-                    <th width="50%">Producto</th>
-                    <th width="25%" style="text-align: center;">Talla / Detalle</th>
-                    <th width="25%" style="text-align: center;">Cantidad</th>
-                </tr>
-            </thead>
-            <tbody>
-                ${rows}
-            </tbody>
-        </table>
-        
-        <p style="margin-top: 30px; font-size: 12px; color: #666;">
-            Este es un correo automático de previsión generado por FotoEsport Merch.
-        </p>
-    </body>
-    </html>
-    `;
-};
-
-// --- HELPER: PLANTILLA DE EMAIL (CORREGIDA CANTIDAD) ---
-const generateEmailHTML = (order, newStatus, clubName) => {
-    // Definir textos según estado
-    const statusMessages = {
-        'recopilando': 'Tu pedido ha sido validado y está en fase de recopilación.',
-        'en_produccion': '¡Buenas noticias! Tu pedido ha entrado en fábrica para su producción.',
-        'entregado_club': '¡Ya está aquí! Tu pedido ha llegado al club y está listo para ser recogido.',
-        'pendiente_validacion': 'Tu pedido está registrado pendiente de pago/validación.'
-    };
-
-    const statusColor = {
-        'recopilando': '#3b82f6', // Azul
-        'en_produccion': '#9333ea', // Morado
-        'entregado_club': '#10b981', // Verde
-        'pendiente_validacion': '#f59e0b' // Naranja
-    }[newStatus] || '#333';
-
-    // URL DEL LOGO
-    const LOGO_FULL_URL = "https://raw.githubusercontent.com/Rubenglzg/FotoEsportMerchWEB2/b740c87f99da10c1044474dbfdc8993c413347ff/public/logo.png"; 
-
-    return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body { font-family: 'Helvetica Neue', Helvetica, Arial, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-            .container { max-width: 600px; margin: 20px auto; border: 1px solid #e1e4e8; border-radius: 8px; overflow: hidden; box-shadow: 0 4px 6px rgba(0,0,0,0.05); }
-            
-            /* Cabecera negra compacta */
-            .header { background-color: #000000; padding: 10px 0; text-align: center; border-bottom: 4px solid #10b981; }
-            
-            /* Logo grande */
-            .logo-img { height: 150px; width: auto; display: block; margin: 0 auto; }
-            
-            .content { padding: 40px 30px; background-color: #ffffff; }
-            .status-badge { 
-                background-color: ${statusColor}; color: white; padding: 12px 24px; 
-                border-radius: 50px; display: inline-block; font-weight: bold; margin: 25px 0;
-                font-size: 16px; letter-spacing: 0.5px; text-transform: uppercase;
-            }
-            .order-details { width: 100%; border-collapse: collapse; margin-top: 25px; background-color: #f9fafb; border-radius: 8px; overflow: hidden; }
-            .order-details th { text-align: left; background-color: #f3f4f6; padding: 12px 15px; color: #6b7280; font-size: 11px; text-transform: uppercase; letter-spacing: 1px; }
-            .order-details td { border-bottom: 1px solid #e5e7eb; padding: 12px 15px; font-size: 14px; vertical-align: top; }
-            .item-meta { display: block; color: #555; font-size: 13px; margin-top: 4px; line-height: 1.4; }
-            .footer { background-color: #f9fafb; padding: 20px; text-align: center; font-size: 12px; color: #9ca3af; border-top: 1px solid #e5e7eb; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <img src="${LOGO_FULL_URL}" alt="FotoEsport Merch" class="logo-img" />
-            </div>
-            <div class="content">
-                <h2 style="color: #111827; margin-top: 0;">Hola, ${order.customer.name}</h2>
-                <p style="color: #4b5563;">Te informamos que el estado de tu pedido para el club <strong>${clubName}</strong> ha cambiado.</p>
-                
-                <div style="text-align: center;">
-                    <div class="status-badge">
-                        ${newStatus.replace(/_/g, ' ')}
-                    </div>
-                </div>
-                
-                <p style="text-align: center; color: #374151; font-weight: 500;">${statusMessages[newStatus] || 'Estado actualizado.'}</p>
-
-                <h3 style="margin-top: 30px; font-size: 16px; color: #111827;">Resumen del Pedido #${order.id.slice(0, 6)}</h3>
-                <table class="order-details">
-                    <thead>
-                        <tr>
-                            <th width="40%">Producto</th>
-                            <th width="45%">Detalles</th>
-                            <th width="15%" style="text-align:right;">Cant.</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${order.items.map(item => {
-                            // Obtener nombre del color
-                            const colorObj = AVAILABLE_COLORS.find(c => c.id === item.color);
-                            const colorName = colorObj ? colorObj.label : item.color;
-                            
-                            // Lista de detalles
-                            const detailsList = [
-                                item.playerName ? `Nombre: <strong>${item.playerName}</strong>` : null,
-                                item.playerNumber ? `Dorsal: <strong>${item.playerNumber}</strong>` : null,
-                                item.size ? `Talla: <strong>${item.size}</strong>` : null,
-                                item.color ? `Color: <strong>${colorName}</strong>` : null
-                            ].filter(Boolean).join(', ');
-
-                            return `
-                            <tr>
-                                <td style="font-weight: 600; color: #111;">${item.name}</td>
-                                <td>
-                                    <span class="item-meta">
-                                        ${detailsList || '-'}
-                                    </span>
-                                </td>
-                                <td style="text-align:right; font-weight: bold;">${item.quantity || 1}</td>
-                            </tr>
-                        `}).join('')}
-                    </tbody>
-                </table>
-                
-                <div style="margin-top: 20px; text-align: right; padding-right: 15px;">
-                    <p style="font-size: 18px; color: #10b981; font-weight: bold; margin: 0;">Total: ${order.total.toFixed(2)}€</p>
-                    <p style="font-size: 15px; color: #4b5563; font-weight: bold; margin: 8px 0 0;">
-                        Lote Global: #${order.globalBatch || 1}
-                    </p>
-                </div>
-
-                <div style="margin-top: 30px; padding: 15px; background-color: #ecfdf5; border: 1px solid #a7f3d0; border-radius: 8px; color: #065f46; font-size: 13px; display: flex; align-items: start; gap: 10px;">
-                    <span>ℹ️</span>
-                    <span>Si tienes alguna duda sobre la entrega o los plazos, por favor contacta directamente con los responsables de <strong>${clubName}</strong>.</span>
-                </div>
-            </div>
-            <div class="footer">
-                <p>© ${new Date().getFullYear()} FotoEsport Merch - Gestión Integral de Clubes</p>
-                <p>Mensaje automático. Por favor, no respondas a este correo.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    `;
-};
-
-// --- NUEVO HELPER: PLANTILLA FACTURA / CONFIRMACIÓN ---
-const generateInvoiceEmailHTML = (order, clubName) => {
-    const LOGO_FULL_URL = "https://raw.githubusercontent.com/Rubenglzg/FotoEsportMerchWEB2/b740c87f99da10c1044474dbfdc8993c413347ff/public/logo.png"; 
-    const orderDate = new Date().toLocaleDateString();
-
-    return `
-    <!DOCTYPE html>
-    <html>
-    <head>
-        <style>
-            body { font-family: 'Helvetica', Arial, sans-serif; color: #333; line-height: 1.6; }
-            .container { max-width: 600px; margin: 0 auto; border: 1px solid #eee; border-radius: 8px; overflow: hidden; }
-            .header { background: #000; padding: 20px; text-align: center; border-bottom: 4px solid #10b981; }
-            .content { padding: 30px; background: #fff; }
-            .invoice-box { background: #f9fafb; padding: 15px; border-radius: 8px; margin: 20px 0; border: 1px solid #e5e7eb; }
-            table { width: 100%; border-collapse: collapse; margin-top: 20px; font-size: 14px; }
-            th { text-align: left; padding: 10px; background: #f3f4f6; color: #666; text-transform: uppercase; font-size: 11px; }
-            td { padding: 10px; border-bottom: 1px solid #eee; vertical-align: top; }
-            .total-row td { border-top: 2px solid #333; font-weight: bold; font-size: 16px; color: #10b981; }
-            .meta-info { font-size: 11px; color: #666; display: block; margin-top: 2px; }
-            .footer { text-align: center; padding: 20px; font-size: 11px; color: #999; background: #f9fafb; }
-        </style>
-    </head>
-    <body>
-        <div class="container">
-            <div class="header">
-                <img src="${LOGO_FULL_URL}" alt="FotoEsport" style="height: 160px;" />
-            </div>
-            <div class="content">
-                <h2 style="color: #111; margin-top: 0;">Confirmación de Pedido</h2>
-                <p>Hola <strong>${order.customer.name}</strong>,</p>
-                <p>Tu pedido para el club <strong>${clubName}</strong> ha sido registrado correctamente.</p>
-                
-                <div class="invoice-box">
-                    <p style="margin: 5px 0;"><strong>Referencia:</strong> #${order.id.slice(0,8)}</p>
-                    <p style="margin: 5px 0;"><strong>Fecha:</strong> ${orderDate}</p>
-                    <p style="margin: 5px 0;"><strong>Método de Pago:</strong> ${order.paymentMethod === 'cash' ? 'Efectivo (Validado)' : 'Tarjeta / Online'}</p>
-                </div>
-
-                <table>
-                    <thead>
-                        <tr>
-                            <th width="60%">Producto / Detalles</th>
-                            <th width="15%" style="text-align:center">Cant.</th>
-                            <th width="25%" style="text-align:right">Precio</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        ${order.items.map(item => {
-                            // 1. Datos Jugador 1 (Raíz)
-                            const p1Name = item.playerName || item.name1;
-                            const p1Num = item.playerNumber || item.number1;
-
-                            // 2. Datos Jugador 2 (Dentro de details.player2 O en raíz)
-                            const p2Obj = item.details?.player2 || {};
-                            const p2Name = p2Obj.name || item.player2Name || item.name2;
-                            const p2Num = p2Obj.number || item.player2Number || item.number2;
-
-                            // 3. Datos Jugador 3 (Dentro de details.player3 O en raíz)
-                            const p3Obj = item.details?.player3 || {};
-                            const p3Name = p3Obj.name || item.player3Name || item.name3;
-                            const p3Num = p3Obj.number || item.player3Number || item.number3;
-
-                            return `
-                            <tr>
-                                <td>
-                                    <strong>${item.name}</strong>
-                                    ${item.category ? `<span class="meta-info">Categoría: ${item.category}</span>` : ''}
-
-                                    <div style="margin-top: 4px; font-size: 12px; color: #555;">
-                                        ${item.size ? `• Talla: <strong>${item.size}</strong><br>` : ''}
-                                        
-                                        ${p1Name ? `• Nombre: <strong>${p1Name}</strong><br>` : ''}
-                                        ${p1Num ? `• Número: <strong>${p1Num}</strong>` : ''}
-
-                                        ${(p2Name || p2Num) ? `
-                                            <div class="sub-player">
-                                                <strong>Jugador 2:</strong><br>
-                                                ${p2Name ? `• Nombre: <strong>${p2Name}</strong><br>` : ''}
-                                                ${p2Num ? `• Número: <strong>${p2Num}</strong>` : ''}
-                                            </div>
-                                        ` : ''}
-
-                                        ${(p3Name || p3Num) ? `
-                                            <div class="sub-player">
-                                                <strong>Jugador 3:</strong><br>
-                                                ${p3Name ? `• Nombre: <strong>${p3Name}</strong><br>` : ''}
-                                                ${p3Num ? `• Número: <strong>${p3Num}</strong>` : ''}
-                                            </div>
-                                        ` : ''}
-                                    </div>
-                                </td>
-                                <td style="text-align:center">${item.quantity || 1}</td>
-                                <td style="text-align:right">${item.price.toFixed(2)}€</td>
-                            </tr>
-                            `;
-                        }).join('')}
-                        <tr class="total-row">
-                            <td colspan="2" style="text-align:right">TOTAL</td>
-                            <td style="text-align:right">${order.total.toFixed(2)}€</td>
-                        </tr>
-                    </tbody>
-                </table>
-            </div>
-            <div class="footer">
-                <p>Gracias por confiar en FotoEsport Merch.</p>
-                <p>Recibirás un nuevo aviso cuando tu pedido esté listo o cambie de estado.</p>
-            </div>
-        </div>
-    </body>
-    </html>
-    `;
-};
 
 // --- COMPONENTES AUXILIARES Y VISTAS (Definidos ANTES de App) ---
 
@@ -681,38 +128,11 @@ const CompanyLogo = ({ className = "h-10", src }) => (
     </div>
 );
 
-const Button = ({ children, onClick, variant = 'primary', className = '', type = 'button', disabled = false, size = 'md' }) => {
-  const baseStyle = "rounded-lg font-medium transition-all duration-200 flex items-center justify-center gap-2";
-  const sizes = { xs: "px-2 py-1 text-[10px]", sm: "px-2 py-1 text-xs", md: "px-4 py-2 text-sm", lg: "px-6 py-3 text-base" };
-  const variants = {
-    primary: "bg-emerald-600 text-white hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed",
-    secondary: "bg-gray-100 text-gray-800 hover:bg-gray-200",
-    outline: "border-2 border-emerald-600 text-emerald-600 hover:bg-emerald-50",
-    danger: "bg-red-500 text-white hover:bg-red-600",
-    warning: "bg-orange-500 text-white hover:bg-orange-600",
-    dark: "bg-gray-900 text-white hover:bg-gray-800",
-    ghost: "text-gray-500 hover:text-emerald-600 hover:bg-gray-50"
-  };
-  return <button type={type} onClick={onClick} disabled={disabled} className={`${baseStyle} ${sizes[size]} ${variants[variant]} ${className}`}>{children}</button>;
-};
 
-const Input = ({ label, ...props }) => (
-  <div className="mb-3 w-full">
-    {label && <label className="block text-sm font-medium text-gray-700 mb-1">{label}</label>}
-    <input className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-emerald-500 disabled:bg-gray-100" {...props} />
-  </div>
-);
 
-const Badge = ({ status }) => {
-  const styles = {
-    'recopilando': 'bg-blue-100 text-blue-800',
-    'pendiente_validacion': 'bg-yellow-100 text-yellow-800',
-    'en_produccion': 'bg-purple-100 text-purple-800',
-    'entregado_club': 'bg-green-100 text-green-800',
-    'special_order': 'bg-indigo-100 text-indigo-800',
-  };
-  return <span className={`px-2 py-1 rounded-full text-xs font-semibold ${styles[status] || 'bg-gray-100'}`}>{status.replace(/_/g, ' ').toUpperCase()}</span>;
-};
+
+
+
 
 // --- COMPONENTE AUXILIAR: INPUT CON GUARDADO AL SALIR (Para evitar cortes al escribir) ---
 const DelayedInput = ({ value, onSave, className, placeholder, type = "text" }) => {

@@ -11,7 +11,8 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
   const addProduct = async () => { 
       const newProduct = { 
           name: 'Nuevo Producto', price: 10.00, cost: 5.00, category: 'General', 
-          image: 'https://via.placeholder.com/300', stockType: 'internal', stock: 0, 
+          image: '/logonegro.png',
+          stockType: 'internal', stock: 0, 
           features: { name: true, number: true, photo: false, shield: true, color: false }, 
           defaults: { name: true, number: true, photo: false, shield: true }, 
           modifiable: { name: true, number: true, photo: false, shield: true },

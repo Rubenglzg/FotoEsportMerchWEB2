@@ -1,115 +1,81 @@
 import React, { useState, useEffect } from 'react';
-import { Routes, Route, useNavigate, useLocation, Navigate } from 'react-router-dom';
-
-import {  
-  signInAnonymously, 
-  onAuthStateChanged,
-  signInWithCustomToken
-} from 'firebase/auth';
-
-import { 
-  collection, 
-  addDoc, 
-  doc, 
-  updateDoc, 
-  setDoc,
-  serverTimestamp,
-  writeBatch,
-  arrayUnion,
-  deleteDoc,
-} from 'firebase/firestore';
-
-import {  
-  ref, 
-  uploadBytes, 
-  getDownloadURL,
-} from 'firebase/storage';
-
-// --- Logo y colores ---
+import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
+import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
+import { collection, addDoc, doc, setDoc, serverTimestamp, updateDoc, arrayUnion } from 'firebase/firestore';
+import { auth, db, storage } from './config/firebase';
 import { appId } from './config/constants';
 
-// Importamos nuestras herramientas de Firebase desde el archivo independiente
-import { auth, db, storage } from './config/firebase';
+// Hooks personalizados
+import { useCart } from './hooks/useCart';
+import { useFirebaseData } from './hooks/useFirebaseData';
+import { useAdminActions } from './hooks/useAdminActions';
+import { useOrderActions } from './hooks/useOrderActions';
 
-// Importamos plantillas de emails desde el archivo independiente
-import { generateInvoiceEmailHTML } from './utils/emailTemplates';
-
-// --- 🧩 COMPONENTES VISUALES (Nuestras "piezas de Lego" de diseño) ---
-// Importamos los botones y etiquetas genéricas. Al estar separados, 
-// mantenemos este archivo principal mucho más limpio y enfocado en la lógica.
+// Componentes de Layout y UI
+import { Navbar } from './components/layout/Navbar';
+import { Footer } from './components/layout/Footer';
+import { TopBanners } from './components/layout/TopBanners';
 import { ConfirmModal } from './components/ui/ConfirmModal';
 import { NotificationToast } from './components/ui/NotificationToast';
+import { CampaignDecorations } from './components/shared/CampaignDecorations';
 
-// --- 📄 VISTAS / PÁGINAS ---
-// Separamos cada pantalla en su propio archivo
-import { TrackingView } from './pages/TrackingView';
-import { IncidentReportView } from './pages/IncidentReportView';
+// Vistas / Páginas
 import { HomeView } from './pages/HomeView';
 import { ShopView } from './pages/ShopView';
 import { CartView } from './pages/CartView';
 import { PhotoSearchView } from './pages/PhotoSearchView';
+import { TrackingView } from './pages/TrackingView';
 import { LoginView } from './pages/LoginView';
+import { OrderSuccessView } from './pages/OrderSuccessView';
 import { RightToForgetView } from './pages/RightToForgetView';
+import { IncidentReportView } from './pages/IncidentReportView';
+import { PrivacyPolicyView } from './pages/PrivacyPolicyView';
+import { LegalNoticeView } from './pages/LegalNoticeView';
 import { ClubDashboard } from './pages/ClubDashboard';
 import { AdminDashboard } from './pages/AdminDashboard';
 
-import { OrderSuccessView } from './pages/OrderSuccessView';
-import { PrivacyPolicyView } from './pages/PrivacyPolicyView';
-import { LegalNoticeView } from './pages/LegalNoticeView';
-
-// --- COMPONENTES DE ESTRUCTURA Y COMPARTIDOS ---
-import { Navbar } from './components/layout/Navbar';
-import { Footer } from './components/layout/Footer';
-import { TopBanners } from './components/layout/TopBanners';
-
-// --- COMPONENTES DE ESTRUCTURA Y COMPARTIDOS ---
-import { CampaignDecorations } from './components/shared/CampaignDecorations';
-
-// --- HOOKS ---
-import { useFirebaseData } from './hooks/useFirebaseData';
-import { useAdminActions } from './hooks/useAdminActions';
-
-// --- HELPER FUNCTIONS ---
-const getClubFolders = (clubId) => {
-    if (!clubId) return [];
-    const clubPhotos = MOCK_PHOTOS_DB.filter(p => p.clubId === clubId);
-    return [...new Set(clubPhotos.map(p => p.folder))];
-};
-
-const getFolderPhotos = (clubId, folderName) => {
-    if (!clubId || !folderName) return [];
-    return MOCK_PHOTOS_DB.filter(p => p.clubId === clubId && p.folder === folderName);
-};
-
-
-
-
-
 export default function App() {
-  // 1. PRIMERO TODOS LOS ESTADOS (Variables de React)
+  // 1. ESTADOS BÁSICOS (Variables de React)
   const [user, setUser] = useState(null); 
   const navigate = useNavigate();
   const location = useLocation();
-  const [cart, setCart] = useState([]);
   const [role, setRole] = useState('public'); 
   const [currentClub, setCurrentClub] = useState(null); 
   const [notification, setNotification] = useState(null); 
   const [confirmation, setConfirmation] = useState(null); 
-  const [storeConfig, setStoreConfig] = useState({ isOpen: true, closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." });
+  const [storeConfig, setStoreConfig] = useState({ 
+    isOpen: true, 
+    closedMessage: "Tienda cerrada temporalmente por mantenimiento. Disculpen las molestias." 
+  });
 
-  // 2. LA FUNCIÓN DE NOTIFICAR (La necesita el hook de abajo)
+  // 2. FUNCIONES BASE (No dependen de Firebase, se declaran primero)
   const showNotification = (msg, type = 'success') => { 
       setNotification({ msg, type }); 
       setTimeout(() => setNotification(null), 4000); 
   };
 
-  // 3. LOS HOOKS DE DATOS (Después de los estados)
+  const setView = (targetView) => {
+    const rutas = {
+      'home': '/', 'shop': '/tienda', 'cart': '/carrito', 'photo-search': '/fotos',
+      'tracking': '/seguimiento', 'login': '/acceso', 'success': '/pedido-completado',
+      'order-success': '/pedido-completado', 'right-to-forget': '/derecho-al-olvido',
+      'incident-report': '/incidencias', 'privacy': '/privacidad', 'legal': '/aviso-legal',
+      'club-dashboard': '/panel-club', 'admin-dashboard': '/panel-admin'
+    };
+    navigate(rutas[targetView] || '/');
+    window.scrollTo(0, 0); 
+  };
+
+  // 3. HOOK DEL CARRITO (Ya puede usar showNotification)
+  const { cart, setCart, addToCart, removeFromCart } = useCart(storeConfig, showNotification);
+
+  // 4. HOOKS DE DATOS FIREBASE
   const { 
     orders, products, clubs, seasons, suppliers, 
     financialConfig, campaignConfig, setCampaignConfig, setFinancialConfig 
   } = useFirebaseData(user);
 
-  // 4. EL HOOK DE ADMINISTRADOR (Ya puede usar setConfirmation y showNotification)
+  // 5. HOOK DE ADMINISTRADOR (Ya puede usar clubs, showNotification y setConfirmation)
   const {
       addProduct, updateProduct, deleteProduct,
       createClub, updateClub, deleteClub, toggleClubBlock,
@@ -119,29 +85,13 @@ export default function App() {
       updateFinancialConfig
   } = useAdminActions(showNotification, setConfirmation, clubs);
 
-  // Adaptador al español
-  const setView = (targetView) => {
-    const rutas = {
-      'home': '/',
-      'shop': '/tienda',
-      'cart': '/carrito',
-      'photo-search': '/fotos',
-      'tracking': '/seguimiento',
-      'login': '/acceso',
-      'success': '/pedido-completado',
-      'order-success': '/pedido-completado',
-      'right-to-forget': '/derecho-al-olvido',
-      'incident-report': '/incidencias',
-      'privacy': '/privacidad',
-      'legal': '/aviso-legal',
-      'club-dashboard': '/panel-club',
-      'admin-dashboard': '/panel-admin'
-    };
-    navigate(rutas[targetView] || '/');
-    window.scrollTo(0, 0); 
-  };
+  // 6. HOOK DE PEDIDOS E INCIDENCIAS (Ya puede usar setCart, setView, clubs, etc.)
+  const { 
+      createOrder, createSpecialOrder, updateOrderStatus, 
+      addIncident, updateIncidentStatus 
+  } = useOrderActions(showNotification, setCart, setView, clubs, seasons);
 
-  // Autenticación
+  // 7. AUTENTICACIÓN Y OTROS EFECTOS
   useEffect(() => { 
     const initAuth = async () => { 
         if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { 
@@ -155,7 +105,6 @@ export default function App() {
     return () => unsubscribe(); 
   }, []);
   
-  // Detectar si venimos desde un email con ID de ticket
   useEffect(() => {
     const params = new URLSearchParams(window.location.search);
     const ticketId = params.get('ticketId');
@@ -170,114 +119,7 @@ export default function App() {
       if (campaignConfig.type === 'christmas') return 'bg-red-50';
       return 'bg-gray-50';
   };
-
-  const addToCart = (product, customization, finalPrice) => { 
-      if (!storeConfig.isOpen) { showNotification('La tienda está cerrada temporalmente.', 'error'); return; } 
-      setCart([...cart, { ...product, ...customization, price: finalPrice, cartId: Date.now() }]); 
-      showNotification('Producto añadido al carrito'); 
-  };
   
-  const removeFromCart = (cartId) => { 
-      setCart(cart.filter(item => item.cartId !== cartId)); 
-  };
-  
-  // --- FUNCIÓN CREAR PEDIDO ---
-  const createOrder = async (orderData) => {
-      try {
-          const initialStatus = orderData.paymentMethod === 'cash' ? 'pendiente_validacion' : 'recopilando';
-          const visibleStatus = orderData.paymentMethod === 'cash' ? 'Pendiente Pago' : 'Recopilando';
-
-          const club = clubs.find(c => c.id === orderData.clubId);
-          const activeBatch = club ? (club.activeGlobalOrderId || 1) : 1;
-
-          const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
-              ...orderData,
-              status: initialStatus,
-              visibleStatus: visibleStatus,
-              createdAt: serverTimestamp(),
-              globalBatch: activeBatch,
-              manualSeasonId: seasons.length > 0 ? seasons[seasons.length - 1].id : 'default' 
-          });
-
-          if (orderData.paymentMethod !== 'cash') {
-              if (orderData.customer.email) {
-                  const mailRef = doc(collection(db, 'mail'));
-                  const orderWithId = { ...orderData, id: docRef.id };
-                  
-                  await setDoc(mailRef, {
-                      to: [orderData.customer.email],
-                      message: {
-                          subject: `✅ Recibo de Pedido: ${orderData.clubName}`,
-                          html: generateInvoiceEmailHTML(orderWithId, orderData.clubName),
-                          text: `Tu pedido ha sido confirmado. Importe: ${orderData.total}€`
-                      }
-                  });
-              }
-          }
-
-          setCart([]);
-          setView('success');
-          
-      } catch (error) {
-          console.error("Error creando pedido:", error);
-          alert("Hubo un error al procesar el pedido. Inténtalo de nuevo.");
-      }
-  };
-
-  const createSpecialOrder = async (orderData) => { 
-      try { 
-          await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), { 
-              ...orderData, 
-              createdAt: serverTimestamp(), 
-              status: 'en_produccion', 
-              visibleStatus: 'Pedido Especial en Curso', 
-              type: 'special', 
-              globalBatch: 'SPECIAL', 
-              incidents: [] 
-          }); 
-          showNotification('Pedido especial registrado con éxito'); 
-      } catch(e) { 
-          showNotification('Error al crear pedido especial', 'error'); 
-      } 
-  };
-
-  // --- FUNCIÓN ACTUALIZAR ESTADO ---
-  const updateOrderStatus = async (orderId, newStatus, visibleStatus, orderData) => {
-      try {
-          const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId);
-          
-          await updateDoc(orderRef, { 
-              status: newStatus, 
-              visibleStatus: visibleStatus 
-          });
-
-          if (orderData && orderData.paymentMethod === 'cash' && newStatus === 'recopilando') {
-              if (orderData.customer && orderData.customer.email) {
-                  const mailRef = doc(collection(db, 'mail'));
-                  await setDoc(mailRef, {
-                      to: [orderData.customer.email],
-                      message: {
-                          subject: `✅ Pago Recibido - Factura Pedido ${orderData.clubName || 'Club'}`,
-                          html: generateInvoiceEmailHTML(orderData, orderData.clubName || 'Tu Club'),
-                          text: `El club ha validado tu pago en efectivo. Tu pedido entra en fase de recopilación.`
-                      }
-                  });
-                  showNotification(`Pedido validado y factura enviada al cliente.`);
-                  return; 
-              }
-          }
-
-          showNotification('Estado del pedido actualizado');
-      } catch (error) {
-          console.error("Error actualizando estado:", error);
-          showNotification('Error al actualizar el estado', 'error');
-      }
-  };
-
-  const addIncident = async (orderId, incidentData) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents: arrayUnion(incidentData) }); showNotification('Incidencia/Reimpresión registrada'); } catch (e) { showNotification('Error registrando incidencia', 'error'); } };
-  
-  const updateIncidentStatus = async (orderId, incidents) => { try { const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); await updateDoc(orderRef, { incidents }); showNotification('Estado de incidencia actualizado'); } catch(e) { showNotification('Error actualizando incidencia', 'error'); } };
-
   const handleLogin = (username, password) => { 
       if (username === 'admin' && password === 'admin123') { 
           setRole('admin'); 
@@ -297,18 +139,19 @@ export default function App() {
       } 
   };
   
+  // 8. RENDERIZADO VISUAL
   return (
     <div className={`min-h-screen font-sans text-gray-800 transition-colors duration-500 ${getThemeClass()} flex flex-col`}>
       <CampaignDecorations config={campaignConfig} />
       
-      {/* 1. Banners y Navegación */}
+      {/* Banners y Navegación */}
       <TopBanners campaignConfig={campaignConfig} storeConfig={storeConfig} />
       <Navbar setView={setView} role={role} currentClub={currentClub} cart={cart} storeConfig={storeConfig} setRole={setRole} setCurrentClub={setCurrentClub} />
 
-      {/* 2. Modales y Alertas globales */}
+      {/* Modales y Alertas globales */}
       <ConfirmModal confirmation={confirmation} setConfirmation={setConfirmation} />
       
-      {/* 3. Contenido Principal (Rutas) */}
+      {/* Contenido Principal (Rutas) */}
       <main className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 flex-grow relative">
         <NotificationToast notification={notification} />
         
@@ -331,7 +174,7 @@ export default function App() {
         </Routes>
       </main>
 
-      {/* 4. Pie de página */}
+      {/* Pie de página */}
       <Footer setView={setView} />
     </div>
   );

@@ -8,7 +8,7 @@ import {
   FileDown, Users, Table, Hash, MapPin, Contact, Phone, Camera, Star, Award, ShoppingBag, 
   Trash2, ShieldCheck, Truck, Image as ImageIcon, X, Check, AlertCircle, BarChart3, CreditCard, Search
 } from 'lucide-react';
-import { collection, doc, updateDoc, writeBatch, arrayUnion, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, setDoc, doc, updateDoc, writeBatch, arrayUnion, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
 import { ref, listAll } from 'firebase/storage';
 import ExcelJS from 'exceljs';
 

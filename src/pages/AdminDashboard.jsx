@@ -1,13 +1,10 @@
-import React, { useState, useEffect, useMemo } from 'react';
+import React, { useState } from 'react';
+
 import { 
   LayoutDashboard, Package, Briefcase, Banknote, Factory, Calendar, Folder, AlertTriangle,  
-  Image as ImageIcon, AlertCircle, BarChart3,
+  AlertCircle, BarChart3,
 } from 'lucide-react';
 
-import { collection, doc, updateDoc, writeBatch, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
-
-import { db } from '../config/firebase';
-import { appId } from '../config/constants';
 import { Button } from '../components/ui/Button';
 
 // UTILS
@@ -41,19 +38,17 @@ import { useDashboardActions } from '../hooks/useDashboardActions';
 import { useAutoCloseBatches } from '../hooks/useAutoCloseBatches';
 import { useAccountingHandlers } from '../hooks/useAccountingHandlers';
 import { useDeleteHandlers } from '../hooks/useDeleteHandlers';
+import { useDashboardModals } from '../hooks/useDashboardModals';
+import { useIncidents } from '../hooks/useIncidents';
 
-export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch, campaignConfig, setCampaignConfig,}) {
+export function AdminDashboard({ products, orders, clubs, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch, campaignConfig, setCampaignConfig,}) {
   const [tab, setTab] = useState('management');
   const [financeSeasonId, setFinanceSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
 
   // Modificamos el estado de mover temporada para que acepte lotes completos
   const [moveSeasonModal, setMoveSeasonModal] = useState({ active: false, target: null, type: 'batch' }); // type: 'batch' | 'order'
-  const [isEditingActiveBatch, setIsEditingActiveBatch] = useState(false);
-  const [tempBatchValue, setTempBatchValue] = useState(1);
   const [filterClubId, setFilterClubId] = useState('all');
   const [selectedClubId, setSelectedClubId] = useState(clubs[0]?.id || '');
-  const [selectedClubFiles, setSelectedClubFiles] = useState(null);
-  const [selectedFolder, setSelectedFolder] = useState(null);
   const [statsClubFilter, setStatsClubFilter] = useState('all');
 
   // --- ESTADOS PARA EDICIÓN Y MOVIMIENTOS ---
@@ -63,22 +58,7 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
       modified: null 
   });
 
-    // --- PEGAR ESTO JUNTO A LOS OTROS useState ---
-  const [incidents, setIncidents] = useState([]);
-  
-  // Calcula cuántas no están cerradas ni resueltas (es decir, 'open')
-    const pendingCount = incidents.filter(i => i.status === 'open').length;
-
-  // Cargar incidencias cuando entres en la pestaña
-  useEffect(() => {
-    if (tab === 'incidents') {
-      const q = query(collection(db, 'incidents'), orderBy('createdAt', 'desc'));
-      const unsub = onSnapshot(q, (snapshot) => {
-        setIncidents(snapshot.docs.map(d => ({ id: d.id, ...d.data() })));
-      });
-      return () => unsub();
-    }
-  }, [tab]);
+  const { incidents, pendingCount } = useIncidents(tab);
 
   // --- NUEVO ESTADO PARA GESTIÓN AVANZADA DE LOTES ---
     const [manageBatchModal, setManageBatchModal] = useState({
@@ -125,19 +105,6 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
     const initiateStatusChange = (clubId, batchId, newStatus) => {
     console.log("CLICK DETECTADO:", { clubId, batchId, newStatus }); // <--- Añade esto para comprobar
     setStatusChangeModal({ active: true, clubId, batchId, newStatus });
-    };
-
-
-    // Función para mostrar nombres bonitos de los estados
-    const formatStatus = (status) => {
-        switch(status) {
-            case 'recopilando': return 'Recopilando';
-            case 'en_produccion': return 'En Producción';
-            case 'entregado_club': return 'Entregado';
-            case 'pendiente_validacion': return 'Pendiente';
-            case 'pagado': return 'Pagado';
-            default: return status || '-';
-        }
     };
 
     // --- NUEVO ESTADO: VISOR DE HISTORIAL DE LOTE ---
@@ -190,9 +157,9 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
   const selectedClub = clubs.find(c => c.id === selectedClubId) || clubs[0];
 
   const {
-    financialOrders, visibleOrders, statsData, errorStats,
+    financialOrders, statsData, errorStats,
     accountingData, globalAccountingStats, totalRevenue,
-    totalIncidentCosts, netProfit, averageTicket
+    netProfit, averageTicket
   } = useDashboardStats({
     orders, seasons, clubs, financialConfig,
     financeSeasonId, statsClubFilter, filterClubId
@@ -208,233 +175,23 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
   useAutoCloseBatches(clubs, orders, showNotification);
   const { handlePaymentChange, updateBatchValue } = useAccountingHandlers(updateClub, setConfirmation);
   const { handleDeleteOrder, handleDeleteGlobalBatch, handleDeleteSeasonData } = useDeleteHandlers(orders, seasons, setConfirmation, showNotification);
+  const {
+      handlePreSaveOrder,
+      handleMoveBatchSeasonSubmit,
+      handleRevertGlobalBatch,
+      processRevertBatch
+  } = useDashboardModals({
+      orders, clubs, showNotification, setConfirmation,
+      editOrderModal, setEditOrderModal,
+      moveSeasonModal, setMoveSeasonModal,
+      revertModal, setRevertModal, decrementClubGlobalOrder
+  });
 
   const executeBatchManagement = () => processBatchManagement(manageBatchModal, orders, setManageBatchModal);
   const handleSendSupplierEmails = (targetSuppliers, batchId, club) => sendSupplierEmails(targetSuppliers, batchId, club);
   const executeBatchStatusUpdate = (shouldNotify) => processBatchStatusUpdate(statusChangeModal, shouldNotify, orders, clubs, setStatusChangeModal);
   const submitIncident = () => createIncidentReplacement(incidentForm, clubs, setIncidentForm);
 
-
-    // --- FUNCIÓN: PREPARAR Y GUARDAR EDICIÓN (Con Resumen) ---
-  const handlePreSaveOrder = () => {
-      const { original, modified } = editOrderModal;
-      if (!original || !modified) return;
-
-      const changes = [];
-
-      // 1. Detectar cambios en cliente
-      if(original.customer.name !== modified.customer.name) 
-          changes.push(`👤 Cliente: "${original.customer.name}" ➝ "${modified.customer.name}"`);
-      if(original.customer.email !== modified.customer.email) 
-          changes.push(`📧 Email: "${original.customer.email}" ➝ "${modified.customer.email}"`);
-
-      // 2. Detectar cambios en productos
-      modified.items.forEach((mItem, idx) => {
-          const oItem = original.items[idx];
-          const prodName = mItem.name || 'Producto';
-          
-          if (!oItem) {
-               changes.push(`➕ Nuevo producto: ${prodName}`);
-          } else {
-               if(oItem.name !== mItem.name) changes.push(`📦 Nombre (${idx+1}): "${oItem.name}" ➝ "${mItem.name}"`);
-               if(oItem.quantity !== mItem.quantity) changes.push(`🔢 Cantidad (${prodName}): ${oItem.quantity} ➝ ${mItem.quantity}`);
-               if(oItem.playerNumber !== mItem.playerNumber) changes.push(`Shirt # (${prodName}): ${oItem.playerNumber || '-'} ➝ ${mItem.playerNumber || '-'}`);
-               if(oItem.playerName !== mItem.playerName) changes.push(`Shirt Name (${prodName}): ${oItem.playerName || '-'} ➝ ${mItem.playerName || '-'}`);
-               if(oItem.price !== mItem.price) changes.push(`💶 Precio (${prodName}): ${oItem.price}€ ➝ ${mItem.price}€`);
-          }
-      });
-
-      if (changes.length === 0) {
-          showNotification('No se han detectado cambios', 'warning');
-          return;
-      }
-
-      // 3. Pedir Confirmación con Resumen
-      setConfirmation({
-          title: "Confirmar Modificaciones",
-          msg: "Estás a punto de aplicar los siguientes cambios:",
-          details: changes, // Pasamos la lista de cambios
-          onConfirm: async () => {
-              try {
-                  // Recalcular total
-                  const newTotal = modified.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-                  
-                  await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', modified.id), {
-                      customer: modified.customer,
-                      items: modified.items,
-                      total: newTotal
-                  });
-                  showNotification('Cambios aplicados correctamente');
-                  setEditOrderModal({ active: false, original: null, modified: null });
-              } catch (e) {
-                  showNotification('Error al guardar cambios', 'error');
-              }
-          }
-      });
-  };
-
-// --- FUNCIÓN: MOVER LOTE DE TEMPORADA ---
-  const handleMoveBatchSeasonSubmit = async (newSeasonId) => {
-      if (!moveSeasonModal.target) return;
-      const { clubId, batchId } = moveSeasonModal.target;
-      
-      const ordersInBatch = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId);
-      
-      try {
-          const batch = writeBatch(db);
-          ordersInBatch.forEach(o => {
-              const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
-              batch.update(ref, { manualSeasonId: newSeasonId });
-          });
-          await batch.commit();
-          showNotification(`Lote #${batchId} movido a la nueva temporada`);
-          setMoveSeasonModal({ active: false, target: null });
-      } catch (e) {
-          showNotification('Error al mover el lote', 'error');
-      }
-  };
-
-  // --- FUNCIÓN: GUARDAR EDICIÓN DE PEDIDO ---
-  const handleSaveOrderEdit = async () => {
-      if (!editOrderModal.order) return;
-      try {
-          const o = editOrderModal.order;
-          // Recalcular total por si se cambiaron precios
-          const newTotal = o.items.reduce((acc, item) => acc + (item.price * item.quantity), 0);
-          
-          await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id), {
-              customer: o.customer,
-              items: o.items,
-              total: newTotal
-          });
-          showNotification('Pedido modificado correctamente');
-          setEditOrderModal({ active: false, order: null });
-      } catch (e) {
-          showNotification('Error al guardar cambios', 'error');
-      }
-  };
-
-// --- FUNCIÓN PARA EDITAR LOTE ACTIVO (CON REACTIVACIÓN SEGURA) ---
-  const saveActiveBatchManually = () => {
-      if (!selectedClubId) return;
-      
-      const targetBatchId = parseInt(tempBatchValue);
-      if (isNaN(targetBatchId) || targetBatchId < 1) {
-          showNotification('Número de lote inválido', 'error');
-          return;
-      }
-
-      // 1. Buscamos si existen pedidos en ese lote destino
-      const batchOrders = orders.filter(o => 
-          o.clubId === selectedClubId && 
-          o.globalBatch === targetBatchId &&
-          o.status !== 'pendiente_validacion'
-      );
-
-      // 2. Comprobamos si el lote está "cerrado" (tiene pedidos que no están recopilando)
-      const needsReopening = batchOrders.some(o => o.status !== 'recopilando');
-
-      const performUpdate = async (shouldReopenOrders) => {
-          try {
-              // A. Si hay que reactivar, actualizamos los pedidos en Firebase
-              if (shouldReopenOrders && batchOrders.length > 0) {
-                  const batch = writeBatch(db);
-                  batchOrders.forEach(order => {
-                      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-                      // Forzamos estado 'recopilando'
-                      batch.update(ref, { status: 'recopilando', visibleStatus: 'Recopilando (Reabierto)' });
-                  });
-                  await batch.commit();
-              }
-
-              // B. Actualizamos el puntero del Club (Estado Local)
-              const club = clubs.find(c => c.id === selectedClubId);
-              updateClub({ ...club, activeGlobalOrderId: targetBatchId });
-              
-              setIsEditingActiveBatch(false);
-              showNotification(shouldReopenOrders 
-                  ? `Lote #${targetBatchId} reactivado y establecido como actual.` 
-                  : `Lote activo actualizado a #${targetBatchId}`
-              );
-          } catch (e) {
-              console.error(e);
-              showNotification('Error al actualizar el lote', 'error');
-          }
-      };
-
-      // 3. Lógica de Confirmación
-      if (needsReopening) {
-          setConfirmation({
-              title: "⚠️ ¿Reactivar Lote Cerrado?",
-              msg: `El Lote Global #${targetBatchId} contiene pedidos que ya están EN PRODUCCIÓN o ENTREGADOS.\n\nSi lo seleccionas como ACTIVO, todos sus pedidos volverán al estado "RECOPILANDO" para aceptar cambios o nuevos añadidos.\n\n¿Estás seguro?`,
-              onConfirm: () => performUpdate(true)
-          });
-      } else {
-          // Si el lote está vacío o ya está recopilando, cambiamos directamente
-          performUpdate(false);
-      }
-  };
-  
-
-// --- DENTRO DE AdminDashboard (Sustituir función existente) ---
-
-  const toggleIncidentResolved = (order, incidentId) => {
-      const updatedIncidents = order.incidents.map(inc => 
-          inc.id === incidentId ? { ...inc, resolved: !inc.resolved } : inc
-      );
-      updateIncidentStatus(order.id, updatedIncidents);
-  };
-
-  const handleRevertGlobalBatch = (clubId) => {
-      const club = clubs.find(c => c.id === clubId);
-      if (!club || club.activeGlobalOrderId <= 1) return;
-      const currentBatchId = club.activeGlobalOrderId;
-      const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === currentBatchId);
-
-      if (batchOrders.length === 0) {
-          decrementClubGlobalOrder(clubId, currentBatchId - 1);
-      } else {
-          setRevertModal({ active: true, clubId, currentBatchId, ordersCount: batchOrders.length });
-      }
-  };
-
-  const processRevertBatch = async (action) => {
-      const { clubId, currentBatchId } = revertModal;
-      if (!clubId) return;
-      const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === currentBatchId);
-      
-      try {
-          const batch = writeBatch(db);
-          batchOrders.forEach(order => {
-              if (action === 'delete') {
-                  batch.delete(doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id));
-              } else {
-                  batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id), { globalBatch: currentBatchId - 1 });
-              }
-          });
-          await batch.commit();
-          decrementClubGlobalOrder(clubId, currentBatchId - 1);
-          setRevertModal({ active: false, clubId: null, currentBatchId: null, ordersCount: 0 });
-      } catch (e) {
-          console.error("Error processing revert:", e);
-          alert("Error al procesar la acción. Inténtalo de nuevo.");
-      }
-  };
-
-  // ---------------------------------------------------------
-  // NUEVO: LÓGICA DE GESTIÓN DE DATOS Y EXCEL
-  // ---------------------------------------------------------
-  
-  // Estado local para el selector de temporada en esta sección
-  const [dataManageSeasonId, setDataManageSeasonId] = useState(seasons[seasons.length - 1]?.id || '');
-
-// --- FUNCIONES AUXILIARES PARA EXCEL ---
-
-  const escapeXml = (unsafe) => {
-      return unsafe ? unsafe.toString().replace(/[<>&'"]/g, c => {
-          switch (c) { case '<': return '&lt;'; case '>': return '&gt;'; case '&': return '&amp;'; case '\'': return '&apos;'; case '"': return '&quot;'; }
-      }) : '';
-  };
 
   return (
     <div>

@@ -1,20 +1,16 @@
 import React, { useState, useEffect, useMemo } from 'react';
 import { 
   LayoutDashboard, Package, Briefcase, Banknote, Factory, Calendar, Folder, AlertTriangle,  
-  Mail,
-  ArrowRight, 
-  MoveLeft,
-  Trash2, Image as ImageIcon, X, Check, AlertCircle, BarChart3,
+  Image as ImageIcon, AlertCircle, BarChart3,
 } from 'lucide-react';
 
-import { collection, doc, updateDoc, writeBatch, arrayUnion, deleteDoc, onSnapshot, query, orderBy, serverTimestamp } from 'firebase/firestore';
+import { collection, doc, updateDoc, writeBatch, deleteDoc, onSnapshot, query, orderBy } from 'firebase/firestore';
 
 import { db } from '../config/firebase';
 import { appId } from '../config/constants';
 import { Button } from '../components/ui/Button';
 
 // UTILS
-import { generateStockEmailHTML, generateEmailHTML } from '../utils/emailTemplates';
 import { generateSeasonExcel } from '../utils/excelExport';
 
 import { FilesManager } from '../components/admin/FilesManager';
@@ -41,6 +37,10 @@ import { FinancesTab } from '../components/admin/tabs/FinancesTab';
 
 // HOOKS
 import { useDashboardStats } from '../hooks/useDashboardStats';
+import { useDashboardActions } from '../hooks/useDashboardActions';
+import { useAutoCloseBatches } from '../hooks/useAutoCloseBatches';
+import { useAccountingHandlers } from '../hooks/useAccountingHandlers';
+import { useDeleteHandlers } from '../hooks/useDeleteHandlers';
 
 export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatch, updateOrderStatus, financialConfig, setFinancialConfig, updateFinancialConfig, updateProduct, addProduct, deleteProduct, createClub, deleteClub, updateClub, toggleClubBlock, modificationFee, setModificationFee, seasons, addSeason, deleteSeason, toggleSeasonVisibility, storeConfig, setStoreConfig, incrementClubGlobalOrder, decrementClubGlobalOrder, showNotification, createSpecialOrder, addIncident, updateIncidentStatus, suppliers, createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch, campaignConfig, setCampaignConfig,}) {
   const [tab, setTab] = useState('management');
@@ -112,92 +112,6 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
       });
   };
 
-// --- FUNCIÓN EJECUTAR (ROBUSTA) ---
-  const executeBatchManagement = async () => {
-      const { club, batchId, orders: batchOrders, action, targetBatch, deleteType } = manageBatchModal;
-      if (!club || !batchId) return;
-
-      if (action === 'move' && !targetBatch) {
-          showNotification("Debes seleccionar un lote de destino", "error");
-          return;
-      }
-
-      try {
-          const batch = writeBatch(db);
-          
-          // Lógica robusta para identificar IDs numéricos
-          let batchNum = typeof batchId === 'number' ? batchId : 0;
-          let isErrorBatch = false;
-
-          if (typeof batchId === 'string' && batchId.startsWith('ERR')) {
-              isErrorBatch = true;
-              batchNum = parseInt(batchId.split('-')[1]); // "ERR-2" -> 2
-          }
-
-          // 1. PROCESAR PEDIDOS (Mover o Borrar)
-          batchOrders.forEach(order => {
-              const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-              if (action === 'delete') {
-                  batch.delete(ref);
-              } else {
-                  // Lógica de mover (igual que antes)
-                  let finalGlobalBatch = targetBatch;
-                  if (targetBatch === 'ERR_ACTIVE') {
-                      finalGlobalBatch = `ERR-${club.activeErrorBatchId || 1}`;
-                  } else if (targetBatch !== 'INDIVIDUAL' && targetBatch !== 'SPECIAL') {
-                      if (!String(targetBatch).startsWith('ERR')) finalGlobalBatch = parseInt(targetBatch);
-                  }
-                  batch.update(ref, { 
-                      globalBatch: finalGlobalBatch, 
-                      status: 'recopilando', 
-                      visibleStatus: 'Recopilando (Traspasado)' 
-                  });
-              }
-          });
-
-          // 2. RETROCEDER CONTADOR (Solo si es 'delete full' y coincide con el activo)
-          if (action === 'delete' && deleteType === 'full') {
-              const clubRef = doc(db, 'clubs', club.id);
-              
-              if (isErrorBatch) {
-                  // CASO ERROR: ERR-2 -> Retroceder a 1
-                  const currentActiveErr = parseInt(club.activeErrorBatchId || 1);
-                  if (batchNum === currentActiveErr && batchNum >= 1) {
-                      // Restamos 1 (si es 1 pasa a 0 y desaparecen los errores)
-                      batch.update(clubRef, { activeErrorBatchId: batchNum - 1 });
-                      
-                      // Reabrir pedidos del anterior (si existen)
-                      if (batchNum > 1) {
-                          const prevBatchId = `ERR-${batchNum - 1}`;
-                          const prevOrders = orders.filter(o => o.clubId === club.id && o.globalBatch === prevBatchId);
-                          prevOrders.forEach(po => batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'orders', po.id), { status: 'recopilando' }));
-                      }
-                  }
-              } else {
-                  // CASO STANDARD: 5 -> Retroceder a 4
-                  const currentActiveStd = parseInt(club.activeGlobalOrderId || 1);
-                  if (batchNum === currentActiveStd && batchNum >= 1) {
-                      batch.update(clubRef, { activeGlobalOrderId: batchNum - 1 });
-                      
-                      if (batchNum > 1) {
-                          const prevOrders = orders.filter(o => o.clubId === club.id && o.globalBatch === batchNum - 1);
-                          prevOrders.forEach(po => batch.update(doc(db, 'artifacts', appId, 'public', 'data', 'orders', po.id), { status: 'recopilando' }));
-                      }
-                  }
-              }
-          }
-
-          await batch.commit();
-          
-          showNotification(action === 'move' ? 'Pedidos traspasados' : 'Lote eliminado correctamente');
-          setManageBatchModal({ ...manageBatchModal, active: false });
-
-      } catch (error) {
-          console.error("Error batch management:", error);
-          showNotification("Error al procesar", "error");
-      }
-  };
-
 
   // Estado para controlar el modal de cambio de estado con notificación
     const [statusChangeModal, setStatusChangeModal] = useState({ 
@@ -213,255 +127,6 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
     setStatusChangeModal({ active: true, clubId, batchId, newStatus });
     };
 
-    // --- FUNCIÓN PARA ENVIAR CORREOS DE PREVISIÓN (CON HISTORIAL DETALLADO) ---
-    const handleSendSupplierEmails = async (targetSuppliers, batchId, club) => {
-        if (!targetSuppliers.length) return;
-        
-        const batchWrite = writeBatch(db);
-        let sentCount = 0;
-        const nowStr = new Date().toISOString();
-        
-        // Obtenemos el historial actual del club para no perder datos al escribir
-        // (Nota: club ya viene actualizado en las props si se usa onSnapshot en App)
-        const currentBatchLog = (club.accountingLog && club.accountingLog[batchId]) ? club.accountingLog[batchId] : {};
-        const currentEmailHistory = currentBatchLog.supplierEmails || {};
-
-        const clubRef = doc(db, 'clubs', club.id);
-        const updates = {};
-
-        targetSuppliers.forEach(data => {
-            if (!data.email) return;
-
-            // 1. Preparar destinatarios y CC
-            const ccEmails = (data.contacts || [])
-                .filter(c => c.ccDefault === true && c.email)
-                .map(c => c.email);
-
-            const emailSubject = `FotoEsport Merch // ${club.name} // Pedido Global ${batchId}`;
-
-            // 2. Crear documento de Email
-            const mailRef = doc(collection(db, 'mail'));
-            batchWrite.set(mailRef, {
-                to: [data.email],
-                cc: ccEmails, 
-                message: {
-                    subject: emailSubject,
-                    html: generateStockEmailHTML(data.name, batchId, club.name, data.stockItems),
-                    text: `Previsión de stock para ${club.name}. Lote ${batchId}.`
-                },
-                metadata: {
-                    type: 'stock_forecast',
-                    supplierId: data.id,
-                    clubId: club.id,
-                    batchId: batchId,
-                    sentAt: nowStr,
-                    snapshotQty: data.totalUnits // Guardamos cuántos había al enviar
-                }
-            });
-
-            // 3. Preparar el nuevo objeto de historial
-            const newHistoryEntry = {
-                sentAt: nowStr,
-                qty: data.totalUnits,     // Cantidad total en este momento
-                refs: data.stockItems.length // Cantidad de productos distintos
-            };
-
-            // 4. Obtener historial previo de este proveedor
-            let supplierHistory = currentEmailHistory[data.id];
-
-            // Gestión de compatibilidad: si antes era un string (código antiguo), lo convertimos a array
-            if (typeof supplierHistory === 'string') {
-                supplierHistory = [{ sentAt: supplierHistory, qty: '?', refs: '?' }];
-            } else if (!Array.isArray(supplierHistory)) {
-                supplierHistory = [];
-            }
-
-            // Añadimos la nueva entrada
-            const newHistoryList = [...supplierHistory, newHistoryEntry];
-            
-            // Preparamos el update usando notación de punto para este proveedor específico
-            updates[`accountingLog.${batchId}.supplierEmails.${data.id}`] = newHistoryList;
-
-            sentCount++;
-        });
-
-        if (sentCount > 0) {
-            // Ejecutamos todos los updates del club en el batch
-            batchWrite.update(clubRef, updates);
-
-            try {
-                await batchWrite.commit();
-                showNotification(`✅ Enviados ${sentCount} correos y actualizado historial.`);
-            } catch (e) {
-                console.error("Error envío:", e);
-                showNotification("Error al enviar correos.", "error");
-            }
-        }
-    };
-
-
-    // --- FUNCIÓN ACTUALIZADA: GUARDA HISTORIAL GLOBAL EN EL CLUB CON VALIDACIÓN DE TIPOS ---
-    const executeBatchStatusUpdate = async (shouldNotify) => {
-        const { clubId, batchId, newStatus } = statusChangeModal;
-        if (!clubId || !batchId || !newStatus) return;
-
-        // --- NUEVA VALIDACIÓN: IMPEDIR MÚLTIPLES LOTES ACTIVOS DEL MISMO TIPO ---
-        if (newStatus === 'recopilando') {
-            // 1. Determinar el tipo del lote que intentamos activar
-            const targetIsError = String(batchId).startsWith('ERR');
-            const targetIsIndividual = batchId === 'INDIVIDUAL';
-            const targetIsGlobal = !targetIsError && !targetIsIndividual; // Lotes numéricos normales (1, 2, 3...)
-
-            // 2. Buscar si ya existe algún pedido/lote en 'recopilando' que sea conflictivo
-            const conflictOrder = orders.find(o => {
-                // Solo revisar pedidos de este club
-                if (o.clubId !== clubId) return false;
-                // Solo nos importan los que están activos actualmente
-                if (o.status !== 'recopilando') return false;
-                // Ignoramos los pedidos que pertenecen al lote que estamos editando (no son conflicto)
-                if (o.globalBatch === batchId) return false;
-
-                // Determinar tipo del pedido encontrado
-                const currentIsError = String(o.globalBatch).startsWith('ERR');
-                const currentIsIndividual = o.globalBatch === 'INDIVIDUAL';
-                const currentIsGlobal = !currentIsError && !currentIsIndividual;
-
-                // 3. Verificar colisión de tipos
-                if (targetIsError && currentIsError) return true;       // Conflicto: Dos lotes de errores abiertos
-                if (targetIsIndividual && currentIsIndividual) return true; // Conflicto: Dos grupos individuales (raro)
-                if (targetIsGlobal && currentIsGlobal) return true;     // Conflicto: Lote 1 abierto y abrimos Lote 2
-
-                return false;
-            });
-
-            if (conflictOrder) {
-                showNotification(`⛔ ACCIÓN DENEGADA: Ya tienes el Lote Global #${conflictOrder.globalBatch} en estado "Recopilando". Debes pasarlo a producción antes de abrir otro del mismo tipo.`, 'error');
-                setStatusChangeModal({ ...statusChangeModal, active: false });
-                return; // DETENEMOS LA EJECUCIÓN AQUÍ
-            }
-        }
-        // --------------------------------------------------------------------------
-
-        setStatusChangeModal({ ...statusChangeModal, active: false });
-
-        // Filtramos los pedidos del lote
-        const batchOrders = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId && o.status !== 'pendiente_validacion'); 
-        
-        // Obtenemos el nombre del club para el email
-        const club = clubs.find(c => c.id === clubId);
-        const clubName = club ? club.name : 'Tu Club';
-
-        const batchWrite = writeBatch(db);
-        let count = 0; 
-        let notifiedCount = 0;
-        const now = new Date().toISOString();
-        
-        // Estado anterior para el log
-        const prevStatus = batchOrders[0]?.status || 'desconocido';
-
-        // 1. Actualizar Pedidos Individuales y PREPARAR EMAILS
-        batchOrders.forEach(order => {
-            // Solo actualizamos si el estado es diferente
-            if (order.status !== newStatus) { 
-                const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-                
-                // Actualización del pedido
-                const updates = { 
-                    status: newStatus, 
-                    visibleStatus: newStatus === 'recopilando' ? 'Recopilando' : newStatus === 'en_produccion' ? 'En Producción' : 'Entregado al Club'
-                };
-                
-                // LOGICA DE EMAIL
-                if (shouldNotify) {
-                    const targetEmail = order.customer.email;
-                    // CAMBIO 3: Verificar explícitamente si el cliente marcó la casilla
-                    const wantsUpdates = order.customer.emailUpdates === true;
-
-                    if (wantsUpdates && targetEmail && targetEmail.includes('@') && targetEmail.length > 5) {
-                        const mailRef = doc(collection(db, 'mail'));
-                        batchWrite.set(mailRef, {
-                            to: [targetEmail],
-                            message: {
-                                subject: `📢 Estado Actualizado: Pedido ${clubName} (#${order.id.slice(0,6)})`,
-                                html: generateEmailHTML(order, newStatus, clubName),
-                                text: `Tu pedido ha cambiado al estado: ${newStatus}. Contacta con tu club para más detalles.`
-                            },
-                            metadata: {
-                                orderId: order.id,
-                                clubId: clubId,
-                                batchId: batchId,
-                                timestamp: serverTimestamp()
-                            }
-                        });
-                        updates.notificationLog = arrayUnion({ 
-                            date: now, 
-                            statusFrom: order.status,
-                            statusTo: newStatus, 
-                            method: 'email' 
-                        });
-                        notifiedCount++;
-                    }
-                }
-
-                batchWrite.update(ref, updates);
-                count++; 
-            }
-        });
-
-        // 2. Guardar Historial GLOBAL en el Club
-        const clubRefDoc = doc(db, 'clubs', clubId);
-        const globalLogEntry = {
-            batchId: batchId,
-            date: now,
-            statusFrom: prevStatus,
-            statusTo: newStatus,
-            notifiedCount: shouldNotify ? notifiedCount : 0,
-            action: 'Cambio de Estado'
-        };
-        
-        batchWrite.update(clubRefDoc, {
-            batchHistory: arrayUnion(globalLogEntry)
-        });
-
-        // 3. Lógica de Tregua y Avance de Contadores
-        if (newStatus === 'recopilando') {
-            // Si activamos un lote, reseteamos el tiempo de reapertura (Tregua)
-            batchWrite.update(clubRefDoc, { lastBatchReopenTime: Date.now() });
-            
-            // ADICIONAL: Si es un lote numérico, nos aseguramos de que el club apunte a este como activo
-            // Esto corrige inconsistencias si se reabre un lote antiguo manualmente
-            if (typeof batchId === 'number' && !String(batchId).startsWith('ERR')) {
-                batchWrite.update(clubRefDoc, { activeGlobalOrderId: batchId });
-            }
-        }
-        
-        if (newStatus === 'en_produccion') { 
-            // A) Lógica existente para Lotes Globales Numéricos (1, 2, 3...)
-            if (club && club.activeGlobalOrderId === batchId) { 
-                batchWrite.update(clubRefDoc, { activeGlobalOrderId: club.activeGlobalOrderId + 1 });
-            } 
-
-            // B) Lógica: Lotes de Errores (ERR-1, ERR-2...)
-            if (typeof batchId === 'string' && batchId.startsWith('ERR-')) {
-                const currentErrNum = parseInt(batchId.split('-')[1]);
-                const activeErrNum = parseInt(club.activeErrorBatchId || 1);
-                
-                if (!isNaN(currentErrNum) && currentErrNum === activeErrNum) {
-                    batchWrite.update(clubRefDoc, { activeErrorBatchId: activeErrNum + 1 });
-                }
-            }
-        }
-
-        try {
-            await batchWrite.commit();
-            let msg = `Lote #${batchId}: ${count} pedidos actualizados.`;
-            if (shouldNotify) msg += ` Se han puesto en cola ${notifiedCount} correos electrónicos.`;
-            if (showNotification) showNotification(msg, 'success');
-        } catch (e) {
-            console.error(e);
-            if (showNotification) showNotification("Error al actualizar lote y enviar correos", "error");
-        }
-    };
 
     // Función para mostrar nombres bonitos de los estados
     const formatStatus = (status) => {
@@ -482,71 +147,6 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
         batchId: null, 
         clubName: '' 
     });
-
-    // EFECTO: AUTOMATIZACIÓN DE CIERRE (Con margen de 5 minutos + Avanzar Lote)
-    useEffect(() => {
-        const checkAndAutoCloseBatches = async () => {
-            if (!orders || orders.length === 0 || !clubs || clubs.length === 0) return;
-
-            const today = new Date();
-            today.setHours(0, 0, 0, 0);
-
-            for (const club of clubs) {
-                if (club.nextBatchDate) {
-                    const closeDate = new Date(club.nextBatchDate);
-                    
-                    // Calculamos si estamos en "Tregua" (5 mins)
-                    const lastReopen = club.lastBatchReopenTime || 0;
-                    const minutesSinceReopen = (Date.now() - lastReopen) / 1000 / 60;
-                    const inGracePeriod = minutesSinceReopen < 5; 
-
-                    // Solo actuamos si la fecha venció Y NO estamos en tregua
-                    if (closeDate < today && !inGracePeriod) {
-                        
-                        const activeBatchId = club.activeGlobalOrderId;
-                        
-                        // Buscamos pedidos del lote activo que sigan "recopilando"
-                        const ordersToUpdate = orders.filter(o => 
-                            o.clubId === club.id && 
-                            o.globalBatch === activeBatchId && 
-                            o.status === 'recopilando'
-                        );
-
-                        // Si hay pedidos o si simplemente queremos cerrar el lote vacío por fecha:
-                        if (ordersToUpdate.length > 0) {
-                            try {
-                                const batch = writeBatch(db);
-                                
-                                // 1. Actualizar los pedidos a "En Producción"
-                                ordersToUpdate.forEach(order => {
-                                    const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-                                    batch.update(ref, { 
-                                        status: 'en_produccion', 
-                                        visibleStatus: 'En Producción (Automático)' 
-                                    });
-                                });
-
-                                // 2. NUEVO: Cerrar Lote actual, abrir el siguiente y limpiar fecha
-                                const clubRef = doc(db, 'clubs', club.id);
-                                batch.update(clubRef, { 
-                                    activeGlobalOrderId: activeBatchId + 1, // Abrir siguiente
-                                    nextBatchDate: null // Quitar la fecha vencida
-                                });
-
-                                await batch.commit();
-                                showNotification(`📅 Lote #${activeBatchId} de ${club.name} cerrado y procesado.`, 'warning');
-                            } catch (error) {
-                                console.error("Error cierre automático:", error);
-                            }
-                        }
-                    }
-                }
-            }
-        };
-
-        const timer = setTimeout(checkAndAutoCloseBatches, 3000);
-        return () => clearTimeout(timer);
-    }, [clubs, orders]);
 
   const [confirmation, setConfirmation] = useState(null); // Nuevo estado local para confirmaciones
   
@@ -598,42 +198,22 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
     financeSeasonId, statsClubFilter, filterClubId
   });
 
+  const {
+      sendSupplierEmails,
+      processBatchStatusUpdate,
+      processBatchManagement,
+      createIncidentReplacement
+  } = useDashboardActions(showNotification);
 
-// --- FUNCIÓN: ELIMINAR PEDIDO (Corregida) ---
-  const handleDeleteOrder = (orderId) => {
-      setConfirmation({
-          msg: "⚠️ ¿Estás seguro de ELIMINAR este pedido definitivamente?",
-          onConfirm: async () => {
-              try {
-                  await deleteDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId));
-                  showNotification('Pedido eliminado correctamente');
-              } catch (e) {
-                  showNotification('Error al eliminar pedido', 'error');
-              }
-          }
-      });
-  };
+  useAutoCloseBatches(clubs, orders, showNotification);
+  const { handlePaymentChange, updateBatchValue } = useAccountingHandlers(updateClub, setConfirmation);
+  const { handleDeleteOrder, handleDeleteGlobalBatch, handleDeleteSeasonData } = useDeleteHandlers(orders, seasons, setConfirmation, showNotification);
 
-  // --- FUNCIÓN: ELIMINAR LOTE GLOBAL (Corregida) ---
-  const handleDeleteGlobalBatch = (clubId, batchId) => {
-      const ordersInBatch = orders.filter(o => o.clubId === clubId && o.globalBatch === batchId);
-      setConfirmation({
-          msg: `⚠️ PELIGRO: Vas a eliminar el LOTE GLOBAL #${batchId} con ${ordersInBatch.length} pedidos.\n\nEsta acción borrará TODOS los pedidos de este lote definitivamente.`,
-          onConfirm: async () => {
-              try {
-                  const batch = writeBatch(db);
-                  ordersInBatch.forEach(o => {
-                      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
-                      batch.delete(ref);
-                  });
-                  await batch.commit();
-                  showNotification(`Lote #${batchId} eliminado correctamente`);
-              } catch (e) {
-                  showNotification('Error al eliminar el lote', 'error');
-              }
-          }
-      });
-  };
+  const executeBatchManagement = () => processBatchManagement(manageBatchModal, orders, setManageBatchModal);
+  const handleSendSupplierEmails = (targetSuppliers, batchId, club) => sendSupplierEmails(targetSuppliers, batchId, club);
+  const executeBatchStatusUpdate = (shouldNotify) => processBatchStatusUpdate(statusChangeModal, shouldNotify, orders, clubs, setStatusChangeModal);
+  const submitIncident = () => createIncidentReplacement(incidentForm, clubs, setIncidentForm);
+
 
     // --- FUNCIÓN: PREPARAR Y GUARDAR EDICIÓN (Con Resumen) ---
   const handlePreSaveOrder = () => {
@@ -795,89 +375,6 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
       }
   };
   
-// --- LÓGICA DE CREACIÓN DE REPOSICIÓN (V2 - Soporte Individual) ---
-    const submitIncident = async () => {
-        if (!incidentForm.item || !incidentForm.order) return;
-
-        const { order, item, qty, cost, reason, responsibility, internalOrigin, recharge, targetBatch } = incidentForm;
-        
-        // Obtener el club actualizado para saber el ID de error actual
-        const currentClub = clubs.find(c => c.id === order.clubId);
-        
-        // LÓGICA DE LOTE DE ERRORES
-        let batchIdToSave = targetBatch;
-        if (targetBatch === 'ERRORS') {
-            const currentClub = clubs.find(c => c.id === order.clubId);
-            const errorId = currentClub?.activeErrorBatchId || 1; 
-            batchIdToSave = `ERR-${errorId}`; // <--- ESTO ES LA CLAVE
-        } else if (targetBatch !== 'INDIVIDUAL') {
-            batchIdToSave = parseInt(targetBatch);
-        }
-
-        const finalPrice = (responsibility === 'club' && recharge) ? item.price : 0;
-        
-        let finalCost = parseFloat(cost);
-        if (responsibility === 'internal' && internalOrigin === 'supplier') {
-            finalCost = 0;
-        }
-
-        const totalOrder = finalPrice * qty;
-
-        try {
-            await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
-                createdAt: serverTimestamp(),
-                clubId: order.clubId,
-                clubName: order.clubName || 'Club',
-                customer: { 
-                    name: `${order.customer.name} (REPOSICIÓN)`, 
-                    email: order.customer.email, 
-                    phone: order.customer.phone 
-                },
-                items: [{
-                    ...item,
-                    quantity: parseInt(qty),
-                    price: finalPrice,
-                    cost: finalCost,
-                    name: `${item.name} [REP]`
-                }],
-                total: totalOrder,
-                // Si es un lote de errores, lo ponemos en "recopilando" para que salga en el dashboard
-                status: targetBatch === 'INDIVIDUAL' ? 'en_produccion' : 'recopilando',
-                visibleStatus: 'Reposición / Incidencia',
-                type: 'replacement',
-                paymentMethod: 'incident', 
-                globalBatch: batchIdToSave,
-                relatedOrderId: order.id,
-                incidentDetails: {
-                    originalItemId: item.cartId,
-                    reason: reason,
-                    responsibility: responsibility,
-                    internalOrigin: responsibility === 'internal' ? internalOrigin : null
-                },
-                incidents: []
-            });
-
-            // ... (resto del código igual: updateDoc incidents array, showNotification, etc.)
-            const originalRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id);
-            await updateDoc(originalRef, {
-                incidents: arrayUnion({
-                    id: Date.now(),
-                    itemId: item.cartId,
-                    itemName: item.name,
-                    date: new Date().toISOString(),
-                    resolved: true,
-                    note: `Reposición generada (${String(batchIdToSave).startsWith('ERR') ? 'Lote Errores' : 'Lote ' + batchIdToSave})`
-                })
-            });
-
-            showNotification('Pedido de reposición generado correctamente');
-            setIncidentForm({ ...incidentForm, active: false });
-
-        } catch (e) {
-            console.error(e);
-            showNotification('Error al generar la reposición', 'error');
-        }
-    };
 
 // --- DENTRO DE AdminDashboard (Sustituir función existente) ---
 
@@ -924,68 +421,6 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
       }
   };
 
-// --- FUNCIÓN MODIFICADA: Ahora guarda FECHA y maneja el estado ---
-  const toggleBatchPaymentStatus = (club, batchId, field) => {
-      const currentLog = club.accountingLog || {};
-      const batchLog = currentLog[batchId] || { 
-          supplierPaid: false, clubPaid: false, commercialPaid: false, cashCollected: false 
-      };
-      
-      const currentValue = batchLog[field];
-      const newValue = !currentValue;
-      
-      // Definimos el nombre del campo de fecha (ej: supplierPaid -> supplierPaidDate)
-      const dateField = `${field}Date`;
-
-      const newBatchLog = { 
-          ...batchLog, 
-          [field]: newValue,
-          // Si se marca como pagado/cobrado, guardamos fecha ISO. Si se desmarca, null.
-          [dateField]: newValue ? new Date().toISOString() : null 
-      };
-
-      updateClub({
-          ...club,
-          accountingLog: {
-              ...currentLog,
-              [batchId]: newBatchLog
-          }
-      });
-  };
-
-  // --- NUEVA FUNCIÓN: Pide confirmación antes de cambiar el estado ---
-  const handlePaymentChange = (club, batchId, field, currentStatus) => {
-      const fieldLabels = {
-          'cashCollected': 'Recogida de Efectivo',
-          'supplierPaid': 'Pago a Proveedor',
-          'commercialPaid': 'Pago a Comercial',
-          'clubPaid': 'Pago al Club'
-      };
-
-      const action = currentStatus ? 'marcar como PENDIENTE' : 'marcar como COMPLETADO';
-      const label = fieldLabels[field] || field;
-
-      setConfirmation({
-          title: "Confirmar Movimiento Contable",
-          msg: `Vas a ${action} el concepto:\n\n👉 ${label}\nClub: ${club.name}\nLote: #${batchId}\n\n¿Confirmar cambio?`,
-          onConfirm: () => toggleBatchPaymentStatus(club, batchId, field)
-      });
-  };
-
-  // --- Función para guardar ajustes numéricos (Deudas/Cambios) ---
-  const updateBatchValue = (club, batchId, field, value) => {
-      const currentLog = club.accountingLog || {};
-      const batchLog = currentLog[batchId] || {};
-      
-      updateClub({
-          ...club,
-          accountingLog: {
-              ...currentLog,
-              [batchId]: { ...batchLog, [field]: parseFloat(value) || 0 }
-          }
-      });
-  };
-
   // ---------------------------------------------------------
   // NUEVO: LÓGICA DE GESTIÓN DE DATOS Y EXCEL
   // ---------------------------------------------------------
@@ -999,44 +434,6 @@ export function AdminDashboard({ products, orders, clubs, incrementClubErrorBatc
       return unsafe ? unsafe.toString().replace(/[<>&'"]/g, c => {
           switch (c) { case '<': return '&lt;'; case '>': return '&gt;'; case '&': return '&amp;'; case '\'': return '&apos;'; case '"': return '&quot;'; }
       }) : '';
-  };
-
-  const handleDeleteSeasonData = (seasonId) => {
-      const season = seasons.find(s => s.id === seasonId);
-      if (!season) return;
-
-      const start = new Date(season.startDate).getTime();
-      const end = new Date(season.endDate).getTime();
-      
-      const ordersToDelete = orders.filter(o => {
-          if (o.manualSeasonId) return o.manualSeasonId === season.id;
-          const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
-          return d >= start && d <= end;
-      });
-
-      if (ordersToDelete.length === 0) {
-          showNotification('No hay datos para borrar en esta temporada', 'warning');
-          return;
-      }
-
-      setConfirmation({
-          title: "⚠️ PELIGRO: BORRADO DE DATOS",
-          msg: `Estás a punto de eliminar DEFINITIVAMENTE todos los datos de la temporada "${season.name}".\n\nEsto borrará ${ordersToDelete.length} pedidos de la base de datos y de la web.\n\nEsta acción NO SE PUEDE DESHACER. ¿Estás seguro?`,
-          onConfirm: async () => {
-              try {
-                  const batch = writeBatch(db);
-                  ordersToDelete.forEach(o => {
-                      const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
-                      batch.delete(ref);
-                  });
-                  await batch.commit();
-                  showNotification(`Se han eliminado ${ordersToDelete.length} pedidos de la temporada ${season.name}.`);
-              } catch (e) {
-                  console.error(e);
-                  showNotification('Error al eliminar los datos', 'error');
-              }
-          }
-      });
   };
 
   return (

@@ -21,19 +21,28 @@ import { Input } from '../components/ui/Input';
 export function ShopView({ products, addToCart, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig }) {
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedCategory, setSelectedCategory] = useState('Todas');
+  const [selectedCategory, setSelectedCategory] = useState('Todos');
 
-  // 1. Obtener categorías únicas dinámicamente
+  // 1. Obtener categorías únicas dinámicamente (oculta SOLO las que no tienen sección)
   const categories = useMemo(() => {
-    const cats = products.map(p => p.category || 'General');
-    return ['Todas', ...new Set(cats)].sort();
+    const validSections = products
+        .map(p => p.shopSection)
+        .filter(sec => sec && sec.trim() !== ''); // Ya no bloqueamos "General"
+    
+    return ['Todos', ...new Set(validSections)].sort();
   }, [products]);
 
-  // 2. Filtrado de productos
+  // 2. Filtrado estricto de productos
   const filteredProducts = useMemo(() => {
     return products.filter(p => {
+      // REGLA: Si el producto no tiene sección guardada (""), se oculta de la tienda
+      if (!p.shopSection || p.shopSection.trim() === '') {
+          return false;
+      }
+
       const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
-      const matchesCategory = selectedCategory === 'Todas' || (p.category || 'General') === selectedCategory;
+      const matchesCategory = selectedCategory === 'Todos' || p.shopSection === selectedCategory;
+      
       return matchesSearch && matchesCategory;
     });
   }, [products, searchTerm, selectedCategory]);
@@ -106,8 +115,8 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                     
                     {/* Etiqueta Categoría Flotante */}
                     <div className="absolute top-3 left-3 z-20">
-                      <span className="bg-white/90 backdrop-blur-sm text-xs font-bold px-2 py-1 rounded-md text-gray-700 shadow-sm border border-white/50">
-                        {product.category || 'General'}
+                      <span className="bg-white/90 backdrop-blur-sm text-xs font-bold px-2 py-1 rounded-md text-gray-700 shadow-sm border border-white/50 uppercase tracking-wider">
+                        {product.shopSection}
                       </span>
                     </div>
                   </div>
@@ -173,10 +182,10 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
               </div>
               <h3 className="text-lg font-bold text-gray-900">No encontramos productos</h3>
               <p className="text-gray-500 text-sm max-w-xs mx-auto mt-2">
-                Intenta buscar con otro término o selecciona la categoría "Todas".
+                Intenta buscar con otro término o selecciona la categoría "Todos".
               </p>
               <button 
-                onClick={() => { setSearchTerm(''); setSelectedCategory('Todas'); }}
+                onClick={() => { setSearchTerm(''); setSelectedCategory('Todos'); }}
                 className="mt-6 text-emerald-600 font-bold text-sm hover:underline"
               >
                 Limpiar filtros

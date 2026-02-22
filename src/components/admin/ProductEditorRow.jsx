@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { ChevronRight, Settings, Trash2, Image as ImageIcon, Upload, Plus, Layers, Hash, FileText, ShieldCheck, Lock, Unlock, Truck } from 'lucide-react';
 
-export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers }) => {
+export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [localSizeInput, setLocalSizeInput] = useState(product.sizes ? product.sizes.join(', ') : '');
 
@@ -170,30 +170,51 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                     </div>
                                 </div>
 
-                                <div className="pt-2 border-t border-gray-100">
-                                    <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Proveedor Asignado</label>
-                                    <div className="relative">
-                                        <select 
-                                            className="w-full border border-gray-200 rounded-lg py-2 pl-8 pr-3 text-sm bg-white focus:ring-2 focus:ring-indigo-100 outline-none appearance-none"
-                                            value={product.supplierId || ''}
-                                            onChange={(e) => {
-                                                const supId = e.target.value;
-                                                let newCost = product.cost;
-                                                if (supId) {
-                                                    const s = suppliers.find(su => su.id === supId);
-                                                    if (s && s.priceList && s.priceList[product.id]) {
-                                                        newCost = s.priceList[product.id];
+                                <div className="grid grid-cols-1 md:grid-cols-2 gap-5 pt-2 border-t border-gray-100 mt-4">
+                                    {/* PROVEEDOR ASIGNADO */}
+                                    <div>
+                                        <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Proveedor Asignado</label>
+                                        <div className="relative">
+                                            <select 
+                                                className="w-full border border-gray-200 rounded-lg py-2 pl-8 pr-3 text-sm bg-white focus:ring-2 focus:ring-indigo-100 outline-none appearance-none"
+                                                value={product.supplierId || ''}
+                                                onChange={(e) => {
+                                                    const supId = e.target.value;
+                                                    let newCost = product.cost;
+                                                    if (supId) {
+                                                        const s = suppliers.find(su => su.id === supId);
+                                                        if (s && s.priceList && s.priceList[product.id]) {
+                                                            newCost = s.priceList[product.id];
+                                                        }
                                                     }
-                                                }
-                                                updateProduct({...product, supplierId: supId, cost: newCost});
-                                            }}
-                                        >
-                                            <option value="">-- Sin asignar (Coste manual) --</option>
-                                            {suppliers && suppliers.map(s => (
-                                                <option key={s.id} value={s.id}>{s.name}</option>
-                                            ))}
-                                        </select>
-                                        <Truck className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400"/>
+                                                    updateProduct({...product, supplierId: supId, cost: newCost});
+                                                }}
+                                            >
+                                                <option value="">-- Sin asignar (Coste manual) --</option>
+                                                {suppliers && suppliers.map(s => (
+                                                    <option key={s.id} value={s.id}>{s.name}</option>
+                                                ))}
+                                            </select>
+                                            <Truck className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400"/>
+                                        </div>
+                                    </div>
+
+                                    {/* NUEVA SECCIÓN DE TIENDA */}
+                                    <div>
+                                        <label className="text-[10px] font-bold text-emerald-600 uppercase mb-1 block">Sección en Tienda</label>
+                                        <div className="relative">
+                                            <select 
+                                                className="w-full border border-gray-200 rounded-lg py-2 pl-8 pr-3 text-sm bg-white focus:ring-2 focus:ring-emerald-100 outline-none appearance-none"
+                                                value={product.shopSection || ''} 
+                                                onChange={(e) => updateProduct({...product, shopSection: e.target.value})}
+                                            >
+                                                <option value="">-- Sin Sección --</option>
+                                                {availableSections && availableSections.map(sec => (
+                                                    <option key={sec} value={sec}>{sec}</option>
+                                                ))}
+                                            </select>
+                                            <Layers className="absolute left-2.5 top-2.5 w-4 h-4 text-emerald-600"/>
+                                        </div>
                                     </div>
                                 </div>
                             </div>

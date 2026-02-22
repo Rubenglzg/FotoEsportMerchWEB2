@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 import { 
   LayoutDashboard, Package, Briefcase, Banknote, Factory, Calendar, Folder, AlertTriangle,  
-  AlertCircle, BarChart3,
+  AlertCircle, BarChart3, Tag,
 } from 'lucide-react';
 
 import { Button } from '../components/ui/Button';
@@ -31,6 +31,7 @@ import { SpecialOrdersTab } from '../components/admin/tabs/SpecialOrdersTab';
 import { SeasonsTab } from '../components/admin/tabs/SeasonsTab';
 import { IncidentsTab } from '../components/admin/tabs/IncidentsTab';
 import { FinancesTab } from '../components/admin/tabs/FinancesTab';
+import { ProductsTab } from '../components/admin/tabs/ProductsTab';
 
 // HOOKS
 import { useDashboardStats } from '../hooks/useDashboardStats';
@@ -198,6 +199,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         <div className="flex gap-2 mb-8 overflow-x-auto pb-2 border-b bg-white p-2 rounded-lg shadow-sm">
         {[
             {id: 'management', label: 'Gestión', icon: LayoutDashboard},
+            {id: 'products', label: 'Productos', icon: Tag},
             {id: 'accounting', label: 'Pedidos', icon: Package},
             {id: 'special-orders', label: 'Pedidos Especiales', icon: Briefcase},
             {id: 'accounting-control', label: 'Contabilidad', icon: Banknote},
@@ -236,6 +238,17 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateFinancialConfig={updateFinancialConfig}
         products={products} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} suppliers={suppliers}
         clubs={clubs} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock}
+        showNotification={showNotification}
+    />
+)}
+
+{tab === 'products' && (
+    <ProductsTab 
+        products={products} 
+        addProduct={addProduct} 
+        updateProduct={updateProduct} 
+        deleteProduct={deleteProduct} 
+        suppliers={suppliers}
         showNotification={showNotification}
     />
 )}

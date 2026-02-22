@@ -188,44 +188,9 @@ export const ManagementTab = ({
             </div>
 
             {/* PRODUCTOS Y CLUBES */}
-            <div className="grid grid-cols-1 xl:grid-cols-2 gap-8 items-start">
+            <div className="grid grid-cols-1 max-w-3xl mx-auto gap-8 items-start">
                 
                 {/* COLUMNA IZQUIERDA: CATÁLOGO DE PRODUCTOS */}
-                <div className="bg-white rounded-2xl shadow-sm border border-gray-200 flex flex-col min-h-[600px] overflow-hidden">
-                    <div className="px-6 py-5 bg-gradient-to-r from-gray-50 via-white to-gray-50 border-b border-gray-100 flex justify-between items-center sticky top-0 z-10">
-                        <div>
-                            <h4 className="font-black text-gray-800 text-lg flex items-center gap-2 tracking-tight">
-                                <Package className="w-6 h-6 text-emerald-600"/> Catálogo Base
-                            </h4>
-                            <p className="text-xs text-gray-500 font-medium mt-1 ml-8">Inventario y precios globales.</p>
-                        </div>
-                        <button 
-                            onClick={addProduct} 
-                            className="bg-gray-900 hover:bg-emerald-600 text-white px-4 py-2 rounded-xl shadow-lg shadow-gray-200 transition-all active:scale-95 flex items-center gap-2"
-                        >
-                            <Plus className="w-4 h-4"/> <span className="text-xs font-bold">Crear</span>
-                        </button>
-                    </div>
-
-                    <div className="flex-1 overflow-y-auto p-5 bg-gray-50/50 custom-scrollbar space-y-4">
-                        {products.length === 0 ? (
-                            <div className="h-64 flex flex-col items-center justify-center text-gray-400 opacity-60">
-                                <Package className="w-16 h-16 text-gray-300 mb-2"/>
-                                <p className="font-bold text-sm">Catálogo vacío</p>
-                            </div>
-                        ) : (
-                            products.map(p => (
-                                <ProductEditorRow 
-                                    key={p.id} 
-                                    product={p} 
-                                    updateProduct={updateProduct} 
-                                    deleteProduct={deleteProduct} 
-                                    suppliers={suppliers}
-                                />
-                            ))
-                        )}
-                    </div>
-                </div>
 
                 {/* COLUMNA DERECHA: GESTIÓN DE CLUBES */}
                 <div className="space-y-6">

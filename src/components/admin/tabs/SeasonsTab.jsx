@@ -86,7 +86,7 @@ export const SeasonsTab = ({
                                 
                                 {/* 1. VISIBILIDAD */}
                                 <button 
-                                    onClick={() => toggleSeasonVisibility(season.id)}
+                                    onClick={() => toggleSeasonVisibility(season.id, seasons)}
                                     className={`p-2 rounded-lg transition-colors ${season.hiddenForClubs ? 'bg-gray-200 text-gray-500 hover:bg-gray-300' : 'bg-indigo-50 text-indigo-600 hover:bg-indigo-100'}`}
                                     title={season.hiddenForClubs ? "Mostrar a Clubes" : "Ocultar a Clubes"}
                                 >

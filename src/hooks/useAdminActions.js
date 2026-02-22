@@ -2,9 +2,6 @@ import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, writeBa
 import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
 
-// Importante: Asegúrate de que la ruta a constants.js sea correcta según tu estructura
-import { appId } from '../config/constants';
-
 export function useAdminActions(showNotification, setConfirmation, clubs) {
 
   // --- PRODUCTOS ---
@@ -114,21 +111,6 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
       }); 
   };
 
-  const incrementClubErrorBatch = (clubId) => {
-      const club = clubs.find(c => c.id === clubId);
-      const currentErrId = club.activeErrorBatchId || 1;
-      setConfirmation({ 
-          msg: `¿Cerrar el Lote de Errores #${currentErrId}? \nLos siguientes fallos irán al #${currentErrId + 1}.`, 
-          title: "Cerrar Lote de Errores",
-          onConfirm: async () => { 
-              try {
-                  await updateDoc(doc(db, 'clubs', clubId), { activeErrorBatchId: currentErrId + 1 });
-                  showNotification(`Nuevo Lote de Errores iniciado (#${currentErrId + 1})`); 
-              } catch (e) { showNotification("Error al cerrar el lote", "error"); }
-          } 
-      }); 
-  };
-
   const decrementClubGlobalOrder = async (clubId, newActiveId) => { 
       try {
           await updateDoc(doc(db, 'clubs', clubId), { activeGlobalOrderId: newActiveId });
@@ -215,7 +197,7 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
   return {
       addProduct, updateProduct, deleteProduct,
       createClub, updateClub, deleteClub, toggleClubBlock,
-      incrementClubGlobalOrder, incrementClubErrorBatch, decrementClubGlobalOrder,
+      incrementClubGlobalOrder, decrementClubGlobalOrder,
       createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch,
       addSeason, deleteSeason, toggleSeasonVisibility,
       updateFinancialConfig

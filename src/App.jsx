@@ -1,9 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Routes, Route, Navigate, useNavigate, useLocation } from 'react-router-dom';
 import { signInAnonymously, onAuthStateChanged, signInWithCustomToken } from 'firebase/auth';
-import { collection, addDoc, doc, setDoc, serverTimestamp, updateDoc, arrayUnion } from 'firebase/firestore';
 import { auth, db, storage } from './config/firebase';
-import { appId } from './config/constants';
 
 // Hooks personalizados
 import { useCart } from './hooks/useCart';
@@ -38,7 +36,6 @@ export default function App() {
   // 1. ESTADOS BÁSICOS (Variables de React)
   const [user, setUser] = useState(null); 
   const navigate = useNavigate();
-  const location = useLocation();
   const [role, setRole] = useState('public'); 
   const [currentClub, setCurrentClub] = useState(null); 
   const [notification, setNotification] = useState(null); 
@@ -79,7 +76,7 @@ export default function App() {
   const {
       addProduct, updateProduct, deleteProduct,
       createClub, updateClub, deleteClub, toggleClubBlock,
-      incrementClubGlobalOrder, incrementClubErrorBatch, decrementClubGlobalOrder,
+      incrementClubGlobalOrder, decrementClubGlobalOrder,
       createSupplier, updateSupplier, deleteSupplier, updateProductCostBatch,
       addSeason, deleteSeason, toggleSeasonVisibility,
       updateFinancialConfig
@@ -88,7 +85,6 @@ export default function App() {
   // 6. HOOK DE PEDIDOS E INCIDENCIAS (Ya puede usar setCart, setView, clubs, etc.)
   const { 
       createOrder, createSpecialOrder, updateOrderStatus, 
-      addIncident, updateIncidentStatus 
   } = useOrderActions(showNotification, setCart, setView, clubs, seasons);
 
   // 7. AUTENTICACIÓN Y OTROS EFECTOS
@@ -169,7 +165,7 @@ export default function App() {
           <Route path="/aviso-legal" element={<LegalNoticeView setView={setView} />} />
           
           <Route path="/panel-club" element={role === 'club' ? <ClubDashboard club={currentClub} orders={orders} updateOrderStatus={updateOrderStatus} config={financialConfig} seasons={seasons.filter(s => !s.hiddenForClubs)} /> : <Navigate to="/acceso" />} />
-          <Route path="/panel-admin" element={role === 'admin' ? <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} addIncident={addIncident} updateIncidentStatus={updateIncidentStatus} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} incrementClubErrorBatch={incrementClubErrorBatch} campaignConfig={campaignConfig} setCampaignConfig={setCampaignConfig} />  : <Navigate to="/acceso" />} />
+          <Route path="/panel-admin" element={role === 'admin' ? <AdminDashboard products={products} orders={orders} clubs={clubs} updateOrderStatus={updateOrderStatus} financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateProduct={updateProduct} addProduct={addProduct} deleteProduct={deleteProduct} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} seasons={seasons} addSeason={addSeason} deleteSeason={deleteSeason} toggleSeasonVisibility={toggleSeasonVisibility} storeConfig={storeConfig} setStoreConfig={setStoreConfig} incrementClubGlobalOrder={incrementClubGlobalOrder} decrementClubGlobalOrder={decrementClubGlobalOrder} showNotification={showNotification} createSpecialOrder={createSpecialOrder} updateFinancialConfig={updateFinancialConfig} suppliers={suppliers} createSupplier={createSupplier} updateSupplier={updateSupplier} deleteSupplier={deleteSupplier} updateProductCostBatch={updateProductCostBatch} campaignConfig={campaignConfig} setCampaignConfig={setCampaignConfig} />  : <Navigate to="/acceso" />} />
           <Route path="*" element={<Navigate to="/" />} />
         </Routes>
       </main>

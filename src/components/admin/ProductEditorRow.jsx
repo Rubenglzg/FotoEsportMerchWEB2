@@ -1,5 +1,9 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Settings, Trash2, Image as ImageIcon, Upload, Plus, Layers, Hash, FileText, ShieldCheck, Lock, Unlock, Truck, Clock, Percent, EyeOff, Users } from 'lucide-react';
+import { 
+    ChevronRight, Settings, Trash2, Image as ImageIcon, Upload, Plus, Layers, Hash, 
+    FileText, ShieldCheck, Lock, Unlock, Truck, Clock, Percent, EyeOff, Users,
+    Eye, CalendarClock, Hourglass, ToggleLeft, ToggleRight, CheckCircle2, Circle, Calendar
+} from 'lucide-react';
 
 export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections, clubs = [] }) => {
     const [isExpanded, setIsExpanded] = useState(false);
@@ -59,6 +63,16 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
     };
 
     const currentSupplier = suppliers ? suppliers.find(s => s.id === product.supplierId) : null;
+
+    // Configuración visual para los estados de visibilidad
+    const visibilityOptions = [
+        { id: 'visible', icon: Eye, label: 'Visible', color: 'text-emerald-700', bg: 'bg-emerald-50', border: 'border-emerald-200', activeRing: 'ring-emerald-500' },
+        { id: 'hidden', icon: EyeOff, label: 'Oculto', color: 'text-red-700', bg: 'bg-red-50', border: 'border-red-200', activeRing: 'ring-red-500' },
+        { id: 'scheduled', icon: CalendarClock, label: 'Programado', color: 'text-blue-700', bg: 'bg-blue-50', border: 'border-blue-200', activeRing: 'ring-blue-500' },
+        { id: 'limited', icon: Hourglass, label: 'Temporal', color: 'text-orange-700', bg: 'bg-orange-50', border: 'border-orange-200', activeRing: 'ring-orange-500' }
+    ];
+
+    const currentVisStatus = product.visibility?.status || 'visible';
 
     return (
         <div className={`bg-white rounded-xl transition-all duration-300 overflow-hidden group mb-3 ${isExpanded ? 'border-2 border-emerald-500 shadow-xl ring-4 ring-emerald-50/50 z-10 transform scale-[1.01]' : 'border border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
@@ -378,7 +392,8 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                             </div>
                         </div>
                     </div>
-                    {/* VISIBILIDAD, DESCUENTOS Y EXCLUSIVIDAD */}
+
+                    {/* NUEVO PANEL: VISIBILIDAD, DESCUENTOS Y EXCLUSIVIDAD (Más interactivo y visual) */}
                     <div className="bg-white rounded-xl border border-purple-200 overflow-hidden shadow-sm mt-6">
                         <div className="bg-purple-50 px-6 py-3 border-b border-purple-100 flex justify-between items-center">
                             <h4 className="text-xs font-bold text-purple-800 uppercase flex items-center gap-2">
@@ -389,80 +404,92 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                         <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
                             
                             {/* 1. VISIBILIDAD EN TIENDA */}
-                            <div className="space-y-3">
-                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-1"><EyeOff className="w-3 h-3"/> Estado en Web</h5>
+                            <div className="space-y-4">
+                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-2"><Eye className="w-3.5 h-3.5"/> Estado en Web</h5>
                                 
-                                <select 
-                                    className="w-full border border-gray-200 rounded p-2 text-sm outline-none focus:border-purple-500"
-                                    value={product.visibility?.status || 'visible'}
-                                    onChange={(e) => updateProduct({...product, visibility: { ...(product.visibility || {}), status: e.target.value }})}
-                                >
-                                    <option value="visible">Siempre Visible</option>
-                                    <option value="hidden">Oculto Temporalmente</option>
-                                    <option value="scheduled">Programar Lanzamiento</option>
-                                    <option value="limited">Tiempo Limitado (Caduca)</option>
-                                </select>
+                                <div className="grid grid-cols-2 gap-2">
+                                    {visibilityOptions.map(opt => (
+                                        <button
+                                            key={opt.id}
+                                            onClick={() => updateProduct({...product, visibility: { ...(product.visibility || {}), status: opt.id }})}
+                                            className={`flex flex-col items-center justify-center p-2 rounded-lg border transition-all duration-200 ${
+                                                currentVisStatus === opt.id
+                                                ? `${opt.bg} ${opt.border} ${opt.color} ring-2 ring-offset-1 ${opt.activeRing} shadow-sm`
+                                                : 'bg-white border-gray-200 text-gray-500 hover:bg-gray-50 hover:border-gray-300'
+                                            }`}
+                                        >
+                                            <opt.icon className={`w-5 h-5 mb-1 ${currentVisStatus === opt.id ? opt.color : 'text-gray-400'}`} />
+                                            <span className="text-[10px] font-bold">{opt.label}</span>
+                                        </button>
+                                    ))}
+                                </div>
 
-                                {product.visibility?.status === 'scheduled' && (
-                                    <div>
-                                        <label className="text-[10px] text-gray-400 block mb-1">Disponible a partir de:</label>
-                                        <input 
-                                            type="datetime-local" 
-                                            className="w-full border rounded p-1.5 text-xs outline-none focus:border-purple-500"
-                                            value={product.visibility?.availableFrom || ''}
-                                            onChange={(e) => updateProduct({...product, visibility: { ...product.visibility, availableFrom: e.target.value }})}
-                                        />
-                                    </div>
-                                )}
+                                <div className="animate-fade-in transition-all">
+                                    {currentVisStatus === 'scheduled' && (
+                                        <div className="bg-blue-50/50 p-3 rounded-lg border border-blue-100">
+                                            <label className="text-[10px] font-bold text-blue-800 flex items-center gap-1 mb-1"><Calendar className="w-3 h-3"/> Lanzamiento oficial:</label>
+                                            <input 
+                                                type="datetime-local" 
+                                                className="w-full border border-blue-200 rounded p-1.5 text-xs text-blue-900 bg-white outline-none focus:ring-2 focus:ring-blue-300"
+                                                value={product.visibility?.availableFrom || ''}
+                                                onChange={(e) => updateProduct({...product, visibility: { ...product.visibility, availableFrom: e.target.value }})}
+                                            />
+                                        </div>
+                                    )}
 
-                                {product.visibility?.status === 'limited' && (
-                                    <div>
-                                        <label className="text-[10px] text-gray-400 block mb-1">Ocultar automáticamente el:</label>
-                                        <input 
-                                            type="datetime-local" 
-                                            className="w-full border rounded p-1.5 text-xs outline-none focus:border-purple-500"
-                                            value={product.visibility?.availableUntil || ''}
-                                            onChange={(e) => updateProduct({...product, visibility: { ...product.visibility, availableUntil: e.target.value }})}
-                                        />
-                                    </div>
-                                )}
+                                    {currentVisStatus === 'limited' && (
+                                        <div className="bg-orange-50/50 p-3 rounded-lg border border-orange-100">
+                                            <label className="text-[10px] font-bold text-orange-800 flex items-center gap-1 mb-1"><Hourglass className="w-3 h-3"/> Ocultar a partir de:</label>
+                                            <input 
+                                                type="datetime-local" 
+                                                className="w-full border border-orange-200 rounded p-1.5 text-xs text-orange-900 bg-white outline-none focus:ring-2 focus:ring-orange-300"
+                                                value={product.visibility?.availableUntil || ''}
+                                                onChange={(e) => updateProduct({...product, visibility: { ...product.visibility, availableUntil: e.target.value }})}
+                                            />
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             {/* 2. DESCUENTOS Y OFERTAS */}
-                            <div className="space-y-3">
-                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-1"><Percent className="w-3 h-3"/> Descuentos</h5>
+                            <div className="space-y-4">
+                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-2"><Percent className="w-3.5 h-3.5"/> Ofertas Especiales</h5>
                                 
-                                <label className="flex items-center gap-2 cursor-pointer">
-                                    <input 
-                                        type="checkbox" 
-                                        className="rounded text-purple-600 focus:ring-purple-500"
-                                        checked={product.discount?.active || false}
-                                        onChange={(e) => updateProduct({...product, discount: { ...(product.discount || {}), active: e.target.checked }})}
-                                    />
-                                    <span className="text-sm font-bold text-gray-700">Activar Descuento</span>
-                                </label>
+                                <div 
+                                    className={`flex items-center justify-between p-3 rounded-xl border cursor-pointer transition-all ${product.discount?.active ? 'bg-purple-50 border-purple-300 shadow-sm' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                    onClick={() => updateProduct({...product, discount: { ...(product.discount || {}), active: !product.discount?.active }})}
+                                >
+                                    <div className="flex items-center gap-2">
+                                        <div className={`p-1.5 rounded-lg transition-colors ${product.discount?.active ? 'bg-purple-500 text-white' : 'bg-white border border-gray-200 text-gray-400'}`}>
+                                            <Percent className="w-4 h-4"/>
+                                        </div>
+                                        <span className={`text-sm font-bold ${product.discount?.active ? 'text-purple-900' : 'text-gray-600'}`}>Activar Descuento</span>
+                                    </div>
+                                    {product.discount?.active ? <ToggleRight className="w-7 h-7 text-purple-600 transition-all"/> : <ToggleLeft className="w-7 h-7 text-gray-300 transition-all"/>}
+                                </div>
 
                                 {product.discount?.active && (
-                                    <div className="space-y-2 p-2 bg-purple-50/50 rounded border border-purple-100">
-                                        <div className="flex gap-2">
-                                            <div className="flex-1">
-                                                <label className="text-[10px] text-gray-400 block">Descuento (%)</label>
-                                                <input type="number" min="0" max="100" className="w-full border rounded p-1.5 text-xs" 
+                                    <div className="space-y-3 p-3 bg-purple-50 rounded-xl border border-purple-100 animate-fade-in">
+                                        <div className="flex gap-3">
+                                            <div className="flex-1 relative">
+                                                <label className="text-[10px] font-bold text-purple-800 block mb-1">Porcentaje</label>
+                                                <input type="number" min="0" max="100" className="w-full border border-purple-200 rounded p-2 text-sm font-bold text-purple-900 pr-7 outline-none focus:ring-2 focus:ring-purple-300" 
                                                     value={product.discount?.percentage || 0} 
                                                     onChange={(e) => updateProduct({...product, discount: { ...product.discount, percentage: parseFloat(e.target.value) }})}
                                                 />
+                                                <Percent className="w-3 h-3 text-purple-400 absolute right-3 top-[26px]"/>
                                             </div>
                                             <div className="flex-1">
-                                                <label className="text-[10px] text-gray-400 block">Límite Usos (Opcional)</label>
-                                                <input type="number" placeholder="Ej: 50" className="w-full border rounded p-1.5 text-xs" 
+                                                <label className="text-[10px] font-bold text-purple-800 block mb-1">Límite (uds)</label>
+                                                <input type="number" placeholder="Ilimitado" className="w-full border border-purple-200 rounded p-2 text-sm text-purple-900 outline-none focus:ring-2 focus:ring-purple-300 placeholder-purple-300" 
                                                     value={product.discount?.maxUnits || ''} 
                                                     onChange={(e) => updateProduct({...product, discount: { ...product.discount, maxUnits: parseInt(e.target.value) || null }})}
                                                 />
                                             </div>
                                         </div>
                                         <div>
-                                            <label className="text-[10px] text-gray-400 block">Oferta válida hasta (Opcional):</label>
-                                            <input type="datetime-local" className="w-full border rounded p-1.5 text-xs" 
+                                            <label className="text-[10px] font-bold text-purple-800 block mb-1">Caduca el (Opcional):</label>
+                                            <input type="datetime-local" className="w-full border border-purple-200 rounded p-2 text-xs text-purple-900 outline-none focus:ring-2 focus:ring-purple-300" 
                                                 value={product.discount?.expiresAt || ''} 
                                                 onChange={(e) => updateProduct({...product, discount: { ...product.discount, expiresAt: e.target.value }})}
                                             />
@@ -471,37 +498,52 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                 )}
                             </div>
 
-                            {/* 3. EXCLUSIVIDAD (Pruebas de Mercado) */}
-                            <div className="space-y-3">
-                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-1"><Users className="w-3 h-3"/> Exclusividad Clubes</h5>
-                                <p className="text-[10px] text-gray-400">Si seleccionas clubes, el producto <b>solo</b> será visible para ellos. Si lo dejas vacío, es público.</p>
+                            {/* 3. EXCLUSIVIDAD (Pruebas de Mercado / Privacidad) */}
+                            <div className="space-y-4 flex flex-col h-full">
+                                <div>
+                                    <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center justify-between border-b pb-2">
+                                        <span className="flex items-center gap-1"><Users className="w-3.5 h-3.5"/> Exclusividad Clubes</span>
+                                        <span className="bg-gray-100 text-gray-500 px-1.5 py-0.5 rounded text-[9px] font-bold">
+                                            {(product.exclusiveClubs || []).length} Seleccionados
+                                        </span>
+                                    </h5>
+                                    <p className="text-[10px] text-gray-400 mt-2 leading-tight">Si seleccionas clubes, el producto <b>solo</b> será visible para ellos. Si no marcas ninguno, será un producto público.</p>
+                                </div>
                                 
-                                <div className="max-h-32 overflow-y-auto border border-gray-200 rounded p-2 bg-gray-50 custom-scrollbar">
-                                    {clubs && clubs.length > 0 ? clubs.map(club => {
-                                        const isSelected = (product.exclusiveClubs || []).includes(club.id);
-                                        return (
-                                            <label key={club.id} className="flex items-center gap-2 text-xs py-1 cursor-pointer hover:bg-gray-100 px-1 rounded">
-                                                <input 
-                                                    type="checkbox" 
-                                                    className="rounded text-purple-600"
-                                                    checked={isSelected}
-                                                    onChange={(e) => {
+                                <div className="flex-1 border border-gray-200 rounded-xl p-3 bg-gray-50 custom-scrollbar overflow-y-auto max-h-[160px]">
+                                    <div className="flex flex-wrap gap-2">
+                                        {clubs && clubs.length > 0 ? clubs.map(club => {
+                                            const isSelected = (product.exclusiveClubs || []).includes(club.id);
+                                            return (
+                                                <button
+                                                    key={club.id}
+                                                    onClick={() => {
                                                         const currentClubs = product.exclusiveClubs || [];
                                                         let newClubs;
-                                                        if (e.target.checked) {
-                                                            newClubs = [...currentClubs, club.id];
-                                                        } else {
+                                                        if (isSelected) {
                                                             newClubs = currentClubs.filter(id => id !== club.id);
+                                                        } else {
+                                                            newClubs = [...currentClubs, club.id];
                                                         }
                                                         updateProduct({...product, exclusiveClubs: newClubs});
                                                     }}
-                                                />
-                                                <span className={isSelected ? "font-bold text-purple-700" : "text-gray-600"}>{club.name}</span>
-                                            </label>
-                                        );
-                                    }) : (
-                                        <p className="text-xs text-gray-400 text-center italic">No hay clubes cargados.</p>
-                                    )}
+                                                    className={`flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs font-bold transition-all border ${
+                                                        isSelected 
+                                                        ? 'bg-purple-600 text-white border-purple-600 shadow-sm shadow-purple-200 hover:bg-purple-700' 
+                                                        : 'bg-white text-gray-600 border-gray-200 hover:border-purple-300 hover:bg-purple-50'
+                                                    }`}
+                                                >
+                                                    {isSelected ? <CheckCircle2 className="w-3.5 h-3.5"/> : <Circle className="w-3.5 h-3.5 opacity-40"/>}
+                                                    {club.name}
+                                                </button>
+                                            );
+                                        }) : (
+                                            <div className="w-full flex flex-col items-center justify-center py-4 text-gray-400">
+                                                <Users className="w-6 h-6 mb-1 opacity-50"/>
+                                                <p className="text-xs italic">No hay clubes registrados.</p>
+                                            </div>
+                                        )}
+                                    </div>
                                 </div>
                             </div>
 

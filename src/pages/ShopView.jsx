@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect } from 'react';
 // 1. Iconos necesarios
-import { Search, ShoppingBag, ChevronLeft } from 'lucide-react';
+import { Search, ShoppingBag, ChevronLeft, Clock } from 'lucide-react';
 
 // 2. Firebase para buscar las carpetas/categorías en el personalizador
 import { ref, listAll } from 'firebase/storage';
@@ -34,11 +34,19 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 
   // 2. Filtrado estricto de productos
   const filteredProducts = useMemo(() => {
+    const now = new Date(); // Fecha actual para comparar
+
     return products.filter(p => {
-      // REGLA: Si el producto no tiene sección guardada (""), se oculta de la tienda
-      if (!p.shopSection || p.shopSection.trim() === '') {
-          return false;
+      // REGLA 1: Si no tiene sección, no se muestra
+      if (!p.shopSection || p.shopSection.trim() === '') return false;
+
+      // REGLA 2: Visibilidad Avanzada
+      const vis = p.visibility || {};
+      if (vis.status === 'hidden') return false; // Oculto manualmente
+      if (vis.status === 'limited' && vis.availableUntil) {
+          if (now > new Date(vis.availableUntil)) return false; // Ya caducó
       }
+      // NOTA: Si es 'scheduled', lo dejamos pasar pero bloquearemos el clic en la tarjeta
 
       const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = selectedCategory === 'Todos' || p.shopSection === selectedCategory;
@@ -97,23 +105,38 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
           {/* GRID DE PRODUCTOS */}
           {filteredProducts.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-8">
-              {filteredProducts.map(product => (
+                {filteredProducts.map(product => {
+                // Comprobar si está programado para el futuro
+                const vis = product.visibility || {};
+                const isScheduled = vis.status === 'scheduled' && vis.availableFrom && new Date() < new Date(vis.availableFrom);
+
+                return (
                 <div 
                   key={product.id} 
-                  className="bg-white rounded-2xl border border-gray-100 shadow-sm overflow-hidden hover:shadow-xl hover:border-emerald-100 transition-all duration-300 cursor-pointer group flex flex-col h-full transform hover:-translate-y-1" 
-                  onClick={() => setSelectedProduct(product)}
+                  className={`bg-white rounded-2xl border shadow-sm overflow-hidden transition-all duration-300 flex flex-col h-full ${isScheduled ? 'border-gray-100 opacity-90' : 'hover:shadow-xl hover:border-emerald-100 cursor-pointer hover:-translate-y-1 group'}`}
+                  onClick={() => {
+                      if (!isScheduled) setSelectedProduct(product);
+                  }}
                 >
-                  {/* Imagen - CORREGIDA: object-contain + p-4 */}
+                  {/* Imagen */}
                   <div className="aspect-[4/3] bg-gray-50 relative overflow-hidden flex items-center justify-center">
                     <div className="absolute inset-0 bg-gray-200 animate-pulse" />
                     <img 
                       src={product.image} 
                       alt={product.name} 
                       loading="lazy"
-                      className="absolute inset-0 w-full h-full object-contain p-4 group-hover:scale-110 transition-transform duration-700 ease-out z-10" 
+                      className={`absolute inset-0 w-full h-full object-contain p-4 transition-transform duration-700 ease-out z-10 ${!isScheduled && 'group-hover:scale-110'}`} 
                     />
                     
-                    {/* Etiqueta Categoría Flotante */}
+                    {/* Etiqueta Próximamente (Si está programado) */}
+                    {isScheduled && (
+                        <div className="absolute inset-0 bg-white/50 backdrop-blur-[2px] z-20 flex items-center justify-center">
+                            <span className="bg-orange-600 text-white font-black px-4 py-2 rounded-lg shadow-lg -rotate-6 uppercase tracking-wider text-sm border-2 border-white">
+                                Próximamente
+                            </span>
+                        </div>
+                    )}
+
                     <div className="absolute top-3 left-3 z-20">
                       <span className="bg-white/90 backdrop-blur-sm text-xs font-bold px-2 py-1 rounded-md text-gray-700 shadow-sm border border-white/50 uppercase tracking-wider">
                         {product.shopSection}
@@ -124,32 +147,42 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                   {/* Contenido */}
                   <div className="p-5 flex flex-col flex-1">
                     <div className="flex-1">
-                      <h3 className="font-bold text-lg text-gray-900 leading-tight mb-2 group-hover:text-emerald-700 transition-colors">
+                      <h3 className={`font-bold text-lg leading-tight mb-2 transition-colors ${isScheduled ? 'text-gray-500' : 'text-gray-900 group-hover:text-emerald-700'}`}>
                         {product.name}
                       </h3>
                       
-                      {/* Características pequeñas */}
                       <div className="flex flex-wrap gap-2 mb-4">
-                        {product.features?.name && (
-                          <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">Nombre</span>
-                        )}
-                        {product.features?.number && (
-                          <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">Dorsal</span>
-                        )}
-                        {product.sizes && product.sizes.length > 0 && (
-                          <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{product.sizes.length} Tallas</span>
-                        )}
+                        {product.features?.name && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">Nombre</span>}
+                        {product.features?.number && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">Dorsal</span>}
+                        {product.sizes?.length > 0 && <span className="text-[10px] uppercase font-bold text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">{product.sizes.length} Tallas</span>}
                       </div>
                     </div>
 
-                    {/* Footer Tarjeta */}
+                    {/* Footer y Precios Combinados */}
                     <div className="flex items-center justify-between pt-4 border-t border-gray-50 mt-auto">
-                    {/* --- INICIO LÓGICA PRECIO CAMPAÑA --- */}
                     {(() => {
-                        // Calculamos precio
                         const isPack = product.category === 'Packs' || product.category === 'Ofertas';
-                        const hasDiscount = campaignConfig?.active && campaignConfig?.discount > 0 && !isPack;
-                        const finalPrice = hasDiscount ? product.price * (1 - campaignConfig.discount / 100) : product.price;
+                        let finalPrice = product.price;
+                        let hasDiscount = false;
+
+                        // 1. Verificamos Descuento Específico del Producto
+                        const prodDiscount = product.discount || {};
+                        let isProdDiscountValid = false;
+                        
+                        if (prodDiscount.active) {
+                            const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
+                            const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
+                            if (notExpired && limitNotReached) isProdDiscountValid = true;
+                        }
+
+                        if (isProdDiscountValid) {
+                            hasDiscount = true;
+                            finalPrice = product.price * (1 - prodDiscount.percentage / 100);
+                        } else if (campaignConfig?.active && campaignConfig?.discount > 0 && !isPack) {
+                            // 2. Si no hay del producto, aplicamos el de campaña general
+                            hasDiscount = true;
+                            finalPrice = product.price * (1 - campaignConfig.discount / 100);
+                        }
 
                         return (
                             <div className="flex flex-col justify-center">
@@ -164,15 +197,20 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                             </div>
                         );
                     })()}
-                    {/* --- FIN LÓGICA --- */}
                       
-                      <button className="bg-emerald-50 text-emerald-700 p-2.5 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors shadow-sm">
-                        <ShoppingBag className="w-5 h-5" />
-                      </button>
+                      {isScheduled ? (
+                          <div className="bg-orange-50 text-orange-600 text-[10px] font-bold py-2 px-3 rounded-lg border border-orange-100 flex items-center gap-1">
+                              <Clock className="w-3 h-3"/> El {new Date(vis.availableFrom).toLocaleDateString()}
+                          </div>
+                      ) : (
+                          <button className="bg-emerald-50 text-emerald-700 p-2.5 rounded-xl group-hover:bg-emerald-600 group-hover:text-white transition-colors shadow-sm">
+                            <ShoppingBag className="w-5 h-5" />
+                          </button>
+                      )}
                     </div>
                   </div>
                 </div>
-              ))}
+              )})}
             </div>
           ) : (
             /* ESTADO VACÍO */
@@ -204,6 +242,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
               modificationFee={modificationFee} 
               storeConfig={storeConfig} 
               setConfirmation={setConfirmation} 
+              campaignConfig={campaignConfig}
           />
         </div>
       )}
@@ -214,7 +253,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 // ============================================================================
 // COMPONENTE SECUNDARIO: PERSONALIZADOR (Solo se usa aquí dentro)
 // ============================================================================
-export function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation }) {
+export function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig }) {
   const defaults = product.defaults || {};
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
@@ -297,8 +336,34 @@ export function ProductCustomizer({ product, onBack, onAdd, clubs, modificationF
 
   const clubSuggestions = useMemo(() => {
       if (clubInput.length < 2) return [];
-      return clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase()));
-  }, [clubInput, clubs]);
+      
+      let filtered = clubs.filter(c => c.name.toLowerCase().includes(clubInput.toLowerCase()));
+      
+      // APLICAR EXCLUSIVIDAD (Pruebas de Mercado)
+      if (product.exclusiveClubs && product.exclusiveClubs.length > 0) {
+          filtered = filtered.filter(c => product.exclusiveClubs.includes(c.id));
+      }
+      return filtered;
+  }, [clubInput, clubs, product]);
+
+  // --- PRECIO BASE CON DESCUENTOS ---
+  const basePrice = useMemo(() => {
+      const isPack = product.category === 'Packs' || product.category === 'Ofertas';
+      const prodDiscount = product.discount || {};
+      
+      if (prodDiscount.active) {
+          const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
+          const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
+          if (notExpired && limitNotReached) {
+              return product.price * (1 - prodDiscount.percentage / 100);
+          }
+      }
+      
+      if (campaignConfig?.active && campaignConfig?.discount > 0 && !isPack) {
+          return product.price * (1 - campaignConfig.discount / 100);
+      }
+      return product.price;
+  }, [product, campaignConfig]);
 
   const categorySuggestions = useMemo(() => {
       if (categoryInput.length < 2) return [];
@@ -339,10 +404,11 @@ export function ProductCustomizer({ product, onBack, onAdd, clubs, modificationF
       return count;
   }, [customization, defaults, features, modifiable, isDouble, isTriple]);
 
-    const isModified = modificationCount > 0;
-    const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
-    const unitPrice = product.price + variantPrice + (modificationCount * (modificationFee || 0));
-    const totalPrice = unitPrice * quantity;
+   const isModified = modificationCount > 0;
+   const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
+   // Usamos el basePrice (con descuentos aplicados) en lugar del product.price original
+   const unitPrice = basePrice + variantPrice + (modificationCount * (modificationFee || 0));
+   const totalPrice = unitPrice * quantity;
   
   const handleSubmit = (e) => { 
       e.preventDefault(); 

@@ -10,6 +10,7 @@ export const ProductsTab = ({
     updateProduct, 
     deleteProduct, 
     suppliers,
+    clubs,
     showNotification
 }) => {
     const [sections, setSections] = useState([]);
@@ -249,6 +250,7 @@ export const ProductsTab = ({
                                 deleteProduct={deleteProduct} 
                                 suppliers={suppliers}
                                 availableSections={sections} 
+                                clubs={clubs} // <--- AÑADIR ESTA LÍNEA
                             />
                         ))
                     )}

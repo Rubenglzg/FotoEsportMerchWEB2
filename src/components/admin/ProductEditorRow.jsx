@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ChevronRight, Settings, Trash2, Image as ImageIcon, Upload, Plus, Layers, Hash, FileText, ShieldCheck, Lock, Unlock, Truck } from 'lucide-react';
+import { ChevronRight, Settings, Trash2, Image as ImageIcon, Upload, Plus, Layers, Hash, FileText, ShieldCheck, Lock, Unlock, Truck, Clock, Percent, EyeOff, Users } from 'lucide-react';
 
-export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections }) => {
+export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections, clubs = [] }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [localSizeInput, setLocalSizeInput] = useState(product.sizes ? product.sizes.join(', ') : '');
 
@@ -376,6 +376,135 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                     </div>
                                 </div>
                             </div>
+                        </div>
+                    </div>
+                    {/* VISIBILIDAD, DESCUENTOS Y EXCLUSIVIDAD */}
+                    <div className="bg-white rounded-xl border border-purple-200 overflow-hidden shadow-sm mt-6">
+                        <div className="bg-purple-50 px-6 py-3 border-b border-purple-100 flex justify-between items-center">
+                            <h4 className="text-xs font-bold text-purple-800 uppercase flex items-center gap-2">
+                                <Clock className="w-4 h-4"/> Avanzado: Ventas, Tiempos y Exclusividad
+                            </h4>
+                        </div>
+                        
+                        <div className="p-5 grid grid-cols-1 md:grid-cols-3 gap-6">
+                            
+                            {/* 1. VISIBILIDAD EN TIENDA */}
+                            <div className="space-y-3">
+                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-1"><EyeOff className="w-3 h-3"/> Estado en Web</h5>
+                                
+                                <select 
+                                    className="w-full border border-gray-200 rounded p-2 text-sm outline-none focus:border-purple-500"
+                                    value={product.visibility?.status || 'visible'}
+                                    onChange={(e) => updateProduct({...product, visibility: { ...(product.visibility || {}), status: e.target.value }})}
+                                >
+                                    <option value="visible">Siempre Visible</option>
+                                    <option value="hidden">Oculto Temporalmente</option>
+                                    <option value="scheduled">Programar Lanzamiento</option>
+                                    <option value="limited">Tiempo Limitado (Caduca)</option>
+                                </select>
+
+                                {product.visibility?.status === 'scheduled' && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 block mb-1">Disponible a partir de:</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            className="w-full border rounded p-1.5 text-xs outline-none focus:border-purple-500"
+                                            value={product.visibility?.availableFrom || ''}
+                                            onChange={(e) => updateProduct({...product, visibility: { ...product.visibility, availableFrom: e.target.value }})}
+                                        />
+                                    </div>
+                                )}
+
+                                {product.visibility?.status === 'limited' && (
+                                    <div>
+                                        <label className="text-[10px] text-gray-400 block mb-1">Ocultar automáticamente el:</label>
+                                        <input 
+                                            type="datetime-local" 
+                                            className="w-full border rounded p-1.5 text-xs outline-none focus:border-purple-500"
+                                            value={product.visibility?.availableUntil || ''}
+                                            onChange={(e) => updateProduct({...product, visibility: { ...product.visibility, availableUntil: e.target.value }})}
+                                        />
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 2. DESCUENTOS Y OFERTAS */}
+                            <div className="space-y-3">
+                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-1"><Percent className="w-3 h-3"/> Descuentos</h5>
+                                
+                                <label className="flex items-center gap-2 cursor-pointer">
+                                    <input 
+                                        type="checkbox" 
+                                        className="rounded text-purple-600 focus:ring-purple-500"
+                                        checked={product.discount?.active || false}
+                                        onChange={(e) => updateProduct({...product, discount: { ...(product.discount || {}), active: e.target.checked }})}
+                                    />
+                                    <span className="text-sm font-bold text-gray-700">Activar Descuento</span>
+                                </label>
+
+                                {product.discount?.active && (
+                                    <div className="space-y-2 p-2 bg-purple-50/50 rounded border border-purple-100">
+                                        <div className="flex gap-2">
+                                            <div className="flex-1">
+                                                <label className="text-[10px] text-gray-400 block">Descuento (%)</label>
+                                                <input type="number" min="0" max="100" className="w-full border rounded p-1.5 text-xs" 
+                                                    value={product.discount?.percentage || 0} 
+                                                    onChange={(e) => updateProduct({...product, discount: { ...product.discount, percentage: parseFloat(e.target.value) }})}
+                                                />
+                                            </div>
+                                            <div className="flex-1">
+                                                <label className="text-[10px] text-gray-400 block">Límite Usos (Opcional)</label>
+                                                <input type="number" placeholder="Ej: 50" className="w-full border rounded p-1.5 text-xs" 
+                                                    value={product.discount?.maxUnits || ''} 
+                                                    onChange={(e) => updateProduct({...product, discount: { ...product.discount, maxUnits: parseInt(e.target.value) || null }})}
+                                                />
+                                            </div>
+                                        </div>
+                                        <div>
+                                            <label className="text-[10px] text-gray-400 block">Oferta válida hasta (Opcional):</label>
+                                            <input type="datetime-local" className="w-full border rounded p-1.5 text-xs" 
+                                                value={product.discount?.expiresAt || ''} 
+                                                onChange={(e) => updateProduct({...product, discount: { ...product.discount, expiresAt: e.target.value }})}
+                                            />
+                                        </div>
+                                    </div>
+                                )}
+                            </div>
+
+                            {/* 3. EXCLUSIVIDAD (Pruebas de Mercado) */}
+                            <div className="space-y-3">
+                                <h5 className="text-[11px] font-bold text-gray-500 uppercase flex items-center gap-1 border-b pb-1"><Users className="w-3 h-3"/> Exclusividad Clubes</h5>
+                                <p className="text-[10px] text-gray-400">Si seleccionas clubes, el producto <b>solo</b> será visible para ellos. Si lo dejas vacío, es público.</p>
+                                
+                                <div className="max-h-32 overflow-y-auto border border-gray-200 rounded p-2 bg-gray-50 custom-scrollbar">
+                                    {clubs && clubs.length > 0 ? clubs.map(club => {
+                                        const isSelected = (product.exclusiveClubs || []).includes(club.id);
+                                        return (
+                                            <label key={club.id} className="flex items-center gap-2 text-xs py-1 cursor-pointer hover:bg-gray-100 px-1 rounded">
+                                                <input 
+                                                    type="checkbox" 
+                                                    className="rounded text-purple-600"
+                                                    checked={isSelected}
+                                                    onChange={(e) => {
+                                                        const currentClubs = product.exclusiveClubs || [];
+                                                        let newClubs;
+                                                        if (e.target.checked) {
+                                                            newClubs = [...currentClubs, club.id];
+                                                        } else {
+                                                            newClubs = currentClubs.filter(id => id !== club.id);
+                                                        }
+                                                        updateProduct({...product, exclusiveClubs: newClubs});
+                                                    }}
+                                                />
+                                                <span className={isSelected ? "font-bold text-purple-700" : "text-gray-600"}>{club.name}</span>
+                                            </label>
+                                        );
+                                    }) : (
+                                        <p className="text-xs text-gray-400 text-center italic">No hay clubes cargados.</p>
+                                    )}
+                                </div>
+                            </div>
+
                         </div>
                     </div>
                 </div>

@@ -249,6 +249,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         updateProduct={updateProduct} 
         deleteProduct={deleteProduct} 
         suppliers={suppliers}
+        clubs={clubs} // <--- AÑADIDA ESTA LÍNEA
         showNotification={showNotification}
     />
 )}

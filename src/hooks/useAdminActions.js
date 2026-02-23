@@ -13,6 +13,7 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
           features: { name: true, number: true, photo: false, shield: true, color: false }, 
           defaults: { name: true, number: true, photo: false, shield: true }, 
           modifiable: { name: true, number: true, photo: false, shield: true },
+          visibility: { status: 'hidden' }, // <--- AÑADIDO: Oculto por defecto
           createdAt: serverTimestamp()
       }; 
       try {

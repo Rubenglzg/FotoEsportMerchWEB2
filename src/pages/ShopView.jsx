@@ -22,19 +22,23 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
   const [selectedProduct, setSelectedProduct] = useState(null);
   const [searchTerm, setSearchTerm] = useState('');
   const [selectedCategory, setSelectedCategory] = useState('Todos');
+  
+  // NUEVO: Estados para el selector de club
+  const [activeClub, setActiveClub] = useState(null);
+  const [clubSearchQuery, setClubSearchQuery] = useState('');
 
-  // 1. Obtener categorías únicas dinámicamente (oculta SOLO las que no tienen sección)
+  // 1. Obtener categorías únicas dinámicamente
   const categories = useMemo(() => {
     const validSections = products
         .map(p => p.shopSection)
-        .filter(sec => sec && sec.trim() !== ''); // Ya no bloqueamos "General"
+        .filter(sec => sec && sec.trim() !== '');
     
     return ['Todos', ...new Set(validSections)].sort();
   }, [products]);
 
-  // 2. Filtrado estricto de productos
+  // 2. Filtrado estricto de productos (Añadimos filtro por activeClub)
   const filteredProducts = useMemo(() => {
-    const now = new Date(); // Fecha actual para comparar
+    const now = new Date(); 
 
     return products.filter(p => {
       // REGLA 1: Si no tiene sección, no se muestra
@@ -42,27 +46,108 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 
       // REGLA 2: Visibilidad Avanzada
       const vis = p.visibility || {};
-      if (vis.status === 'hidden') return false; // Oculto manualmente
+      if (vis.status === 'hidden') return false; 
       if (vis.status === 'limited' && vis.availableUntil) {
-          if (now > new Date(vis.availableUntil)) return false; // Ya caducó
+          if (now > new Date(vis.availableUntil)) return false; 
       }
-      // NOTA: Si es 'scheduled', lo dejamos pasar pero bloquearemos el clic en la tarjeta
+
+      // NUEVA REGLA: Exclusividad de Club
+      if (p.exclusiveClubs && p.exclusiveClubs.length > 0) {
+          if (!activeClub || !p.exclusiveClubs.includes(activeClub.id)) return false;
+      }
 
       const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase());
       const matchesCategory = selectedCategory === 'Todos' || p.shopSection === selectedCategory;
       
       return matchesSearch && matchesCategory;
     });
-  }, [products, searchTerm, selectedCategory]);
+  }, [products, searchTerm, selectedCategory, activeClub]);
+
+  // NUEVA PANTALLA: Buscador de Club
+  if (!activeClub) {
+    // Filtramos los clubes según lo que escriba el usuario
+    const suggestedClubs = clubSearchQuery.trim().length > 0 
+        ? clubs.filter(c => !c.blocked && c.name.toLowerCase().includes(clubSearchQuery.toLowerCase()))
+        : [];
+
+    return (
+        <div className="min-h-[80vh] flex flex-col items-center justify-center p-4 animate-fade-in">
+            <div className="max-w-md w-full bg-white rounded-3xl shadow-xl p-8 text-center border border-gray-100 relative overflow-hidden">
+                {/* Decoración de fondo */}
+                <div className="absolute -top-24 -right-24 w-48 h-48 bg-emerald-50 rounded-full blur-3xl opacity-60 pointer-events-none"></div>
+                
+                <h2 className="text-3xl font-black text-gray-900 mb-2 relative z-10">¡Bienvenido!</h2>
+                <p className="text-gray-500 text-sm mb-8 relative z-10">Busca tu club para acceder al catálogo y ofertas exclusivas de tu equipo.</p>
+                
+                {/* BUSCADOR */}
+                <div className="relative z-10 mb-2">
+                    <div className="absolute inset-y-0 left-0 pl-4 flex items-center pointer-events-none">
+                        <Search className="h-5 w-5 text-gray-400" />
+                    </div>
+                    <input 
+                        type="text"
+                        autoFocus
+                        placeholder="Escribe el nombre de tu club..."
+                        className="w-full pl-12 pr-4 py-4 bg-gray-50 border border-gray-200 rounded-2xl outline-none focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-all font-medium text-gray-700 shadow-inner"
+                        value={clubSearchQuery}
+                        onChange={(e) => setClubSearchQuery(e.target.value)}
+                    />
+                </div>
+
+                {/* LISTA DE SUGERENCIAS */}
+                <div className="relative z-10 text-left">
+                    {clubSearchQuery.trim().length > 0 ? (
+                        <div className="bg-white border border-gray-100 rounded-2xl shadow-lg mt-2 max-h-64 overflow-y-auto custom-scrollbar p-2">
+                            {suggestedClubs.length > 0 ? (
+                                suggestedClubs.map(club => (
+                                    <button 
+                                        key={club.id}
+                                        onClick={() => { setActiveClub(club); setClubSearchQuery(''); }}
+                                        className="w-full flex items-center gap-3 p-3 rounded-xl hover:bg-emerald-50 transition-colors group text-left"
+                                    >
+                                        <div className="w-10 h-10 rounded-lg bg-gray-50 border border-gray-100 flex items-center justify-center overflow-hidden shrink-0">
+                                            {club.logoUrl ? <img src={club.logoUrl} alt={club.name} className="w-8 h-8 object-contain"/> : <span className="font-bold text-gray-300 text-xs">?</span>}
+                                        </div>
+                                        <span className="font-bold text-gray-700 group-hover:text-emerald-700 flex-1">{club.name}</span>
+                                        <ChevronLeft className="w-4 h-4 text-gray-300 group-hover:text-emerald-500 rotate-180 transition-transform opacity-0 group-hover:opacity-100 group-hover:translate-x-1" />
+                                    </button>
+                                ))
+                            ) : (
+                                <div className="py-8 text-center">
+                                    <p className="text-sm font-bold text-gray-700">No hay resultados</p>
+                                    <p className="text-xs text-gray-400 mt-1">Comprueba si lo has escrito bien.</p>
+                                </div>
+                            )}
+                        </div>
+                    ) : (
+                        // Mensaje / Ayuda visual cuando no han escrito nada aún
+                        <p className="text-xs text-gray-400 mt-4 italic text-center">Empieza a escribir para ver las sugerencias.</p>
+                    )}
+                </div>
+            </div>
+        </div>
+    );
+  }
 
   return (
     <div className="animate-fade-in min-h-screen pb-12">
       {!selectedProduct ? (
         <>
-          {/* CABECERA Y FILTROS */}
+        {/* CABECERA Y FILTROS */}
           <div className="mb-8 space-y-6">
             <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
               <div>
+                {/* NUEVA ETIQUETA DE CLUB SELECCIONADO */}
+                <div className="flex items-center gap-3 mb-3">
+                    {activeClub.logoUrl && <img src={activeClub.logoUrl} className="w-8 h-8 object-contain drop-shadow-sm" alt="Logo"/>}
+                    <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2.5 py-1 rounded-md uppercase tracking-wide border border-emerald-200">
+                        Tienda Oficial: {activeClub.name}
+                    </span>
+                    <button onClick={() => { setActiveClub(null); setSelectedProduct(null); }} className="text-xs text-gray-400 hover:text-red-500 underline transition-colors">
+                        Cambiar club
+                    </button>
+                </div>
+                
                 <h2 className="text-4xl font-black text-gray-900 tracking-tight">
                   Catálogo Oficial
                 </h2>
@@ -142,6 +227,15 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                         {product.shopSection}
                       </span>
                     </div>
+
+                    {/* NUEVO: Etiqueta de Tiempo Limitado */}
+                    {vis.status === 'limited' && vis.availableUntil && !isScheduled && (
+                        <div className="absolute top-3 right-3 z-20">
+                            <span className="bg-red-500/90 backdrop-blur-sm text-[10px] font-bold px-2 py-1 rounded-md text-white shadow-sm border border-red-400 uppercase tracking-wider flex items-center gap-1">
+                                <Clock className="w-3 h-3"/> Hasta el {new Date(vis.availableUntil).toLocaleDateString()}
+                            </span>
+                        </div>
+                    )}
                   </div>
 
                   {/* Contenido */}
@@ -164,6 +258,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                         const isPack = product.category === 'Packs' || product.category === 'Ofertas';
                         let finalPrice = product.price;
                         let hasDiscount = false;
+                        let remainingDiscountUnits = null; // <--- AÑADIDO: Variable para guardar stock restante
 
                         // 1. Verificamos Descuento Específico del Producto
                         const prodDiscount = product.discount || {};
@@ -172,7 +267,14 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                         if (prodDiscount.active) {
                             const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
                             const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
-                            if (notExpired && limitNotReached) isProdDiscountValid = true;
+                            
+                            if (notExpired && limitNotReached) {
+                                isProdDiscountValid = true;
+                                // <--- AÑADIDO: Calculamos las unidades restantes
+                                if (prodDiscount.maxUnits) {
+                                    remainingDiscountUnits = prodDiscount.maxUnits - (prodDiscount.unitsSold || 0);
+                                }
+                            }
                         }
 
                         if (isProdDiscountValid) {
@@ -194,6 +296,12 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                                 <span className={`text-2xl font-black ${hasDiscount ? 'text-red-600' : 'text-gray-900'}`}>
                                     {finalPrice.toFixed(2)}<span className="text-sm align-top">€</span>
                                 </span>
+                                {/* <--- AÑADIDO: Renderizado de unidades restantes */}
+                                {remainingDiscountUnits !== null && remainingDiscountUnits > 0 && (
+                                    <span className="text-[10px] text-red-500 font-bold leading-tight mt-0.5 bg-red-50 px-1 py-0.5 rounded border border-red-100 inline-block w-fit">
+                                        ¡Solo {remainingDiscountUnits} uds. con dto!
+                                    </span>
+                                )}
                             </div>
                         );
                     })()}
@@ -236,6 +344,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
         <div className="animate-fade-in-up">
           <ProductCustomizer 
               product={selectedProduct} 
+              activeClub={activeClub} // <--- ¡NUEVA LÍNEA!
               onBack={() => setSelectedProduct(null)} 
               onAdd={addToCart} 
               clubs={clubs} 
@@ -253,14 +362,14 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 // ============================================================================
 // COMPONENTE SECUNDARIO: PERSONALIZADOR (Solo se usa aquí dentro)
 // ============================================================================
-export function ProductCustomizer({ product, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig }) {
+export function ProductCustomizer({ product, activeClub, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig }) {
   const defaults = product.defaults || {};
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
   const variants = product.variants || []; 
   const sizeOptions = product.sizes && product.sizes.length > 0 ? product.sizes : null;
 
-  const [clubInput, setClubInput] = useState('');
+  const [clubInput, setClubInput] = useState(activeClub ? activeClub.name : '');
   const [categoryInput, setCategoryInput] = useState('');
   const [showClubSuggestions, setShowClubSuggestions] = useState(false);
   const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
@@ -274,7 +383,7 @@ export function ProductCustomizer({ product, onBack, onAdd, clubs, modificationF
 
   // Inicialización correcta de estados basada en defaults
   const [customization, setCustomization] = useState({ 
-      clubId: '', 
+      clubId: activeClub ? activeClub.id : '',
       category: '', 
       category2: '', // Nueva categoría J2
       category3: '', // Nueva categoría J3
@@ -506,14 +615,13 @@ export function ProductCustomizer({ product, onBack, onAdd, clubs, modificationF
               </div>
           )}
 
-          <div className="relative">
-              <label className="block text-sm font-medium text-gray-700 mb-1">Club <span className="text-red-500">*</span></label>
-              <Input placeholder="Buscar club..." value={clubInput} onChange={e => { setClubInput(e.target.value); setCustomization({...customization, clubId: ''}); setShowClubSuggestions(true); }} onFocus={() => setShowClubSuggestions(true)} onBlur={() => setTimeout(() => setShowClubSuggestions(false), 200)} />
-              {showClubSuggestions && clubSuggestions.length > 0 && (
-                  <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                      {clubSuggestions.map(c => <div key={c.id} onClick={() => handleSelectClub(c)} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer">{c.name}</div>)}
-                  </div>
-              )}
+            {/* NUEVO: CLUB FIJO, NO EDITABLE */}
+          <div>
+              <label className="block text-sm font-medium text-gray-500 mb-1">Club Seleccionado</label>
+              <div className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 flex items-center gap-3 opacity-90">
+                  {activeClub.logoUrl && <img src={activeClub.logoUrl} className="w-6 h-6 object-contain" />}
+                  <span className="font-bold text-gray-700">{activeClub.name}</span>
+              </div>
           </div>
 
           {customization.clubId && (

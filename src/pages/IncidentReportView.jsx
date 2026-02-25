@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 // 1. Importamos los iconos que usa esta vista
 import { AlertTriangle, Upload, FileText, Trash2, Check, Send, Edit, PlusCircle, MessageCircle, Package, X } from 'lucide-react';
 // 2. Importamos las herramientas de Firestore y Storage necesarias
@@ -38,6 +38,20 @@ export function IncidentReportView({ setView, db, storage }) {
 
   // NUEVO: Sistema de Notificaciones en la propia web (Toast)
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
+
+  useEffect(() => {
+      let timer;
+      if (showSuccessBanner) {
+          timer = setTimeout(() => {
+              setView('home');
+          }, 10000);
+      }
+      // La clave está aquí: si el componente se desmonta (cierras la vista)
+      // limpiamos el temporizador para que no se ejecute en segundo plano.
+      return () => {
+          if (timer) clearTimeout(timer);
+      };
+  }, [showSuccessBanner, setView]);
 
   const showToast = (message, type = 'success') => {
       setToast({ show: true, message, type });
@@ -217,7 +231,7 @@ export function IncidentReportView({ setView, db, storage }) {
 
         setLoading(false);
         setShowSuccessBanner(true);
-        setTimeout(() => setView('home'), 10000); 
+         
 
     } catch (error) {
         console.error(error);

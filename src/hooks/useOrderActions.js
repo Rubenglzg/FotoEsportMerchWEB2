@@ -23,7 +23,25 @@ export function useOrderActions(showNotification, setCart, setView, clubs, seaso
               manualSeasonId: seasons.length > 0 ? seasons[seasons.length - 1].id : 'default' 
           });
 
-          // Si es pago con tarjeta, enviamos factura por email
+          // --- NUEVO: MARCAR CÓDIGOS DE REGALO COMO CANJEADOS ---
+          // Buscamos si en el pedido hay algún artículo que se haya añadido usando un código
+          const itemsConRegalo = orderData.items.filter(item => item.isGift && item.giftCodeId);
+          
+          for (const item of itemsConRegalo) {
+              try {
+                  // Actualizamos el documento del código en la colección 'giftCodes'
+                  await updateDoc(doc(db, 'giftCodes', item.giftCodeId), {
+                      status: 'redeemed', // Lo marcamos como usado
+                      redeemedAt: new Date().toISOString(), // Fecha de uso
+                      redeemedOrderId: docRef.id // Guardamos en qué pedido se usó para el historial
+                  });
+              } catch (e) {
+                  console.error("Error al marcar el código de regalo como canjeado:", e);
+              }
+          }
+          // ------------------------------------------------------
+
+          // Si es pago con tarjeta (o el pedido total es 0€), enviamos factura por email
           if (orderData.paymentMethod !== 'cash') {
               if (orderData.customer.email) {
                   const mailRef = doc(collection(db, 'mail'));

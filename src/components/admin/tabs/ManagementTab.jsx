@@ -1,11 +1,10 @@
-import React, { useState } from 'react';
-import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
+import React, { useState, useEffect } from 'react';
+import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye, Gift, Trash2, Copy, Tag } from 'lucide-react';
+import { doc, setDoc, getDocs, query, collection, addDoc, deleteDoc } from 'firebase/firestore';
 import { db } from '../../../config/firebase'; 
 import { Button } from '../../ui/Button';
 import { ColorPicker } from '../ui/ColorPicker';
 import { ClubEditorRow } from '../ClubEditorRow';
-import { ProductEditorRow } from '../ProductEditorRow';
 
 export const ManagementTab = ({
     campaignConfig, setCampaignConfig,
@@ -15,9 +14,79 @@ export const ManagementTab = ({
     clubs, createClub, updateClub, deleteClub, toggleClubBlock,
     showNotification
 }) => {
-    // Estos estados solo se usan en esta pestaña, así que los sacamos del Dashboard principal
     const [showNewClubPass, setShowNewClubPass] = useState(false);
     const [newClubColor, setNewClubColor] = useState('white');
+
+    // --- NUEVOS ESTADOS PARA CÓDIGOS DE REGALO ---
+    const [giftCodes, setGiftCodes] = useState([]);
+    const [filterStatus, setFilterStatus] = useState('pending'); // 'pending' | 'redeemed'
+    const [newManualProduct, setNewManualProduct] = useState('');
+    const [newManualEmail, setNewManualEmail] = useState('');
+    const [isGenerating, setIsGenerating] = useState(false);
+
+    // Cargar los códigos al abrir la pestaña
+    const fetchGiftCodes = async () => {
+        try {
+            const snap = await getDocs(query(collection(db, 'giftCodes')));
+            const codes = snap.docs.map(d => ({id: d.id, ...d.data()}));
+            // Ordenar por fecha de creación (más recientes primero)
+            codes.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
+            setGiftCodes(codes);
+        } catch (err) {
+            console.error("Error cargando códigos:", err);
+            showNotification("Error al cargar los códigos de regalo", "error");
+        }
+    };
+
+    useEffect(() => {
+        fetchGiftCodes();
+    }, []);
+
+    // Función para generar un código manualmente
+    const handleGenerateManualCode = async () => {
+        if (!newManualProduct) return showNotification("Debes seleccionar un producto a regalar", "error");
+        setIsGenerating(true);
+
+        const prod = products.find(p => p.id === newManualProduct);
+        const codeStr = `MAN-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+
+        try {
+            await addDoc(collection(db, 'giftCodes'), {
+                code: codeStr,
+                type: 'manual',
+                productId: prod.id,
+                productName: prod.name,
+                userEmail: newManualEmail || 'Generado Manualmente',
+                status: 'pending',
+                createdAt: new Date().toISOString()
+            });
+            showNotification("Código de regalo generado con éxito");
+            setNewManualProduct('');
+            setNewManualEmail('');
+            fetchGiftCodes(); // Recargamos la lista
+        } catch (e) {
+            console.error(e);
+            showNotification("Hubo un error al generar el código", "error");
+        }
+        setIsGenerating(false);
+    };
+
+    // Función para borrar un código (solo si no se ha usado)
+    const handleDeleteCode = async (id) => {
+        if (!window.confirm("¿Estás seguro de que quieres eliminar este código? Dejará de funcionar.")) return;
+        try {
+            await deleteDoc(doc(db, 'giftCodes', id));
+            showNotification("Código eliminado correctamente");
+            fetchGiftCodes();
+        } catch (e) {
+            showNotification("Error al eliminar el código", "error");
+        }
+    };
+
+    const copyToClipboard = (text) => {
+        navigator.clipboard.writeText(text);
+        showNotification("Código copiado al portapapeles");
+    };
 
     return (
         <div className="space-y-8 animate-fade-in">
@@ -187,12 +256,115 @@ export const ManagementTab = ({
                 </div>
             </div>
 
-            {/* PRODUCTOS Y CLUBES */}
-            <div className="grid grid-cols-1 max-w-3xl mx-auto gap-8 items-start">
+            {/* SECCIÓN PRINCIPAL DIVIDIDA EN DOS COLUMNAS (CÓDIGOS Y CLUBES) */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 max-w-7xl mx-auto gap-8 items-start">
                 
-                {/* COLUMNA IZQUIERDA: CATÁLOGO DE PRODUCTOS */}
+                {/* --- COLUMNA IZQUIERDA: GESTIÓN DE CÓDIGOS DE REGALO --- */}
+                <div className="space-y-6">
+                    {/* Generador Manual de Códigos */}
+                    <div className="bg-gradient-to-br from-pink-50 via-purple-50 to-indigo-50 rounded-2xl shadow-sm border border-pink-100 p-6 relative overflow-hidden">
+                        <div className="absolute -bottom-10 -left-10 w-48 h-48 bg-white rounded-full blur-3xl opacity-50 pointer-events-none"></div>
+                        <div className="flex items-center gap-4 mb-6 relative z-10">
+                            <div className="bg-white p-3 rounded-xl shadow-sm border border-pink-50 text-pink-500">
+                                <Gift className="w-6 h-6"/>
+                            </div>
+                            <div>
+                                <h3 className="text-lg font-extrabold text-pink-900 leading-tight">Generar Código Regalo</h3>
+                                <p className="text-xs text-pink-500 font-medium">Crea un código promocional de un solo uso</p>
+                            </div>
+                        </div>
 
-                {/* COLUMNA DERECHA: GESTIÓN DE CLUBES */}
+                        <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 border border-white shadow-sm relative z-10 space-y-4">
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">1. ¿Qué producto vas a regalar?</label>
+                                <select 
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
+                                    value={newManualProduct}
+                                    onChange={(e) => setNewManualProduct(e.target.value)}
+                                >
+                                    <option value="">-- Selecciona un producto del catálogo --</option>
+                                    {products.map(p => (
+                                        <option key={p.id} value={p.id}>{p.name}</option>
+                                    ))}
+                                </select>
+                            </div>
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">2. Email de referencia (Opcional)</label>
+                                <input 
+                                    type="text" 
+                                    placeholder="Ej: cliente@email.com o 'Sorteo Instagram'"
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
+                                    value={newManualEmail}
+                                    onChange={(e) => setNewManualEmail(e.target.value)}
+                                />
+                            </div>
+                            <button 
+                                onClick={handleGenerateManualCode}
+                                disabled={isGenerating}
+                                className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 text-sm disabled:opacity-50"
+                            >
+                                <Plus className="w-4 h-4"/> {isGenerating ? 'Generando...' : 'Crear Código Ahora'}
+                            </button>
+                        </div>
+                    </div>
+
+                    {/* Lista de Códigos Generados */}
+                    <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[500px]">
+                        <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
+                            <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                <Tag className="w-5 h-5 text-pink-600"/> Historial de Códigos
+                            </h4>
+                            <div className="flex gap-1 bg-white border rounded-lg p-1 shadow-sm">
+                                <button onClick={() => setFilterStatus('pending')} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${filterStatus === 'pending' ? 'bg-pink-100 text-pink-700' : 'text-gray-500 hover:bg-gray-100'}`}>Pendientes</button>
+                                <button onClick={() => setFilterStatus('redeemed')} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${filterStatus === 'redeemed' ? 'bg-gray-200 text-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}>Canjeados</button>
+                            </div>
+                        </div>
+
+                        <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
+                            {giftCodes.filter(c => c.status === filterStatus).length === 0 ? (
+                                <p className="text-center text-gray-400 py-10">No hay códigos en esta categoría.</p>
+                            ) : (
+                                giftCodes.filter(c => c.status === filterStatus).map(code => (
+                                    <div key={code.id} className="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
+                                        <div className="flex justify-between items-start mb-2">
+                                            <div>
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    <span className="font-mono text-lg font-bold text-pink-700 bg-pink-50 px-2 py-0.5 rounded tracking-wide border border-pink-100">
+                                                        {code.code}
+                                                    </span>
+                                                    {filterStatus === 'pending' && (
+                                                        <button onClick={() => copyToClipboard(code.code)} className="text-gray-400 hover:text-pink-600 p-1" title="Copiar código">
+                                                            <Copy className="w-4 h-4" />
+                                                        </button>
+                                                    )}
+                                                </div>
+                                                <p className="text-sm font-bold text-gray-800">{code.productName}</p>
+                                            </div>
+                                            {filterStatus === 'pending' && (
+                                                <button onClick={() => handleDeleteCode(code.id)} className="text-gray-300 hover:text-red-500 transition-colors" title="Borrar código">
+                                                    <Trash2 className="w-4 h-4"/>
+                                                </button>
+                                            )}
+                                        </div>
+                                        
+                                        <div className="flex flex-col gap-1 text-[11px] text-gray-500 mt-2 bg-gray-50 p-2 rounded">
+                                            <p><strong className="text-gray-600">Email/Ref:</strong> {code.userEmail}</p>
+                                            <div className="flex justify-between">
+                                                <p><strong className="text-gray-600">Origen:</strong> {code.type === 'incident' ? `Incidencia #${code.incidentId.slice(0,6)}` : 'Manual'}</p>
+                                                <p>{new Date(code.createdAt).toLocaleDateString()}</p>
+                                            </div>
+                                            {code.status === 'redeemed' && code.redeemedAt && (
+                                                <p className="text-emerald-600 font-bold mt-1">✓ Canjeado el {new Date(code.redeemedAt).toLocaleDateString()}</p>
+                                            )}
+                                        </div>
+                                    </div>
+                                ))
+                            )}
+                        </div>
+                    </div>
+                </div>
+
+                {/* --- COLUMNA DERECHA: GESTIÓN DE CLUBES --- */}
                 <div className="space-y-6">
                     {/* Alta de Nuevo Club */}
                     <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-blue-50 rounded-2xl shadow-sm border border-indigo-100 p-6 relative overflow-hidden">

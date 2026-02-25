@@ -402,7 +402,12 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
       )}
 
 {tab === 'incidents' && (
-    <IncidentsTab incidents={incidents} />
+    <IncidentsTab 
+        incidents={incidents} 
+        orders={orders} 
+        clubs={clubs} 
+        products={products} // <--- AÑADE ESTA LÍNEA
+    />
 )}
 
 {tab === 'finances' && (

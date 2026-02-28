@@ -1,12 +1,16 @@
 import React, { useState, useMemo, useEffect } from 'react';
-import { Search, ShoppingBag, ChevronLeft, Clock, Gift, Check, AlertTriangle, X, ArrowRight } from 'lucide-react';
+import { Search, ShoppingBag, ChevronLeft, Clock, Gift, Check, AlertTriangle, X, ArrowRight, RefreshCw } from 'lucide-react';
 
-import { ref, listAll } from 'firebase/storage';
+import { ref, listAll, getDownloadURL } from 'firebase/storage';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { storage, db } from '../config/firebase';
 
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
+
+// --- NUEVAS IMPORTACIONES PARA LA BÚSQUEDA DE FOTOS ---
+import { ProtectedWatermarkImage, normalizeText } from './PhotoSearchView';
+import { LOGO_URL } from '../config/constants';
 
 /* * ============================================================================
  * 🛍️ VISTA: TIENDA Y PERSONALIZADOR
@@ -414,6 +418,83 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
       selectedVariantId: null 
   });
 
+// --- ESTADOS INDEPENDIENTES PARA LA BÚSQUEDA DE FOTO ---
+  const [searchPhotoName, setSearchPhotoName] = useState('');
+  const [searchPhotoNumber, setSearchPhotoNumber] = useState('');
+  const [photoSearchResult, setPhotoSearchResult] = useState(null);
+  const [isSearchingPhoto, setIsSearchingPhoto] = useState(false);
+  const [photoSearchError, setPhotoSearchError] = useState('');
+
+  // Si cambia la categoría o los campos de búsqueda, borramos la foto encontrada para obligar a buscar de nuevo
+  useEffect(() => {
+      setPhotoSearchResult(null);
+      setCustomization(prev => ({ ...prev, selectedPhoto: '' }));
+      setPhotoSearchError('');
+  }, [customization.category, searchPhotoName, searchPhotoNumber]);
+
+  // Función de búsqueda (Usa las variables independientes)
+  const handleSearchPhoto = async () => {
+      if (!customization.category) { setPhotoSearchError("Debes seleccionar una categoría primero."); return; }
+      if (!isTeamPhoto && !searchPhotoName && !searchPhotoNumber) { 
+          setPhotoSearchError("Escribe el nombre o dorsal del jugador para buscar su foto."); 
+          return; 
+      }
+
+      setIsSearchingPhoto(true);
+      setPhotoSearchError('');
+      setPhotoSearchResult(null);
+
+      try {
+          const normSearchName = normalizeText(searchPhotoName || '');
+          const normSearchDorsal = normalizeText(searchPhotoNumber || '');
+          const folderRef = ref(storage, `${activeClub.name}/${customization.category}`);
+          const res = await listAll(folderRef);
+
+          let foundPhotoUrl = null;
+          let foundFileName = null;
+
+          for (const item of res.items) {
+              const normFileName = normalizeText(item.name);
+              
+              if (isTeamPhoto) {
+                  foundPhotoUrl = await getDownloadURL(item);
+                  foundFileName = item.name;
+                  break;
+              }
+
+              let nameMatch = true;
+              let dorsalMatch = true;
+
+              if (normSearchName) {
+                  const cleanName = normFileName.replace(/_/g, ' ');
+                  nameMatch = cleanName.includes(normSearchName) || normFileName.includes(normSearchName);
+              }
+              if (normSearchDorsal) {
+                  const dorsalRegex = new RegExp(`[a-z0-9]_${normSearchDorsal}\\.|_${normSearchDorsal}$|_${normSearchDorsal}_`);
+                  dorsalMatch = dorsalRegex.test(normFileName) || normFileName.includes(`_${normSearchDorsal}`);
+              }
+
+              if (nameMatch && dorsalMatch) {
+                  foundPhotoUrl = await getDownloadURL(item);
+                  foundFileName = item.name;
+                  break;
+              }
+          }
+
+          if (foundPhotoUrl) {
+              setPhotoSearchResult({ url: foundPhotoUrl, name: foundFileName });
+              setCustomization(prev => ({ ...prev, selectedPhoto: foundFileName }));
+          } else {
+              setPhotoSearchError(`No se encontró ninguna foto en "${customization.category}" con esos datos.`);
+              setCustomization(prev => ({ ...prev, selectedPhoto: '' }));
+          }
+      } catch (err) {
+          console.error("Error buscando foto:", err);
+          setPhotoSearchError("Error al conectar con la base de datos de fotos.");
+      }
+      setIsSearchingPhoto(false);
+  };
+
   const isGift = !!activeGiftCode;
   const [quantity, setQuantity] = useState(1); 
 
@@ -497,18 +578,34 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
       e.preventDefault(); 
       if (!storeConfig.isOpen) return; 
       if (!customization.clubId) { alert("Debes seleccionar un club."); return; }
+      
+    // Validaciones del texto impreso (independiente de la foto)
       if (!isTeamPhoto) {
-          if (customization.includeName && !customization.playerName) { alert("El nombre es obligatorio."); return; }
-          if (customization.includeNumber && !customization.playerNumber) { alert("El dorsal es obligatorio."); return; }
+          // AÑADIMOS features.name y features.number a la comprobación
+          if (features.name && customization.includeName && !customization.playerName) { 
+              alert("El nombre a imprimir es obligatorio. Si no quieres nombre, desmarca la casilla 'Incluir Nombre'."); 
+              return; 
+          }
+          if (features.number && customization.includeNumber && !customization.playerNumber) { 
+              alert("El dorsal a imprimir es obligatorio. Si no quieres dorsal, desmarca la casilla 'Incluir Dorsal'."); 
+              return; 
+          }
       }
+      
       if (features.size && !customization.size) { alert("Debes seleccionar una talla."); return; }
       if ((isDouble || isTriple) && (!customization.playerName2 || !customization.playerNumber2)) { alert("Datos del J2 obligatorios."); return; }
       if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { alert("Datos del J3 obligatorios."); return; }
 
+      // Validación de la fotografía (independiente de lo anterior)
+      if (customization.includePhoto && !customization.selectedPhoto) { 
+          alert("Debes buscar y confirmar tu fotografía antes de añadir el producto al carrito."); 
+          return; 
+      }
+
       let extendedName = product.name;
       if (activeVariant) extendedName += ` (${activeVariant.name})`;
       
-      let fullDetails = `Jugador 1: ${customization.playerName} #${customization.playerNumber}`;
+      let fullDetails = `Jugador 1: ${customization.playerName || 'Sin nombre'} #${customization.playerNumber || 'Sin dorsal'}`;
       if(isDouble || isTriple) fullDetails += ` | J2: ${customization.playerName2} #${customization.playerNumber2}`;
       if(isTriple) fullDetails += ` | J3: ${customization.playerName3} #${customization.playerNumber3}`;
       if(isTeamPhoto) fullDetails = "Foto de Equipo";
@@ -531,6 +628,7 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                   name: extendedName,
                   playerName: isTeamPhoto ? '' : customization.playerName,
                   playerNumber: isTeamPhoto ? '' : customization.playerNumber,
+                  photoFileName: customization.includePhoto ? customization.selectedPhoto : null, // Guarda la foto final
                   quantity: isGift ? 1 : quantity, 
                   size: customization.size,
                   price: isGift ? 0 : product.price,
@@ -670,6 +768,14 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                               {customization.includeShield !== !!defaults.shield && !isGift && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
                           </label>
                       )}
+                      {/* CHECKBOX DE FOTO AQUÍ */}
+                      {features.photo && modifiable.photo && (
+                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
+                              <input type="checkbox" className="accent-emerald-600" checked={customization.includePhoto} onChange={e => setCustomization({...customization, includePhoto: e.target.checked})}/>
+                              <span className="text-sm">Incluir Foto</span>
+                              {customization.includePhoto !== !!defaults.photo && !isGift && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
+                          </label>
+                      )}
                   </div>
                   <div className="grid grid-cols-2 gap-4">
                     {features.name && (
@@ -751,6 +857,74 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                           <Input placeholder="Dorsal J3" type="number" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/>
                       </div>
                   </div>
+              </div>
+          )}
+
+          {/* SECCIÓN INDEPENDIENTE: BÚSQUEDA DE FOTOGRAFÍA */}
+          {customization.includePhoto && (
+              <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 mt-6 relative overflow-hidden shadow-inner">
+                  <h4 className="font-bold text-emerald-800 text-sm uppercase mb-2">Buscador de Fotografía <span className="text-red-500">*</span></h4>
+                  <p className="text-xs text-gray-600 mb-4 leading-relaxed">
+                      {isTeamPhoto 
+                          ? 'Al ser foto de equipo, solo pulsa en buscar.' 
+                          : 'Independientemente de si has pedido imprimir tu nombre o no, necesitamos que busques tu foto en el servidor usando tu nombre o dorsal:'}
+                  </p>
+                  
+                  {!isTeamPhoto && (
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
+                          <div>
+                              <label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Nombre (Para buscar la foto)</label>
+                              <Input 
+                                  placeholder="Ej: Marc" 
+                                  value={searchPhotoName} 
+                                  onChange={e => setSearchPhotoName(e.target.value)}
+                              />
+                          </div>
+                          <div>
+                              <label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Dorsal (Para buscar la foto)</label>
+                              <Input 
+                                  type="number"
+                                  placeholder="Ej: 10" 
+                                  value={searchPhotoNumber} 
+                                  onChange={e => setSearchPhotoNumber(e.target.value)}
+                              />
+                          </div>
+                      </div>
+                  )}
+                  
+                  <Button 
+                      type="button" 
+                      onClick={handleSearchPhoto}
+                      disabled={isSearchingPhoto}
+                      className="w-full flex items-center justify-center gap-2 mb-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all active:scale-95 py-3"
+                  >
+                      {isSearchingPhoto ? <RefreshCw className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
+                      {isSearchingPhoto ? 'Buscando foto...' : 'Buscar y Confirmar Fotografía'}
+                  </Button>
+
+                  {photoSearchError && (
+                      <div className="text-red-600 text-xs bg-red-50 p-3 rounded-lg border border-red-200 flex items-center gap-2 mt-2 font-medium shadow-sm">
+                          <AlertTriangle className="w-5 h-5 shrink-0"/> {photoSearchError}
+                      </div>
+                  )}
+
+                  {photoSearchResult && (
+                      <div className="mt-5 animate-fade-in-up">
+                          <div className="flex items-center gap-2 mb-3 bg-white p-3 rounded-lg border border-emerald-200 shadow-sm">
+                              <Check className="w-6 h-6 text-emerald-500 shrink-0"/>
+                              <span className="text-sm font-bold text-emerald-800 leading-tight">
+                                  ¡Foto vinculada al pedido!
+                              </span>
+                          </div>
+                          <div className="pointer-events-none rounded-xl overflow-hidden border-[3px] border-emerald-300 shadow-xl bg-white p-1">
+                              <ProtectedWatermarkImage 
+                                  imageUrl={photoSearchResult.url}
+                                  fileName={photoSearchResult.name}
+                                  logoUrl={LOGO_URL}
+                              />
+                          </div>
+                      </div>
+                  )}
               </div>
           )}
           

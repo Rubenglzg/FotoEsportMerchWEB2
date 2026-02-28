@@ -27,6 +27,11 @@ export const ManagementTab = ({
     const [newManualProduct, setNewManualProduct] = useState('');
     const [newManualEmail, setNewManualEmail] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
+    const [codeType, setCodeType] = useState('product'); // 'product' (Regalo), 'percent' (%), 'fixed' (€)
+    const [applyTo, setApplyTo] = useState('specific'); // 'specific' (Producto concreto), 'all' (Toda la cesta)
+    const [discountValue, setDiscountValue] = useState(''); // Valor del descuento (Ej: 10, 50...)
+    const [productQuantity, setProductQuantity] = useState(1); // Cantidad de productos a regalar
+    const [allowedClub, setAllowedClub] = useState('all');
 
     // Cargar los códigos al abrir la pestaña
     const fetchGiftCodes = async () => {
@@ -48,25 +53,46 @@ export const ManagementTab = ({
 
     // Función para generar un código manualmente
     const handleGenerateManualCode = async () => {
-        if (!newManualProduct) return showNotification("Debes seleccionar un producto a regalar", "error");
+        // Validaciones
+        if ((codeType === 'product' || applyTo === 'specific') && !newManualProduct) {
+            return showNotification("Debes seleccionar un producto del catálogo", "error");
+        }
+        if (codeType !== 'product' && (!discountValue || parseFloat(discountValue) <= 0)) {
+            return showNotification("Debes introducir un valor de descuento válido", "error");
+        }
+
         setIsGenerating(true);
 
-        const prod = products.find(p => p.id === newManualProduct);
-        const codeStr = `MAN-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
+        const prod = (codeType === 'product' || applyTo === 'specific') ? products.find(p => p.id === newManualProduct) : null;
+        
+        // Creamos un prefijo inteligente para saber a simple vista qué tipo de código es
+        const prefix = codeType === 'percent' ? 'PCT' : (codeType === 'fixed' ? 'FIX' : 'REG');
+        const codeStr = `${prefix}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
         try {
             await addDoc(collection(db, 'giftCodes'), {
                 code: codeStr,
-                type: 'manual',
-                productId: prod.id,
-                productName: prod.name,
+                type: 'manual', // Origen manual
+                codeType: codeType, // 'product', 'percent', 'fixed'
+                applyTo: codeType === 'product' ? 'specific' : applyTo, // 'specific', 'all'
+                productId: prod ? prod.id : null,
+                productName: prod ? prod.name : 'Toda la cesta',
+                discountValue: codeType !== 'product' ? parseFloat(discountValue) : null,
+                maxUnits: (codeType === 'product' || applyTo === 'specific') ? parseInt(productQuantity) : 0, // 0 = sin límite
                 userEmail: newManualEmail || 'Generado Manualmente',
+                allowedClub: allowedClub,
                 status: 'pending',
                 createdAt: new Date().toISOString()
             });
-            showNotification("Código de regalo generado con éxito");
+            
+            showNotification("Código promocional generado con éxito");
+            
+            // Limpiamos el formulario para el siguiente
             setNewManualProduct('');
             setNewManualEmail('');
+            setDiscountValue('');
+            setProductQuantity(1);
+            setAllowedClub('all');
             fetchGiftCodes(); // Recargamos la lista
         } catch (e) {
             console.error(e);
@@ -214,33 +240,102 @@ export const ManagementTab = ({
                         </div>
 
                         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 border border-white shadow-sm relative z-10 space-y-4">
+                            
+                            {/* 1. TIPO DE CUPÓN */}
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">1. ¿Qué producto vas a regalar?</label>
-                                <select 
-                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
-                                    value={newManualProduct}
-                                    onChange={(e) => setNewManualProduct(e.target.value)}
-                                >
-                                    <option value="">-- Selecciona un producto del catálogo --</option>
-                                    {products.map(p => (
-                                        <option key={p.id} value={p.id}>{p.name}</option>
-                                    ))}
-                                </select>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-2">1. Tipo de Promoción</label>
+                                <div className="grid grid-cols-3 gap-2">
+                                    <button onClick={() => setCodeType('product')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'product' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Regalar Producto</button>
+                                    <button onClick={() => setCodeType('percent')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'percent' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Descuento (%)</button>
+                                    <button onClick={() => setCodeType('fixed')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'fixed' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Descuento (€)</button>
+                                </div>
                             </div>
+
+                            {/* 2. VALOR Y ALCANCE (Solo si es descuento) */}
+                            {codeType !== 'product' && (
+                                <div>
+                                    <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                        2. Valor del descuento ({codeType === 'percent' ? '%' : '€'}) y Alcance
+                                    </label>
+                                    <div className="flex gap-2">
+                                        <input 
+                                            type="number" min="0.1" step={codeType === 'fixed' ? "0.5" : "1"}
+                                            placeholder={codeType === 'percent' ? "Ej: 10" : "Ej: 5.50"}
+                                            className="w-1/3 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 outline-none"
+                                            value={discountValue} onChange={(e) => setDiscountValue(e.target.value)}
+                                        />
+                                        <select 
+                                            className="w-2/3 bg-gray-50 border border-gray-200 rounded-lg px-2 text-xs font-bold text-gray-700 outline-none"
+                                            value={applyTo} onChange={(e) => setApplyTo(e.target.value)}
+                                        >
+                                            <option value="specific">A un producto concreto</option>
+                                            <option value="all">A toda la cesta</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 3. PRODUCTO Y CANTIDAD (Oculto si es a toda la cesta) */}
+                            {(codeType === 'product' || applyTo === 'specific') && (
+                                <div className="grid grid-cols-12 gap-2">
+                                    <div className="col-span-8">
+                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                            {codeType === 'product' ? '2. Producto a regalar' : '3. Producto con descuento'}
+                                        </label>
+                                        <select 
+                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
+                                            value={newManualProduct} onChange={(e) => setNewManualProduct(e.target.value)}
+                                        >
+                                            <option value="">-- Selecciona --</option>
+                                            {products.map(p => <option key={p.id} value={p.id}>{p.name}</option>)}
+                                        </select>
+                                    </div>
+                                    <div className="col-span-4">
+                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                            Unidades
+                                        </label>
+                                        <input 
+                                            type="number" min="0"
+                                            title="Pon 0 si quieres que el descuento se aplique a todas las unidades sin límite."
+                                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 outline-none"
+                                            value={productQuantity} onChange={(e) => setProductQuantity(Math.max(0, parseInt(e.target.value) || 0))}
+                                        />
+                                        {codeType !== 'product' && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">Pon 0 para aplicar a todas las uds.</p>}
+                                    </div>
+                                </div>
+                            )}
+
+                            {/* 4. EMAIL / REFERENCIA */}
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">2. Email de referencia (Opcional)</label>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                    {codeType === 'product' ? '3.' : (applyTo === 'all' ? '3.' : '4.')} Email de referencia (Opcional)
+                                </label>
                                 <input 
                                     type="text" 
-                                    placeholder="Ej: cliente@email.com o 'Sorteo Instagram'"
+                                    placeholder="Ej: cliente@email.com o 'Sorteo'"
                                     className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
-                                    value={newManualEmail}
-                                    onChange={(e) => setNewManualEmail(e.target.value)}
+                                    value={newManualEmail} onChange={(e) => setNewManualEmail(e.target.value)}
                                 />
                             </div>
+
+                            {/* NUEVO: RESTRICCIÓN DE CLUB */}
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
+                                    Restricción de Club
+                                </label>
+                                <select 
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 font-bold focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
+                                    value={allowedClub} onChange={(e) => setAllowedClub(e.target.value)}
+                                >
+                                    <option value="all">✅ Válido para todos los clubes</option>
+                                    {clubs.map(c => <option key={c.id} value={c.id}>Solo para: {c.name}</option>)}
+                                </select>
+                            </div>
+
                             <button 
                                 onClick={handleGenerateManualCode}
                                 disabled={isGenerating}
-                                className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 text-sm disabled:opacity-50"
+                                className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 text-sm disabled:opacity-50 mt-2"
                             >
                                 <Plus className="w-4 h-4"/> {isGenerating ? 'Generando...' : 'Crear Código Ahora'}
                             </button>
@@ -277,7 +372,24 @@ export const ManagementTab = ({
                                                         </button>
                                                     )}
                                                 </div>
-                                                <p className="text-sm font-bold text-gray-800">{code.productName}</p>
+                                                <div className="mt-1">
+                                                    <p className="text-sm font-extrabold text-gray-800">
+                                                        {code.codeType === 'percent' ? `Descuento del ${code.discountValue}%` : 
+                                                         code.codeType === 'fixed' ? `Descuento de ${code.discountValue}€` : 
+                                                         'Regalo Directo'}
+                                                    </p>
+                                                    <p className="text-xs text-gray-500 font-medium leading-tight mt-0.5">
+                                                        {code.applyTo === 'all' 
+                                                            ? 'Aplicable a toda la cesta' 
+                                                            : `En: ${code.productName} ${code.maxUnits === 0 ? '(Sin límite de uds)' : `(Máx. ${code.maxUnits} uds)`}`
+                                                        }
+                                                    </p>
+                                                    {code.allowedClub && code.allowedClub !== 'all' && (
+                                                        <p className="text-[10px] text-indigo-600 font-bold mt-1 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 inline-block">
+                                                            Exclusivo: {clubs.find(c => c.id === code.allowedClub)?.name || 'Club'}
+                                                        </p>
+                                                    )}
+                                                </div>
                                             </div>
                                             {filterStatus === 'pending' && (
                                                 <button onClick={() => handleDeleteCode(code.id)} className="text-gray-300 hover:text-red-500 transition-colors" title="Borrar código">

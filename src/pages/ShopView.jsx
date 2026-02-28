@@ -71,17 +71,36 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
               showToast("Código no válido o no existe.", "error");
           } else {
               const codeData = snap.docs[0].data();
+
+              // --- NUEVA COMPROBACIÓN DE CLUB AQUÍ ---
+              if (codeData.allowedClub && codeData.allowedClub !== 'all' && codeData.allowedClub !== activeClub?.id) {
+                  showToast("Este código no es válido para los productos de este club.", "error");
+                  setIsLoadingGift(false);
+                  return;
+              }
+
               if(codeData.status === 'redeemed') {
                   showToast("Este código ya ha sido canjeado.", "error");
+              } else if (codeData.applyTo === 'all') {
+                  // Si el código es para toda la cesta, le indicamos que vaya al carrito
+                  showToast("¡Código válido! Es un descuento para toda la compra. Aplícalo en la pantalla del Carrito de la Compra.", "success");
+                  setGiftCodeInput('');
               } else {
                   const prod = products.find(p => p.id === codeData.productId);
                   if(prod) {
                       setActiveGiftCode({ ...codeData, docId: snap.docs[0].id });
                       setSelectedProduct(prod);
                       setGiftCodeInput('');
-                      showToast("¡Código aplicado! Personaliza tu regalo.");
+                      
+                      // Mensaje dinámico según el tipo
+                      let msg = "¡Código aplicado! ";
+                      if (codeData.codeType === 'product') msg += "Personaliza tu regalo gratis.";
+                      else if (codeData.codeType === 'percent') msg += `Tienes un ${codeData.discountValue}% de descuento.`;
+                      else if (codeData.codeType === 'fixed') msg += `Tienes ${codeData.discountValue}€ de descuento.`;
+                      
+                      showToast(msg);
                   } else {
-                      showToast("El producto de este regalo ya no está disponible en el catálogo.", "error");
+                      showToast("El producto de este descuento ya no está disponible en el catálogo.", "error");
                   }
               }
           }
@@ -370,6 +389,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
               storeConfig={storeConfig} 
               setConfirmation={setConfirmation} 
               campaignConfig={campaignConfig}
+              showToast={showToast}  // <--- AÑADE ESTA LÍNEA
           />
         </div>
       )}
@@ -380,7 +400,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 // ============================================================================
 // COMPONENTE SECUNDARIO: PERSONALIZADOR
 // ============================================================================
-export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig }) {
+export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig, showToast }) {
   const defaults = product.defaults || {};
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
@@ -532,21 +552,31 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
     }, [customization.clubId, clubs]);
 
   const basePrice = useMemo(() => {
-      if (isGift) return 0; 
+      let price = product.price;
+      
+      // 1. Si hay un código de descuento introducido para este producto
+      if (activeGiftCode && activeGiftCode.applyTo === 'specific') {
+          if (activeGiftCode.codeType === 'product') return 0; // Regalo total
+          if (activeGiftCode.codeType === 'percent') price = price * (1 - (activeGiftCode.discountValue / 100));
+          if (activeGiftCode.codeType === 'fixed') price = Math.max(0, price - activeGiftCode.discountValue);
+          return price; // Si hay código manual, tiene prioridad y salimos
+      }
+
+      // 2. Si no hay código, aplicamos los descuentos normales o campañas
       const isPack = product.category === 'Packs' || product.category === 'Ofertas';
       const prodDiscount = product.discount || {};
       if (prodDiscount.active) {
           const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
           const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
           if (notExpired && limitNotReached) {
-              return product.price * (1 - prodDiscount.percentage / 100);
+              return price * (1 - prodDiscount.percentage / 100);
           }
       }
       if (campaignConfig?.active && campaignConfig?.discount > 0 && !isPack) {
-          return product.price * (1 - campaignConfig.discount / 100);
+          return price * (1 - campaignConfig.discount / 100);
       }
-      return product.price;
-  }, [product, campaignConfig, isGift]);
+      return price;
+  }, [product, campaignConfig, activeGiftCode]);
 
   const categorySuggestions = useMemo(() => {
       if (categoryInput.length < 2) return [];
@@ -570,35 +600,36 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
       return count;
   }, [customization, defaults, features, modifiable, isDouble, isTriple, isGift]);
 
-   const variantPrice = activeVariant && !isGift ? (activeVariant.priceMod || 0) : 0;
-   const unitPrice = isGift ? 0 : (basePrice + variantPrice + (modificationCount * (modificationFee || 0)));
-   const totalPrice = unitPrice * (isGift ? 1 : quantity);
+   const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
+   // Si el tipo es 'product' es gratis total. Si es descuento, sí se pagan los extras de personalización
+   const isTotalGift = activeGiftCode && activeGiftCode.codeType === 'product';
+   const unitPrice = isTotalGift ? 0 : (basePrice + variantPrice + (modificationCount * (modificationFee || 0)));
+   const totalPrice = unitPrice * quantity;
   
-  const handleSubmit = (e) => { 
+    const handleSubmit = (e) => { 
       e.preventDefault(); 
       if (!storeConfig.isOpen) return; 
-      if (!customization.clubId) { alert("Debes seleccionar un club."); return; }
+      if (!customization.clubId) { showToast("Debes seleccionar un club.", "error"); return; }
       
-    // Validaciones del texto impreso (independiente de la foto)
+      // Validaciones del texto impreso (independiente de la foto)
       if (!isTeamPhoto) {
-          // AÑADIMOS features.name y features.number a la comprobación
           if (features.name && customization.includeName && !customization.playerName) { 
-              alert("El nombre a imprimir es obligatorio. Si no quieres nombre, desmarca la casilla 'Incluir Nombre'."); 
+              showToast("El nombre a imprimir es obligatorio. Si no quieres nombre, desmarca la casilla.", "error"); 
               return; 
           }
           if (features.number && customization.includeNumber && !customization.playerNumber) { 
-              alert("El dorsal a imprimir es obligatorio. Si no quieres dorsal, desmarca la casilla 'Incluir Dorsal'."); 
+              showToast("El dorsal a imprimir es obligatorio. Si no quieres dorsal, desmarca la casilla.", "error"); 
               return; 
           }
       }
       
-      if (features.size && !customization.size) { alert("Debes seleccionar una talla."); return; }
-      if ((isDouble || isTriple) && (!customization.playerName2 || !customization.playerNumber2)) { alert("Datos del J2 obligatorios."); return; }
-      if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { alert("Datos del J3 obligatorios."); return; }
+      if (features.size && !customization.size) { showToast("Debes seleccionar una talla.", "error"); return; }
+      if ((isDouble || isTriple) && (!customization.playerName2 || !customization.playerNumber2)) { showToast("Datos del J2 obligatorios.", "error"); return; }
+      if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { showToast("Datos del J3 obligatorios.", "error"); return; }
 
-      // Validación de la fotografía (independiente de lo anterior)
+      // Validación de la fotografía
       if (customization.includePhoto && !customization.selectedPhoto) { 
-          alert("Debes buscar y confirmar tu fotografía antes de añadir el producto al carrito."); 
+          showToast("Debes buscar y confirmar tu fotografía antes de añadir el producto.", "error"); 
           return; 
       }
 
@@ -930,10 +961,14 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
           
           <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border mt-6">
               <label className="font-bold text-gray-700 text-sm">CANTIDAD:</label>
-              <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => !isGift && setQuantity(Math.max(1, quantity - 1))} className={`w-10 h-10 rounded-full border font-bold ${isGift ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'}`}>-</button>
-                  <span className="text-xl font-bold w-12 text-center">{isGift ? 1 : quantity}</span>
-                  <button type="button" onClick={() => !isGift && setQuantity(quantity + 1)} className={`w-10 h-10 rounded-full border font-bold ${isGift ? 'bg-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white'}`}>+</button>
+                <div className="flex items-center gap-2">
+                  <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className={`w-10 h-10 rounded-full border font-bold bg-white`}>-</button>
+                  <span className="text-xl font-bold w-12 text-center">{quantity}</span>
+                    <button type="button" onClick={() => {
+                      const maxAllowed = (activeGiftCode && activeGiftCode.maxUnits > 0) ? activeGiftCode.maxUnits : 99;
+                      if (quantity < maxAllowed) setQuantity(quantity + 1);
+                      else showToast(`Este cupón solo te permite comprar un máximo de ${maxAllowed} unidades con descuento.`, "error");
+                  }} className={`w-10 h-10 rounded-full border font-bold bg-white`}>+</button>
               </div>
           </div>
 

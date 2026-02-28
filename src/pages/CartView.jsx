@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Trash2, CreditCard, Banknote, Gift } from 'lucide-react';
+import { ShoppingCart, Trash2, CreditCard, Banknote, Gift, Check, AlertTriangle } from 'lucide-react';
+import { collection, query, where, getDocs } from 'firebase/firestore';
+import { db } from '../config/firebase';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 
@@ -8,6 +10,12 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
       name: '', email: '', phone: '', notification: 'email', rgpd: false, marketingConsent: false, emailUpdates: false
   });
   const [paymentMethod, setPaymentMethod] = useState('card');
+
+  // --- NUEVOS ESTADOS DEL CARRITO ---
+  const [cartDiscountInput, setCartDiscountInput] = useState('');
+  const [activeCartCode, setActiveCartCode] = useState(null);
+  const [discountLoading, setDiscountLoading] = useState(false);
+  const [discountError, setDiscountError] = useState('');
 
   const currentClubId = cart.length > 0 ? cart[0].clubId : null;
   const currentClub = clubs.find(c => c.id === currentClubId);
@@ -19,12 +27,60 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
       }
   }, [isCashEnabled, paymentMethod]);
 
+  // Cálculos de descuento
+  let discountAmount = 0;
+  if (activeCartCode) {
+      if (activeCartCode.codeType === 'percent') discountAmount = total * (activeCartCode.discountValue / 100);
+      if (activeCartCode.codeType === 'fixed') discountAmount = activeCartCode.discountValue;
+  }
+  const finalTotal = Math.max(0, total - discountAmount);
+
+  // Validar código
+  const handleApplyCartCode = async () => {
+      if(!cartDiscountInput.trim()) return;
+      setDiscountLoading(true);
+      setDiscountError(''); // Limpiamos errores anteriores
+      
+      try {
+          const q = query(collection(db, 'giftCodes'), where('code', '==', cartDiscountInput.trim().toUpperCase()));
+          const snap = await getDocs(q);
+          if(snap.empty) {
+              setDiscountError("Código no válido o no existe.");
+          } else {
+              const codeData = snap.docs[0].data();
+
+              const currentCartClubId = cart[0]?.clubId;
+              if (codeData.allowedClub && codeData.allowedClub !== 'all' && codeData.allowedClub !== currentCartClubId) {
+                  setDiscountError("Este cupón es exclusivo para otro club y no puede aplicarse a esta compra.");
+                  setDiscountLoading(false);
+                  return;
+              }
+
+              if(codeData.status === 'redeemed') {
+                  setDiscountError("Este código ya ha sido canjeado.");
+              } else if (codeData.applyTo !== 'all') {
+                  setDiscountError("Este código es para un producto específico. Vuelve a la Tienda y ponlo en el buscador superior.");
+              } else {
+                  setActiveCartCode({ ...codeData, docId: snap.docs[0].id });
+                  setCartDiscountInput('');
+              }
+          }
+      } catch(e) {
+          console.error(e);
+          setDiscountError("Error al validar el código.");
+      }
+      setDiscountLoading(false);
+  };
+
   const handleSubmit = (e) => { 
       e.preventDefault(); 
       createOrder({ 
           items: cart, 
           customer: formData, 
-          total: total, 
+          total: finalTotal, // Usamos el precio final rebajado
+          subtotal: total, // Guardamos el precio original por si acaso
+          cartDiscountCode: activeCartCode ? activeCartCode.code : null, // Enviamos el cupón
+          cartDiscountId: activeCartCode ? activeCartCode.docId : null,
           paymentMethod, 
           clubId: cart[0]?.clubId || 'generic', 
           clubName: clubs.find(c => c.id === (cart[0]?.clubId))?.name || 'Club Generico' 
@@ -130,6 +186,53 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   </label>
               </div>
 
+              {/* --- NUEVO: CAJÓN DE CÓDIGOS PARA EL CARRITO --- */}
+              <div className="border-t pt-4 mb-4">
+                  <label className="block text-sm font-medium mb-2 flex items-center gap-2 text-gray-700">
+                      <Gift className="w-4 h-4 text-emerald-600"/> ¿Tienes un cupón para toda la cesta?
+                  </label>
+                  
+                  {activeCartCode ? (
+                      <div className="bg-emerald-50 p-3 rounded-xl border border-emerald-200 flex justify-between items-center animate-fade-in">
+                          <div className="flex items-center gap-2">
+                              <Check className="w-5 h-5 text-emerald-600 shrink-0"/>
+                              <div>
+                                  <p className="text-emerald-900 font-bold text-sm leading-tight">Cupón {activeCartCode.code}</p>
+                                  <p className="text-emerald-700 text-xs font-medium mt-0.5">
+                                      Se han descontado {activeCartCode.codeType === 'percent' ? `${activeCartCode.discountValue}%` : `${activeCartCode.discountValue}€`} del total.
+                                  </p>
+                              </div>
+                          </div>
+                          <button type="button" onClick={() => setActiveCartCode(null)} className="text-red-500 hover:text-red-700 text-xs font-bold underline px-2">Quitar</button>
+                      </div>
+                  ) : (
+                        <div className="flex flex-col gap-2">
+                          <div className="flex gap-2">
+                              <input 
+                                  type="text"
+                                  placeholder="Introduce tu código..." 
+                                  value={cartDiscountInput} 
+                                  onChange={e => setCartDiscountInput(e.target.value.toUpperCase())}
+                                  className="w-full bg-white border border-gray-200 rounded-xl px-4 py-3 text-sm focus:ring-2 focus:ring-emerald-500 outline-none uppercase font-bold text-gray-700 shadow-sm"
+                              />
+                              <button 
+                                  type="button" 
+                                  onClick={handleApplyCartCode} 
+                                  disabled={discountLoading || !cartDiscountInput} 
+                                  className="bg-gray-800 hover:bg-gray-900 text-white px-6 rounded-xl font-bold text-sm disabled:opacity-50 transition-colors shadow-sm shrink-0"
+                              >
+                                  {discountLoading ? '...' : 'Aplicar'}
+                              </button>
+                          </div>
+                          {discountError && (
+                              <div className="text-red-600 text-xs bg-red-50 p-2 rounded-lg border border-red-200 flex items-center gap-2 font-medium animate-fade-in">
+                                  <AlertTriangle className="w-4 h-4 shrink-0"/> {discountError}
+                              </div>
+                          )}
+                      </div>
+                  )}
+              </div>
+
               {/* Si todo el pedido es a coste 0€ (ej: solo hay regalos), no forzamos pago */}
               {total > 0 && (
                   <div className="border-t pt-4">
@@ -158,8 +261,8 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   <span className="text-xs text-gray-500">He leído y acepto la Política de Privacidad y el tratamiento de datos.</span>
               </div>
               
-              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-3 text-lg">
-                  {storeConfig.isOpen ? `Pagar ${total.toFixed(2)}€` : 'TIENDA CERRADA'}
+              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-3 text-lg mt-4">
+                  {storeConfig.isOpen ? `Pagar ${finalTotal.toFixed(2)}€` : 'TIENDA CERRADA'}
               </Button>
           </form>
       </div>

@@ -1,6 +1,10 @@
 import React, { useState, useEffect } from 'react';
-import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye, Gift, Trash2, Copy, Tag } from 'lucide-react';
+import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye, Gift, Trash2, Copy, Tag, Mail, Download } from 'lucide-react';
+
+// 1. Aquí van las cosas de la base de datos (Firestore)
 import { doc, setDoc, getDocs, query, collection, addDoc, deleteDoc } from 'firebase/firestore';
+
+// 2. Tu configuración local
 import { db } from '../../../config/firebase'; 
 import { Button } from '../../ui/Button';
 import { ColorPicker } from '../ui/ColorPicker';
@@ -12,7 +16,7 @@ export const ManagementTab = ({
     financialConfig, setFinancialConfig, updateFinancialConfig,
     products, addProduct, updateProduct, deleteProduct, suppliers,
     clubs, createClub, updateClub, deleteClub, toggleClubBlock,
-    showNotification
+    showNotification,
 }) => {
     const [showNewClubPass, setShowNewClubPass] = useState(false);
     const [newClubColor, setNewClubColor] = useState('white');
@@ -90,71 +94,6 @@ export const ManagementTab = ({
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* PANEL DE CAMPAÑAS */}
-            <div className="md:col-span-2 bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-xl border border-purple-100 shadow-sm mb-6">
-                <h3 className="font-bold text-lg text-purple-800 flex items-center gap-2 mb-4">
-                    <Award className="w-5 h-5"/> Campañas y Ofertas
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <div>
-                        <label className="text-xs font-bold text-purple-600 uppercase block mb-1">Tipo Campaña</label>
-                        <select 
-                            className="w-full border rounded-lg p-2 text-sm"
-                            value={campaignConfig?.type || 'none'}
-                            onChange={async (e) => {
-                                const newConfig = { ...campaignConfig, type: e.target.value };
-                                await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
-                            }}
-                        >
-                            <option value="none">Sin Campaña</option>
-                            <option value="christmas">Navidad 🎄</option>
-                            <option value="black_friday">Black Friday 🖤</option>
-                            <option value="summer">Fin de Temporada ☀️</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-purple-600 uppercase block mb-1">% Descuento Global</label>
-                        <input 
-                            type="number" 
-                            className="w-full border rounded-lg p-2 text-sm"
-                            placeholder="0"
-                            value={campaignConfig?.discount || 0}
-                            onChange={async (e) => {
-                                const newConfig = { ...campaignConfig, discount: parseInt(e.target.value) || 0 };
-                                await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
-                            }}
-                        />
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-bold text-purple-600 uppercase block mb-1">Mensaje Banner</label>
-                        <div className="flex gap-2">
-                            <input 
-                                className="w-full border rounded-lg p-2 text-sm"
-                                placeholder="Ej: ¡Solo hoy! Precios locos."
-                                value={campaignConfig?.bannerMessage || ''}
-                                onChange={(e) => setCampaignConfig({ ...campaignConfig, bannerMessage: e.target.value })} 
-                            />
-                            <Button size="sm" onClick={async () => {
-                                await setDoc(doc(db, 'settings', 'campaigns'), campaignConfig);
-                                showNotification('Campaña guardada');
-                            }}>Guardar</Button>
-                        </div>
-                    </div>
-                </div>
-                <div className="mt-2 flex items-center gap-2">
-                    <input 
-                        type="checkbox" 
-                        id="campActive"
-                        className="accent-purple-600"
-                        checked={campaignConfig?.active || false}
-                        onChange={async (e) => {
-                            const newConfig = { ...campaignConfig, active: e.target.checked };
-                            await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
-                        }}
-                    />
-                    <label htmlFor="campActive" className="text-sm font-bold text-purple-700 cursor-pointer">Activar Campaña en la Web</label>
-                </div>
-            </div>
             
             {/* CONFIGURACIONES GLOBALES */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">

@@ -2,7 +2,7 @@ import React, { useState } from 'react';
 
 import { 
   LayoutDashboard, Package, Briefcase, Banknote, Factory, Calendar, Folder, AlertTriangle,  
-  AlertCircle, BarChart3, Tag,
+  AlertCircle, BarChart3, Tag, Mail
 } from 'lucide-react';
 
 import { Button } from '../components/ui/Button';
@@ -32,6 +32,7 @@ import { SeasonsTab } from '../components/admin/tabs/SeasonsTab';
 import { IncidentsTab } from '../components/admin/tabs/IncidentsTab';
 import { FinancesTab } from '../components/admin/tabs/FinancesTab';
 import { ProductsTab } from '../components/admin/tabs/ProductsTab';
+import { MarketingTab } from '../components/admin/tabs/MarketingTab';
 
 // HOOKS
 import { useDashboardStats } from '../hooks/useDashboardStats';
@@ -200,6 +201,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         {[
             {id: 'management', label: 'Gestión', icon: LayoutDashboard},
             {id: 'products', label: 'Productos', icon: Tag},
+            {id: 'marketing', label: 'Marketing', icon: Mail},
             {id: 'accounting', label: 'Pedidos', icon: Package},
             {id: 'special-orders', label: 'Pedidos Especiales', icon: Briefcase},
             {id: 'accounting-control', label: 'Contabilidad', icon: Banknote},
@@ -237,7 +239,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         storeConfig={storeConfig} setStoreConfig={setStoreConfig}
         financialConfig={financialConfig} setFinancialConfig={setFinancialConfig} updateFinancialConfig={updateFinancialConfig}
         products={products} addProduct={addProduct} updateProduct={updateProduct} deleteProduct={deleteProduct} suppliers={suppliers}
-        clubs={clubs} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock}
+        clubs={clubs} orders={orders} createClub={createClub} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock}
         showNotification={showNotification}
     />
 )}
@@ -250,6 +252,16 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         deleteProduct={deleteProduct} 
         suppliers={suppliers}
         clubs={clubs} // <--- AÑADIDA ESTA LÍNEA
+        showNotification={showNotification}
+    />
+)}
+
+{tab === 'marketing' && (
+    <MarketingTab
+        campaignConfig={campaignConfig}
+        setCampaignConfig={setCampaignConfig}
+        orders={orders}
+        clubs={clubs}
         showNotification={showNotification}
     />
 )}

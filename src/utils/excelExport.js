@@ -551,3 +551,82 @@ export const generateSeasonExcel = async (seasonId, seasons, orders, clubs, fina
     a.click();
     document.body.removeChild(a);
 };
+
+// --- NUEVO: Generador de Excel de Base de Datos de Clientes ---
+export const generateCustomersExcel = async (orders, clubs) => {
+    try {
+        const workbook = new ExcelJS.Workbook();
+        workbook.creator = 'FotoEsport Admin';
+        workbook.created = new Date();
+
+        const ws = workbook.addWorksheet('Base de Datos Clientes');
+
+        // Configurar las columnas
+        ws.columns = [
+            { header: 'Nombre del Cliente', key: 'name', width: 25 },
+            { header: 'Email', key: 'email', width: 30 },
+            { header: 'Teléfono', key: 'phone', width: 15 },
+            { header: 'Club de Origen', key: 'club', width: 25 },
+            { header: 'Aceptó Actualizaciones (Pedidos)', key: 'updates', width: 30 },
+            { header: 'Aceptó Publicidad (Marketing)', key: 'marketing', width: 30 }
+        ];
+
+        // Estilo de la cabecera
+        const headerRow = ws.getRow(1);
+        headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+        headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF10B981' } };
+        headerRow.alignment = { horizontal: 'center' };
+
+        // Usamos un Map para evitar duplicados por email
+        const customersMap = new Map();
+
+        orders.forEach(order => {
+            if (!order.customer || !order.customer.email) return;
+
+            const email = order.customer.email.toLowerCase().trim();
+            const orderClub = clubs.find(c => c.id === order.clubId);
+            const clubName = orderClub ? orderClub.name : 'Desconocido';
+
+            // Leemos los campos exactos según CartView.jsx
+            const acceptsUpdates = order.customer.emailUpdates ? 'SÍ' : 'NO';
+            const acceptsMarketing = order.customer.marketingConsent ? 'SÍ' : 'NO';
+
+            if (!customersMap.has(email)) {
+                // Nuevo cliente
+                customersMap.set(email, {
+                    name: order.customer.name || 'Sin nombre',
+                    email: email,
+                    phone: order.customer.phone || 'Sin teléfono',
+                    club: clubName,
+                    updates: acceptsUpdates,
+                    marketing: acceptsMarketing
+                });
+            } else {
+                // Si el cliente ya existe porque compró antes, actualizamos sus preferencias si ahora dijo que "SÍ"
+                const existing = customersMap.get(email);
+                if (acceptsMarketing === 'SÍ') existing.marketing = 'SÍ';
+                if (acceptsUpdates === 'SÍ') existing.updates = 'SÍ';
+            }
+        });
+
+        // Añadir las filas al Excel
+        customersMap.forEach(customerData => {
+            ws.addRow(customerData);
+        });
+
+        // Generar y descargar el archivo
+        const buffer = await workbook.xlsx.writeBuffer();
+        const blob = new Blob([buffer], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `Base_Datos_Clientes_FotoEsport.xlsx`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+
+    } catch (e) {
+        console.error("Error generando Excel de clientes:", e);
+        alert("Hubo un error al generar la base de datos. Por favor revisa la consola.");
+    }
+};

@@ -263,6 +263,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         orders={orders}
         clubs={clubs}
         showNotification={showNotification}
+        setConfirmation={setConfirmation}
     />
 )}
 

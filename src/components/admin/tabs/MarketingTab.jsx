@@ -1,6 +1,6 @@
-import React, { useState } from 'react';
-import { Award, Mail, Download } from 'lucide-react';
-import { doc, setDoc } from 'firebase/firestore';
+import React, { useState, useEffect } from 'react';
+import { Award, Mail, Download, UserX, CheckCircle } from 'lucide-react';
+import { doc, setDoc, collection, getDocs, updateDoc, onSnapshot } from 'firebase/firestore';
 import { getFunctions, httpsCallable } from 'firebase/functions';
 import { db } from '../../../config/firebase'; 
 import { Button } from '../../ui/Button';
@@ -8,7 +8,7 @@ import { generateCustomersExcel } from '../../../utils/excelExport';
 
 export const MarketingTab = ({
     campaignConfig, setCampaignConfig,
-    orders, clubs, showNotification
+    orders, clubs, showNotification, setConfirmation
 }) => {
     // --- ESTADOS PARA MAILING ---
     const [emailTarget, setEmailTarget] = useState('all');
@@ -17,6 +17,72 @@ export const MarketingTab = ({
     const [clubSearch, setClubSearch] = useState('');
     const [emailSubject, setEmailSubject] = useState('');
     const [emailHtml, setEmailHtml] = useState('');
+
+    // --- ESTADOS PARA RGPD (DERECHO AL OLVIDO) ---
+    const [deletionRequests, setDeletionRequests] = useState([]);
+
+    useEffect(() => {
+        // Usamos onSnapshot para recibir las peticiones en TIEMPO REAL
+        const unsubscribe = onSnapshot(collection(db, 'right_to_forget'), (snapshot) => {
+            const requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+            // Ordenar más recientes primero
+            requests.sort((a, b) => new Date(b.createdAt) - new Date(a.createdAt));
+            setDeletionRequests(requests);
+        }, (error) => {
+            console.error("Error cargando solicitudes RGPD:", error);
+        });
+
+        // Limpiar el escuchador cuando se cierre la pestaña
+        return () => unsubscribe();
+    }, []);
+
+    const handleConfirmDeletion = (request) => {
+        setConfirmation({
+            title: 'Confirmar Borrado (RGPD)',
+            // AÑADIDO el nombre del jugador al mensaje de confirmación
+            msg: `¿Estás seguro de que quieres eliminar definitivamente los datos de ${request.email} (Jugador/a: ${request.playerName || 'No especificado'})?\n\nEl cliente recibirá un email automático confirmando la eliminación de su información y el borrado es irreversible.`,
+            onConfirm: async () => {
+                try {
+                    await updateDoc(doc(db, 'right_to_forget', request.id), {
+                        status: 'completed',
+                        completedAt: new Date().toISOString()
+                    });
+
+                    // AÑADIDO el nombre del jugador a la plantilla del email
+                    const htmlEmail = `
+                        <div style="font-family: sans-serif; padding: 30px; background-color: #f9fafb; border-radius: 8px;">
+                            <div style="background-color: white; padding: 20px; border-radius: 8px; border-top: 4px solid #10B981; max-width: 600px; margin: 0 auto;">
+                                <h2 style="color: #065f46; margin-top: 0;">Confirmación de Borrado de Datos (RGPD)</h2>
+                                <p style="color: #374151; font-size: 16px;">Hola,</p>
+                                <p style="color: #374151; font-size: 16px;">Te confirmamos que hemos procesado correctamente tu solicitud de "Derecho al Olvido".</p>
+                                <p style="color: #374151; font-size: 16px;">Todos tus datos personales, fotografías e información asociada a tu DNI (<strong>${request.dni}</strong>), correo electrónico (<strong>${request.email}</strong>) y al jugador/a <strong>${request.playerName || 'solicitado'}</strong> han sido eliminados de forma definitiva y permanente de nuestras bases de datos y servidores de almacenamiento.</p>
+                                <p style="color: #374151; font-size: 16px;">Cumpliendo con la normativa vigente de Protección de Datos (RGPD), ya no conservamos ningún registro tuyo en nuestro sistema activo.</p>
+                                <br>
+                                <p style="color: #6b7280; font-size: 14px;">Un saludo,<br>El equipo de FotoEsport Merch.</p>
+                            </div>
+                        </div>
+                    `;
+
+                    const functions = getFunctions();
+                    const sendMassEmailFn = httpsCallable(functions, 'sendMassEmail');
+                    
+                    await sendMassEmailFn({
+                        emails: [request.email],
+                        subject: 'Confirmación de eliminación de datos (RGPD) - FotoEsport',
+                        html: htmlEmail
+                    });
+
+                    // Actualizamos la vista local
+                    setDeletionRequests(prev => prev.map(r => r.id === request.id ? { ...r, status: 'completed', completedAt: new Date().toISOString() } : r));
+
+                    showNotification("Datos borrados y usuario notificado con éxito.");
+                } catch (error) {
+                    console.error("Error al confirmar borrado:", error);
+                    showNotification("Error al procesar la solicitud", "error");
+                }
+            }
+        });
+    };
 
     // --- FUNCIONES DE MARKETING ---
     const handleDownloadCustomers = () => {
@@ -44,28 +110,33 @@ export const MarketingTab = ({
             return showNotification("No hay clientes que acepten publicidad con estos filtros", "error");
         }
 
-        if (!window.confirm(`¿Estás seguro de enviar este email a ${uniqueEmails.length} clientes?`)) return;
-
-        setIsSendingEmail(true);
-        try {
-            const functions = getFunctions();
-            const sendMassEmailFn = httpsCallable(functions, 'sendMassEmail');
-            
-            await sendMassEmailFn({
-                emails: uniqueEmails,
-                subject: emailSubject,
-                html: emailHtml
-            });
-            
-            showNotification(`¡Campaña encolada con éxito para ${uniqueEmails.length} clientes!`);
-            
-            setEmailSubject('');
-            setEmailHtml('');
-        } catch (error) {
-            console.error("Error en el envío de campaña:", error);
-            showNotification("Hubo un error al procesar el envío masivo.", "error");
-        }
-        setIsSendingEmail(false);
+        // Usamos el modal personalizado
+        setConfirmation({
+            title: 'Confirmar Envío de Campaña',
+            msg: `Vas a enviar este correo electrónico masivo a ${uniqueEmails.length} clientes suscritos.\n\n¿Estás seguro de que deseas continuar?`,
+            onConfirm: async () => {
+                setIsSendingEmail(true);
+                try {
+                    const functions = getFunctions();
+                    const sendMassEmailFn = httpsCallable(functions, 'sendMassEmail');
+                    
+                    await sendMassEmailFn({
+                        emails: uniqueEmails,
+                        subject: emailSubject,
+                        html: emailHtml
+                    });
+                    
+                    showNotification(`¡Campaña encolada con éxito para ${uniqueEmails.length} clientes!`);
+                    
+                    setEmailSubject('');
+                    setEmailHtml('');
+                } catch (error) {
+                    console.error("Error en el envío de campaña:", error);
+                    showNotification("Hubo un error al procesar el envío masivo.", "error");
+                }
+                setIsSendingEmail(false);
+            }
+        });
     };
 
     return (
@@ -308,6 +379,84 @@ export const MarketingTab = ({
                             )}
                         </div>
                     </div>
+                </div>
+            </div>
+            {/* PANEL DE SOLICITUDES DE DERECHO AL OLVIDO (RGPD) */}
+            <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden mb-8">
+                <div className="bg-gradient-to-r from-red-50 to-orange-50 p-6 border-b border-red-100 flex items-center justify-between">
+                    <div className="flex items-center gap-4">
+                        <div className="p-3 bg-white rounded-xl text-red-600 shadow-sm border border-red-100">
+                            <UserX className="w-6 h-6"/>
+                        </div>
+                        <div>
+                            <h3 className="font-extrabold text-red-900 text-lg leading-tight">Gestión de RGPD y Privacidad</h3>
+                            <p className="text-xs text-red-600 font-medium mt-0.5">Historial de clientes que han solicitado el Derecho al Olvido</p>
+                        </div>
+                    </div>
+                </div>
+                
+                <div className="p-0 overflow-x-auto">
+                    {deletionRequests.length === 0 ? (
+                        <div className="p-8 flex flex-col items-center justify-center text-gray-400 gap-3">
+                            <CheckCircle className="w-12 h-12 text-emerald-100"/>
+                            <p className="text-sm font-medium">No hay ninguna solicitud pendiente de borrado.</p>
+                        </div>
+                    ) : (
+                        <table className="w-full text-left border-collapse">
+                            <thead>
+                                <tr className="bg-gray-50 border-b border-gray-200 text-xs text-gray-500 uppercase tracking-wider">
+                                    <th className="p-4 font-bold">Fecha Solicitud</th>
+                                    <th className="p-4 font-bold">Email</th>
+                                    <th className="p-4 font-bold">Jugador/a</th>
+                                    <th className="p-4 font-bold">DNI / Tutor</th>
+                                    <th className="p-4 font-bold">Motivo</th>
+                                    <th className="p-4 font-bold text-center">Estado</th>
+                                    <th className="p-4 font-bold text-right">Acción</th>
+                                </tr>
+                            </thead>
+                            <tbody className="text-sm divide-y divide-gray-100">
+                                {deletionRequests.map(req => (
+                                    <tr key={req.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="p-4 text-gray-600">
+                                            {new Date(req.createdAt).toLocaleDateString()} a las {new Date(req.createdAt).toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}
+                                        </td>
+                                        <td className="p-4 font-bold text-gray-800">{req.email}</td>
+                                        {/* AÑADIDO: Celda del nombre del jugador */}
+                                        <td className="p-4 font-medium text-blue-800 bg-blue-50/30">
+                                            {req.playerName || <span className="italic text-gray-400">No especificado</span>}
+                                        </td>
+                                        <td className="p-4 text-gray-600 font-mono">{req.dni}</td>
+                                        <td className="p-4 text-gray-500 text-xs max-w-xs truncate" title={req.reason}>{req.reason || <span className="italic text-gray-400">Sin motivo</span>}</td>
+                                        <td className="p-4 text-center">
+                                            {req.status === 'completed' ? (
+                                                <span className="inline-block bg-emerald-100 text-emerald-700 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide border border-emerald-200">
+                                                    COMPLETADO
+                                                </span>
+                                            ) : (
+                                                <span className="inline-block bg-yellow-100 text-yellow-700 px-2.5 py-1 rounded-md text-[10px] font-bold tracking-wide border border-yellow-200 animate-pulse">
+                                                    PENDIENTE
+                                                </span>
+                                            )}
+                                        </td>
+                                        <td className="p-4 text-right">
+                                            {req.status !== 'completed' ? (
+                                                <button 
+                                                    onClick={() => handleConfirmDeletion(req)}
+                                                    className="bg-red-50 hover:bg-red-100 text-red-600 border border-red-200 hover:border-red-300 font-bold py-1.5 px-3 rounded text-xs transition-colors shadow-sm"
+                                                >
+                                                    Confirmar Borrado
+                                                </button>
+                                            ) : (
+                                                <span className="text-xs text-emerald-600 font-medium flex items-center justify-end gap-1">
+                                                    <CheckCircle className="w-3.5 h-3.5"/> Notificado
+                                                </span>
+                                            )}
+                                        </td>
+                                    </tr>
+                                ))}
+                            </tbody>
+                        </table>
+                    )}
                 </div>
             </div>
         </div>

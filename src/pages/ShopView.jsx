@@ -628,7 +628,7 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
       if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { showToast("Datos del J3 obligatorios.", "error"); return; }
 
       // Validación de la fotografía
-      if (customization.includePhoto && !customization.selectedPhoto) { 
+      if (features.photo && customization.includePhoto && !customization.selectedPhoto) { 
           showToast("Debes buscar y confirmar tu fotografía antes de añadir el producto.", "error"); 
           return; 
       }
@@ -659,9 +659,9 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                   name: extendedName,
                   playerName: isTeamPhoto ? '' : customization.playerName,
                   playerNumber: isTeamPhoto ? '' : customization.playerNumber,
-                  photoFileName: customization.includePhoto ? customization.selectedPhoto : null, // Guarda la foto final
+                  photoFileName: (features.photo && customization.includePhoto) ? customization.selectedPhoto : null, // Guarda la foto final
                   quantity: isGift ? 1 : quantity, 
-                  size: customization.size,
+                  size: features.size ? customization.size : null, // Solo guarda la talla si el producto usa tallas
                   price: isGift ? 0 : product.price,
                   isGift: isGift,
                   giftCode: isGift ? activeGiftCode.code : null,
@@ -744,7 +744,7 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                     <Input 
                         placeholder="Buscar categoría..." 
                         value={categoryInput} 
-                        onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: ''}); setShowCategorySuggestions(true); }} 
+                        onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: e.target.value}); setShowCategorySuggestions(true); }}
                         onFocus={() => setShowCategorySuggestions(true)} 
                         onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)} 
                     />
@@ -833,7 +833,7 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                       <Input 
                           placeholder="Buscar categoría J2..." 
                           value={categoryInput2} 
-                          onChange={e => { setCategoryInput2(e.target.value); setCustomization({...customization, category2: ''}); setShowCategorySuggestions2(true); }} 
+                          onChange={e => { setCategoryInput2(e.target.value); setCustomization({...customization, category2: e.target.value}); setShowCategorySuggestions2(true); }}
                           onFocus={() => setShowCategorySuggestions2(true)} 
                           onBlur={() => setTimeout(() => setShowCategorySuggestions2(false), 200)} 
                       />
@@ -866,7 +866,7 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                       <Input 
                           placeholder="Buscar categoría J3..." 
                           value={categoryInput3} 
-                          onChange={e => { setCategoryInput3(e.target.value); setCustomization({...customization, category3: ''}); setShowCategorySuggestions3(true); }} 
+                          onChange={e => { setCategoryInput3(e.target.value); setCustomization({...customization, category3: e.target.value}); setShowCategorySuggestions3(true); }}
                           onFocus={() => setShowCategorySuggestions3(true)} 
                           onBlur={() => setTimeout(() => setShowCategorySuggestions3(false), 200)} 
                       />
@@ -892,7 +892,7 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
           )}
 
           {/* SECCIÓN INDEPENDIENTE: BÚSQUEDA DE FOTOGRAFÍA */}
-          {customization.includePhoto && (
+          {features.photo && customization.includePhoto && (
               <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 mt-6 relative overflow-hidden shadow-inner">
                   <h4 className="font-bold text-emerald-800 text-sm uppercase mb-2">Buscador de Fotografía <span className="text-red-500">*</span></h4>
                   <p className="text-xs text-gray-600 mb-4 leading-relaxed">

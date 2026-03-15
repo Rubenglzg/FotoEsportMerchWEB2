@@ -298,34 +298,64 @@ export function ClubDashboard({ club, orders, updateOrderStatus, config, seasons
                                                     <div className="flex justify-between items-start mb-3 pb-2 border-b border-gray-50">
                                                         <div>
                                                             <p className="font-bold text-gray-800">{order.customer.name}</p>
-                                                            <p className="text-[10px] text-gray-400 font-mono">ID: {order.id.slice(0,8)}</p>
+                                                            <p className="text-[12px] text-gray-400 font-mono">ID: {order.id.slice(0,8)}</p>
                                                         </div>
                                                         <div className="text-right">
-                                                            <span className={`text-[10px] font-bold px-2 py-1 rounded uppercase ${order.paymentMethod === 'cash' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
-                                                                {order.paymentMethod === 'cash' ? 'Efectivo' : 'Online'}
+                                                            <span className={`text-[12px] font-bold px-2 py-1 rounded uppercase ${order.paymentMethod === 'cash' ? 'bg-orange-100 text-orange-700' : 'bg-blue-100 text-blue-700'}`}>
+                                                                {order.paymentMethod === 'cash' ? 'Efectivo' : 'Tarjeta'}
                                                             </span>
                                                         </div>
                                                     </div>
 
-                                                    {/* LISTA DE ITEMS (SIN PRECIO, COMO PEDISTE) */}
-                                                    <div className="space-y-2">
-                                                        {order.items.map((item, idx) => (
-                                                            <div key={idx} className="flex items-center gap-3 text-sm">
-                                                                <div className="bg-gray-100 w-8 h-8 rounded flex items-center justify-center font-bold text-gray-500 text-xs shrink-0">
-                                                                    {item.quantity || 1}x
+                                                    {/* LISTA DE ITEMS CORREGIDA CON TODOS LOS DATOS */}
+                                                    <div className="space-y-2 mt-3">
+                                                        {order.items.map((item, idx) => {
+                                                            // Extraemos la información de los jugadores extra de forma segura
+                                                            const p2 = item.details?.player2;
+                                                            const p3 = item.details?.player3;
+                                                            const hasP2 = p2 && (p2.name || p2.number || p2.category);
+                                                            const hasP3 = p3 && (p3.name || p3.number || p3.category);
+
+                                                            return (
+                                                                <div key={idx} className="flex items-start gap-3 text-sm bg-gray-50/50 p-2.5 rounded-lg border border-gray-100">
+                                                                    <div className="bg-white border border-gray-200 w-8 h-8 rounded flex items-center justify-center font-bold text-gray-700 text-xs shrink-0 mt-0.5 shadow-sm">
+                                                                        {item.quantity || 1}x
+                                                                    </div>
+                                                                    <div className="flex-1 min-w-0 space-y-1">
+                                                                        <p className="font-bold text-gray-800 leading-tight">{item.name}</p>
+                                                                        
+                                                                        {/* Datos del Jugador 1: Solo muestra lo que realmente existe */}
+                                                                        <p className="text-xs text-gray-600 flex flex-wrap gap-x-3 gap-y-1">
+                                                                            {item.category && <span><strong className="text-gray-400 font-medium">Cat:</strong> {item.category}</span>}
+                                                                            {item.size && <span><strong className="text-gray-400 font-medium">T:</strong> {item.size}</span>}
+                                                                            {item.playerName && <span><strong className="text-gray-400 font-medium">N:</strong> {item.playerName}</span>}
+                                                                            {item.playerNumber && <span><strong className="text-gray-400 font-medium">#:</strong> {item.playerNumber}</span>}
+                                                                            {item.photoFileName && <span><strong className="text-gray-400 font-medium">📸 Foto:</strong> {item.photoFileName}</span>}
+                                                                        </p>
+
+                                                                        {/* Datos del Jugador 2 */}
+                                                                        {hasP2 && (
+                                                                            <p className="text-[11px] text-gray-500 flex flex-wrap gap-x-3 gap-y-1 border-t border-gray-100 pt-1 mt-1">
+                                                                                <span className="font-bold text-blue-600">J2:</span>
+                                                                                {p2.category && <span><strong className="text-gray-400 font-medium">Cat:</strong> {p2.category}</span>}
+                                                                                {p2.name && <span><strong className="text-gray-400 font-medium">N:</strong> {p2.name}</span>}
+                                                                                {p2.number && <span><strong className="text-gray-400 font-medium">#:</strong> {p2.number}</span>}
+                                                                            </p>
+                                                                        )}
+
+                                                                        {/* Datos del Jugador 3 */}
+                                                                        {hasP3 && (
+                                                                            <p className="text-[11px] text-gray-500 flex flex-wrap gap-x-3 gap-y-1 border-t border-gray-100 pt-1 mt-1">
+                                                                                <span className="font-bold text-purple-600">J3:</span>
+                                                                                {p3.category && <span><strong className="text-gray-400 font-medium">Cat:</strong> {p3.category}</span>}
+                                                                                {p3.name && <span><strong className="text-gray-400 font-medium">N:</strong> {p3.name}</span>}
+                                                                                {p3.number && <span><strong className="text-gray-400 font-medium">#:</strong> {p3.number}</span>}
+                                                                            </p>
+                                                                        )}
+                                                                    </div>
                                                                 </div>
-                                                                <div className="flex-1 min-w-0">
-                                                                    <p className="font-medium text-gray-700 truncate">{item.name}</p>
-                                                                    <p className="text-xs text-gray-400 truncate">
-                                                                        {[
-                                                                            item.size ? `T: ${item.size}` : null,
-                                                                            item.playerName ? `N: ${item.playerName}` : null,
-                                                                            item.playerNumber ? `#: ${item.playerNumber}` : null
-                                                                        ].filter(Boolean).join(' | ')}
-                                                                    </p>
-                                                                </div>
-                                                            </div>
-                                                        ))}
+                                                            );
+                                                        })}
                                                     </div>
                                                 </div>
                                             ))}

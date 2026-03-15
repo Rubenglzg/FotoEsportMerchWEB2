@@ -159,6 +159,21 @@ export const FilesManager = ({ clubs }) => {
         try {
             for (let i = 0; i < filesArray.length; i++) {
                 const file = filesArray[i];
+
+                // 🔒 INICIO SANITIZACIÓN: Validar tamaño y tipo
+                const MAX_SIZE_MB = 5; // Límite de 5MB
+                const allowedTypes = ['image/jpeg', 'image/png', 'image/webp'];
+
+                if (file.size > MAX_SIZE_MB * 1024 * 1024) {
+                    console.warn(`El archivo ${file.name} supera los 5MB. Se omitirá.`);
+                    continue; // Salta este archivo y pasa al siguiente
+                }
+                if (!allowedTypes.includes(file.type)) {
+                    console.warn(`El formato de ${file.name} no es válido. Solo JPG, PNG o WEBP. Se omitirá.`);
+                    continue; // Salta este archivo
+                }
+                // 🔒 FIN SANITIZACIÓN
+                
                 let targetFolderName = '';
 
                 // ... lógica de carpetas smart/single igual ...

@@ -2,6 +2,9 @@ import { collection, addDoc, doc, updateDoc, setDoc, serverTimestamp, arrayUnion
 import { db } from '../config/firebase';
 import { appId } from '../config/constants';
 import { generateInvoiceEmailHTML } from '../utils/emailTemplates';
+// 🔒 NUEVAS IMPORTACIONES
+import { z } from 'zod';
+import DOMPurify from 'dompurify';
 
 export function useOrderActions(showNotification, setCart, setView, clubs, seasons) {
 
@@ -14,8 +17,16 @@ export function useOrderActions(showNotification, setCart, setView, clubs, seaso
           const club = clubs.find(c => c.id === orderData.clubId);
           const activeBatch = club ? (club.activeGlobalOrderId || 1) : 1;
 
+          // 🔒 Limpiamos los datos de texto del cliente antes de enviarlos
+          const safeCustomerData = {
+              ...orderData.customer,
+              name: orderData.customer?.name ? DOMPurify.sanitize(orderData.customer.name).trim() : '',
+              email: orderData.customer?.email ? DOMPurify.sanitize(orderData.customer.email).trim() : ''
+          };
+
           const docRef = await addDoc(collection(db, 'artifacts', appId, 'public', 'data', 'orders'), {
               ...orderData,
+              customer: safeCustomerData, // 🔒 Sustituimos el cliente por el cliente sanitizado
               status: initialStatus,
               visibleStatus: visibleStatus,
               createdAt: serverTimestamp(),
@@ -119,13 +130,25 @@ export function useOrderActions(showNotification, setCart, setView, clubs, seaso
       }
   };
 
-  // --- INCIDENCIAS ---
+    // --- INCIDENCIAS ---
   const addIncident = async (orderId, incidentData) => { 
       try { 
+          // 🔒 1. Sanitizar campos de texto libres que puedan contener inyecciones HTML/JS
+          const cleanIncidentData = {
+              ...incidentData,
+              // Asumimos que los detalles vienen en campos como "description" o "reason"
+              // Ajusta la clave a cómo la llames en tu formulario de incidencias
+              description: incidentData.description ? DOMPurify.sanitize(incidentData.description).trim() : '',
+              title: incidentData.title ? DOMPurify.sanitize(incidentData.title).trim() : ''
+          };
+
           const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); 
-          await updateDoc(orderRef, { incidents: arrayUnion(incidentData) }); 
+          // 🔒 2. Enviamos el dato LIMPIO (cleanIncidentData) en lugar del original
+          await updateDoc(orderRef, { incidents: arrayUnion(cleanIncidentData) }); 
+          
           showNotification('Incidencia/Reimpresión registrada'); 
       } catch (e) { 
+          console.error("Error al registrar incidencia:", e);
           showNotification('Error registrando incidencia', 'error'); 
       } 
   };

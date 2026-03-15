@@ -483,16 +483,21 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
   const [isSearchingPhoto, setIsSearchingPhoto] = useState(false);
   const [photoSearchError, setPhotoSearchError] = useState('');
 
-  // Si cambia la categoría o los campos de búsqueda, borramos la foto encontrada para obligar a buscar de nuevo
+ // Al escribir una nueva búsqueda, limpiamos la pantalla, pero NO borramos las fotos ya asignadas a los jugadores
   useEffect(() => {
       setPhotoSearchResult(null);
-      setCustomization(prev => ({ ...prev, selectedPhoto: '' }));
       setPhotoSearchError('');
   }, [customization.category, searchPhotoName, searchPhotoNumber]);
 
-  // Función de búsqueda (Usa las variables independientes)
+  // Función de búsqueda Multijugador y Multicategoría
   const handleSearchPhoto = async () => {
-      if (!customization.category) { setPhotoSearchError("Debes seleccionar una categoría primero."); return; }
+      // 1. Recopilamos todas las categorías que el usuario haya seleccionado (J1, J2, J3) sin repetir
+      const categoriesToSearch = [...new Set([customization.category, customization.category2, customization.category3].filter(Boolean))];
+      
+      if (categoriesToSearch.length === 0) { 
+          setPhotoSearchError("Debes seleccionar al menos una categoría en los datos de arriba."); 
+          return; 
+      }
       if (!isTeamPhoto && !searchPhotoName && !searchPhotoNumber) { 
           setPhotoSearchError("Escribe el nombre o dorsal del jugador para buscar su foto."); 
           return; 
@@ -505,46 +510,56 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
       try {
           const normSearchName = normalizeText(searchPhotoName || '');
           const normSearchDorsal = normalizeText(searchPhotoNumber || '');
-          const folderRef = ref(storage, `${activeClub.name}/${customization.category}`);
-          const res = await listAll(folderRef);
-
+          
           let foundPhotoUrl = null;
           let foundFileName = null;
 
-          for (const item of res.items) {
-              const normFileName = normalizeText(item.name);
+          // 2. Buscamos en todas las categorías elegidas hasta encontrar la foto
+          for (const cat of categoriesToSearch) {
+              const folderRef = ref(storage, `${activeClub.name}/${cat}`);
+              try {
+                  const res = await listAll(folderRef);
+                  for (const item of res.items) {
+                      const normFileName = normalizeText(item.name);
+                      
+                      if (isTeamPhoto) {
+                          foundPhotoUrl = await getDownloadURL(item);
+                          foundFileName = item.name;
+                          break;
+                      }
+
+                      let nameMatch = true;
+                      let dorsalMatch = true;
+
+                      if (normSearchName) {
+                          const cleanName = normFileName.replace(/_/g, ' ');
+                          nameMatch = cleanName.includes(normSearchName) || normFileName.includes(normSearchName);
+                      }
+                      if (normSearchDorsal) {
+                          const dorsalRegex = new RegExp(`[a-z0-9]_${normSearchDorsal}\\.|_${normSearchDorsal}$|_${normSearchDorsal}_`);
+                          dorsalMatch = dorsalRegex.test(normFileName) || normFileName.includes(`_${normSearchDorsal}`);
+                      }
+
+                      if (nameMatch && dorsalMatch) {
+                          foundPhotoUrl = await getDownloadURL(item);
+                          foundFileName = item.name;
+                          break;
+                      }
+                  }
+              } catch(e) { 
+                  // Si una categoría no tiene fotos aún, la ignoramos silenciosamente
+                  console.warn(`No se pudo leer la categoría: ${cat}`); 
+              }
               
-              if (isTeamPhoto) {
-                  foundPhotoUrl = await getDownloadURL(item);
-                  foundFileName = item.name;
-                  break;
-              }
-
-              let nameMatch = true;
-              let dorsalMatch = true;
-
-              if (normSearchName) {
-                  const cleanName = normFileName.replace(/_/g, ' ');
-                  nameMatch = cleanName.includes(normSearchName) || normFileName.includes(normSearchName);
-              }
-              if (normSearchDorsal) {
-                  const dorsalRegex = new RegExp(`[a-z0-9]_${normSearchDorsal}\\.|_${normSearchDorsal}$|_${normSearchDorsal}_`);
-                  dorsalMatch = dorsalRegex.test(normFileName) || normFileName.includes(`_${normSearchDorsal}`);
-              }
-
-              if (nameMatch && dorsalMatch) {
-                  foundPhotoUrl = await getDownloadURL(item);
-                  foundFileName = item.name;
-                  break;
-              }
+              if (foundPhotoUrl) break; // Si ya encontramos la foto, dejamos de buscar en otras categorías
           }
 
+          // 3. Resultado final
           if (foundPhotoUrl) {
               setPhotoSearchResult({ url: foundPhotoUrl, name: foundFileName });
-              setCustomization(prev => ({ ...prev, selectedPhoto: foundFileName }));
+              // (Ya NO hacemos auto-asignación aquí, el usuario pulsa el botón para elegir a quién va)
           } else {
-              setPhotoSearchError(`No se encontró ninguna foto en "${customization.category}" con esos datos.`);
-              setCustomization(prev => ({ ...prev, selectedPhoto: '' }));
+              setPhotoSearchError(`No se encontró ninguna foto con esos datos en las categorías seleccionadas.`);
           }
       } catch (err) {
           console.error("Error buscando foto:", err);
@@ -679,10 +694,20 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
       if ((isDouble || isTriple) && (!customization.playerName2 || !customization.playerNumber2)) { showToast("Datos del J2 obligatorios.", "error"); return; }
       if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { showToast("Datos del J3 obligatorios.", "error"); return; }
 
-      // Validación de la fotografía
-      if (features.photo && customization.includePhoto && !customization.selectedPhoto) { 
-          showToast("Debes buscar y confirmar tu fotografía antes de añadir el producto.", "error"); 
-          return; 
+    // 🔒 Validación estricta de fotografías para productos Multijugador
+      if (features.photo && customization.includePhoto) { 
+          if (!customization.selectedPhoto) {
+              showToast("Falta asignar la foto del Jugador 1.", "error"); 
+              return; 
+          }
+          if ((isDouble || isTriple) && !customization.selectedPhoto2) {
+              showToast("Falta asignar la foto del Jugador 2.", "error"); 
+              return; 
+          }
+          if (isTriple && !customization.selectedPhoto3) {
+              showToast("Falta asignar la foto del Jugador 3.", "error"); 
+              return; 
+          }
       }
 
       let extendedName = product.name;
@@ -711,7 +736,9 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                   name: extendedName,
                   playerName: isTeamPhoto ? '' : customization.playerName,
                   playerNumber: isTeamPhoto ? '' : customization.playerNumber,
-                  photoFileName: (features.photo && customization.includePhoto) ? customization.selectedPhoto : null, // Guarda la foto final
+                  photoFileName: (features.photo && customization.includePhoto) ? customization.selectedPhoto : null,
+                  photoFileName2: (features.photo && (isDouble || isTriple) && customization.includePhoto) ? customization.selectedPhoto2 : null,
+                  photoFileName3: (features.photo && isTriple && customization.includePhoto) ? customization.selectedPhoto3 : null,
                   quantity: isGift ? 1 : quantity, 
                   size: features.size ? customization.size : null, // Solo guarda la talla si el producto usa tallas
                   price: isGift ? 0 : product.price,
@@ -991,23 +1018,79 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
                       </div>
                   )}
 
-                  {photoSearchResult && (
+                    {photoSearchResult && (
                       <div className="mt-5 animate-fade-in-up">
-                          <div className="flex items-center gap-2 mb-3 bg-white p-3 rounded-lg border border-emerald-200 shadow-sm">
-                              <Check className="w-6 h-6 text-emerald-500 shrink-0"/>
-                              <span className="text-sm font-bold text-emerald-800 leading-tight">
-                                  ¡Foto vinculada al pedido!
-                              </span>
-                          </div>
-                          <div className="pointer-events-none rounded-xl overflow-hidden border-[3px] border-emerald-300 shadow-xl bg-white p-1">
+                          <div className="pointer-events-none rounded-xl overflow-hidden border-[3px] border-emerald-300 shadow-xl bg-white p-1 mb-3">
                               <ProtectedWatermarkImage 
                                   imageUrl={photoSearchResult.url}
                                   fileName={photoSearchResult.name}
                                   logoUrl={LOGO_URL}
                               />
                           </div>
+
+                          {/* BOTONES MULTIJUGADOR INTELIGENTES */}
+                          <div className="flex flex-col gap-2 mt-2">
+                              <p className="text-xs font-bold text-emerald-800 text-center uppercase tracking-wide">¿A quién asignamos esta foto?</p>
+                              
+                              <button 
+                                  type="button"
+                                  onClick={() => {
+                                      setCustomization({...customization, selectedPhoto: photoSearchResult.name});
+                                      showToast("📸 Foto asignada al Jugador 1");
+                                  }}
+                                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full transition-colors shadow-sm"
+                              >
+                                  Asignar a Jugador 1
+                              </button>
+                              
+                              {(isDouble || isTriple) && (
+                                  <button 
+                                      type="button"
+                                      onClick={() => {
+                                          setCustomization({...customization, selectedPhoto2: photoSearchResult.name});
+                                          showToast("📸 Foto asignada al Jugador 2");
+                                      }}
+                                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full transition-colors shadow-sm"
+                                  >
+                                      Asignar a Jugador 2
+                                  </button>
+                              )}
+
+                              {isTriple && (
+                                  <button 
+                                      type="button"
+                                      onClick={() => {
+                                          setCustomization({...customization, selectedPhoto3: photoSearchResult.name});
+                                          showToast("📸 Foto asignada al Jugador 3");
+                                      }}
+                                      className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full transition-colors shadow-sm"
+                                  >
+                                      Asignar a Jugador 3
+                                  </button>
+                              )}
+                          </div>
                       </div>
                   )}
+                  {/* RESUMEN DE FOTOS ASIGNADAS */}
+                <div className="mt-5 bg-white p-3 rounded-lg border border-emerald-200">
+                    <p className="text-sm font-bold text-emerald-800 mb-2 border-b border-emerald-50 pb-1">📸 Fotos asignadas en este producto:</p>
+                    
+                    <div className="space-y-1">
+                        <p className="text-xs">
+                            <strong>Jugador 1:</strong> {customization.selectedPhoto ? <span className="text-emerald-600 font-bold">{customization.selectedPhoto}</span> : <span className="text-red-500 font-medium">Pendiente</span>}
+                        </p>
+                        {(isDouble || isTriple) && (
+                            <p className="text-xs">
+                                <strong>Jugador 2:</strong> {customization.selectedPhoto2 ? <span className="text-blue-600 font-bold">{customization.selectedPhoto2}</span> : <span className="text-red-500 font-medium">Pendiente</span>}
+                            </p>
+                        )}
+                        {isTriple && (
+                            <p className="text-xs">
+                                <strong>Jugador 3:</strong> {customization.selectedPhoto3 ? <span className="text-purple-600 font-bold">{customization.selectedPhoto3}</span> : <span className="text-red-500 font-medium">Pendiente</span>}
+                            </p>
+                        )}
+                    </div>
+                </div>
               </div>
           )}
           

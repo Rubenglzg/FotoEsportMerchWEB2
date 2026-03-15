@@ -340,6 +340,7 @@ export function ClubDashboard({ club, orders, updateOrderStatus, config, seasons
                                                                                 {p2.category && <span><strong className="text-gray-400 font-medium">Cat:</strong> {p2.category}</span>}
                                                                                 {p2.name && <span><strong className="text-gray-400 font-medium">N:</strong> {p2.name}</span>}
                                                                                 {p2.number && <span><strong className="text-gray-400 font-medium">#:</strong> {p2.number}</span>}
+                                                                                {item.photoFileName2 && <span className="ml-1"><strong className="text-gray-400 font-medium">📸 Foto:</strong> {item.photoFileName2}</span>}
                                                                             </p>
                                                                         )}
 
@@ -350,6 +351,7 @@ export function ClubDashboard({ club, orders, updateOrderStatus, config, seasons
                                                                                 {p3.category && <span><strong className="text-gray-400 font-medium">Cat:</strong> {p3.category}</span>}
                                                                                 {p3.name && <span><strong className="text-gray-400 font-medium">N:</strong> {p3.name}</span>}
                                                                                 {p3.number && <span><strong className="text-gray-400 font-medium">#:</strong> {p3.number}</span>}
+                                                                                {item.photoFileName3 && <span className="ml-1"><strong className="text-gray-400 font-medium">📸 Foto:</strong> {item.photoFileName3}</span>}
                                                                             </p>
                                                                         )}
                                                                     </div>

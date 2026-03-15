@@ -31,6 +31,35 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
   const [activeGiftCode, setActiveGiftCode] = useState(null);
   const [toast, setToast] = useState({ show: false, message: '', type: 'success' });
 
+  // --- LÓGICA DE TIEMPO REAL PARA LA CAMPAÑA ---
+  const [isCampaignActive, setIsCampaignActive] = useState(false);
+
+  useEffect(() => {
+      if (!campaignConfig?.active) {
+          setIsCampaignActive(false);
+          return;
+      }
+      
+      const checkStatus = () => {
+          const now = new Date().getTime();
+          const hasStart = campaignConfig.scheduleStartActive && campaignConfig.startDate;
+          const hasEnd = campaignConfig.scheduleEndActive && campaignConfig.endDate;
+          const startTime = hasStart ? new Date(campaignConfig.startDate).getTime() : 0;
+          const endTime = hasEnd ? new Date(campaignConfig.endDate).getTime() : Infinity;
+
+          // La campaña es "efectivamente activa" si ya pasó el inicio Y no ha pasado el fin
+          const isActiveNow = !(hasStart && now < startTime) && !(hasEnd && now > endTime);
+          
+          // Solo actualizamos el estado si ha habido un cambio (para no saturar React)
+          setIsCampaignActive(prev => prev !== isActiveNow ? isActiveNow : prev);
+      };
+
+      checkStatus(); // Comprobación inicial
+      const interval = setInterval(checkStatus, 1000); // Comprobación cada segundo
+      
+      return () => clearInterval(interval);
+  }, [campaignConfig]);
+
   const showToast = (message, type = 'success') => {
       setToast({ show: true, message, type });
       setTimeout(() => setToast({ show: false, message: '', type: 'success' }), 4000);
@@ -330,9 +359,17 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                         if (isProdDiscountValid) {
                             hasDiscount = true;
                             finalPrice = product.price * (1 - prodDiscount.percentage / 100);
-                        } else if (campaignConfig?.active && campaignConfig?.discount > 0 && !isPack) {
-                            hasDiscount = true;
-                            finalPrice = product.price * (1 - campaignConfig.discount / 100);
+                        } else if (isCampaignActive && !isPack) {
+                            // NUEVA LÓGICA DE CAMPAÑAS PRO (Visual en la tarjeta)
+                            if (campaignConfig.promoMode === 'global' && campaignConfig.discount > 0) {
+                                hasDiscount = true;
+                                finalPrice = product.price * (1 - campaignConfig.discount / 100);
+                            } else if (campaignConfig.promoMode === 'specific' && campaignConfig.discount > 0) {
+                                if (campaignConfig.targetProducts?.includes(product.id)) {
+                                    hasDiscount = true;
+                                    finalPrice = product.price * (1 - campaignConfig.discount / 100);
+                                }
+                            }
                         }
 
                         return (
@@ -382,6 +419,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
               product={selectedProduct} 
               activeClub={activeClub}
               activeGiftCode={activeGiftCode}
+              isCampaignActive={isCampaignActive}
               onBack={() => { setSelectedProduct(null); setActiveGiftCode(null); }}
               onAdd={addToCart} 
               clubs={clubs} 
@@ -400,7 +438,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 // ============================================================================
 // COMPONENTE SECUNDARIO: PERSONALIZADOR
 // ============================================================================
-export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig, showToast }) {
+export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig, showToast, isCampaignActive }) {
   const defaults = product.defaults || {};
   const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
   const features = product.features || {};
@@ -554,15 +592,13 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
   const basePrice = useMemo(() => {
       let price = product.price;
       
-      // 1. Si hay un código de descuento introducido para este producto
       if (activeGiftCode && activeGiftCode.applyTo === 'specific') {
-          if (activeGiftCode.codeType === 'product') return 0; // Regalo total
+          if (activeGiftCode.codeType === 'product') return 0;
           if (activeGiftCode.codeType === 'percent') price = price * (1 - (activeGiftCode.discountValue / 100));
           if (activeGiftCode.codeType === 'fixed') price = Math.max(0, price - activeGiftCode.discountValue);
-          return price; // Si hay código manual, tiene prioridad y salimos
+          return price; 
       }
 
-      // 2. Si no hay código, aplicamos los descuentos normales o campañas
       const isPack = product.category === 'Packs' || product.category === 'Ofertas';
       const prodDiscount = product.discount || {};
       if (prodDiscount.active) {
@@ -572,8 +608,19 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
               return price * (1 - prodDiscount.percentage / 100);
           }
       }
-      if (campaignConfig?.active && campaignConfig?.discount > 0 && !isPack) {
-          return price * (1 - campaignConfig.discount / 100);
+
+      // NUEVA LÓGICA DE CAMPAÑAS PRO
+      if (isCampaignActive && !isPack) {
+          if (campaignConfig.promoMode === 'global' && campaignConfig.discount > 0) {
+              return price * (1 - campaignConfig.discount / 100);
+          }
+          if (campaignConfig.promoMode === 'specific' && campaignConfig.discount > 0) {
+              // Comprueba si el producto actual está en la lista de elegidos
+              const isTargeted = campaignConfig.targetProducts?.includes(product.id);
+              if (isTargeted) {
+                  return price * (1 - campaignConfig.discount / 100);
+              }
+          }
       }
       return price;
   }, [product, campaignConfig, activeGiftCode]);
@@ -601,9 +648,14 @@ export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack,
   }, [customization, defaults, features, modifiable, isDouble, isTriple, isGift]);
 
    const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
-   // Si el tipo es 'product' es gratis total. Si es descuento, sí se pagan los extras de personalización
+   
    const isTotalGift = activeGiftCode && activeGiftCode.codeType === 'product';
-   const unitPrice = isTotalGift ? 0 : (basePrice + variantPrice + (modificationCount * (modificationFee || 0)));
+   
+   // Lógica de Modificaciones Gratis de la campaña
+   const areModsFree = isCampaignActive && campaignConfig?.promoMode === 'free_mods';
+   const currentModFee = areModsFree ? 0 : (modificationFee || 0);
+   
+   const unitPrice = isTotalGift ? 0 : (basePrice + variantPrice + (modificationCount * currentModFee));
    const totalPrice = unitPrice * quantity;
   
     const handleSubmit = (e) => { 

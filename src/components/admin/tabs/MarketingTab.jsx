@@ -8,7 +8,7 @@ import { generateCustomersExcel } from '../../../utils/excelExport';
 
 export const MarketingTab = ({
     campaignConfig, setCampaignConfig,
-    orders, clubs, showNotification, setConfirmation
+    orders, clubs, products, showNotification, setConfirmation // <-- Añadido "products"
 }) => {
     // --- ESTADOS PARA MAILING ---
     const [emailTarget, setEmailTarget] = useState('all');
@@ -141,72 +141,161 @@ export const MarketingTab = ({
 
     return (
         <div className="space-y-8 animate-fade-in">
-            {/* PANEL DE CAMPAÑAS */}
+            {/* PANEL DE CAMPAÑAS PRO */}
             <div className="md:col-span-2 bg-gradient-to-r from-purple-50 to-pink-50 p-6 rounded-xl border border-purple-100 shadow-sm mb-6">
-                <h3 className="font-bold text-lg text-purple-800 flex items-center gap-2 mb-4">
-                    <Award className="w-5 h-5"/> Campañas y Ofertas
-                </h3>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 items-end">
-                    <div>
-                        <label className="text-xs font-bold text-purple-600 uppercase block mb-1">Tipo Campaña</label>
-                        <select 
-                            className="w-full border border-purple-200 rounded-lg p-2 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-200"
-                            value={campaignConfig?.type || 'none'}
-                            onChange={async (e) => {
-                                const newConfig = { ...campaignConfig, type: e.target.value };
-                                await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
-                                setCampaignConfig(newConfig);
-                            }}
-                        >
-                            <option value="none">Sin Campaña</option>
-                            <option value="christmas">Navidad 🎄</option>
-                            <option value="black_friday">Black Friday 🖤</option>
-                            <option value="summer">Fin de Temporada ☀️</option>
-                        </select>
-                    </div>
-                    <div>
-                        <label className="text-xs font-bold text-purple-600 uppercase block mb-1">% Descuento Global</label>
+                <div className="flex flex-col sm:flex-row justify-between items-start sm:items-center mb-6 gap-4 border-b border-purple-100 pb-4">
+                    <h3 className="font-bold text-lg text-purple-800 flex items-center gap-2">
+                        <Award className="w-6 h-6"/> Gestión de Campañas y Novedades
+                    </h3>
+                    <div className="flex items-center gap-2 bg-white px-4 py-2 rounded-lg border border-purple-200 shadow-sm hover:shadow transition-all">
                         <input 
-                            type="number" 
-                            className="w-full border border-purple-200 rounded-lg p-2 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-200"
-                            placeholder="0"
-                            value={campaignConfig?.discount || 0}
-                            onChange={async (e) => {
-                                const newConfig = { ...campaignConfig, discount: parseInt(e.target.value) || 0 };
-                                await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
-                                setCampaignConfig(newConfig);
-                            }}
+                            type="checkbox" 
+                            id="campActive"
+                            className="accent-purple-600 w-5 h-5 cursor-pointer"
+                            checked={campaignConfig?.active || false}
+                            onChange={(e) => setCampaignConfig({ ...campaignConfig, active: e.target.checked })}
                         />
-                    </div>
-                    <div className="md:col-span-2">
-                        <label className="text-xs font-bold text-purple-600 uppercase block mb-1">Mensaje Banner</label>
-                        <div className="flex gap-2">
-                            <input 
-                                className="w-full border border-purple-200 rounded-lg p-2 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-200"
-                                placeholder="Ej: ¡Solo hoy! Precios locos."
-                                value={campaignConfig?.bannerMessage || ''}
-                                onChange={(e) => setCampaignConfig({ ...campaignConfig, bannerMessage: e.target.value })} 
-                            />
-                            <Button size="sm" onClick={async () => {
-                                await setDoc(doc(db, 'settings', 'campaigns'), campaignConfig);
-                                showNotification('Campaña guardada');
-                            }}>Guardar</Button>
-                        </div>
+                        <label htmlFor="campActive" className="text-sm font-black text-purple-700 cursor-pointer uppercase tracking-wide">Activar en la Web</label>
                     </div>
                 </div>
-                <div className="mt-4 flex items-center gap-2">
-                    <input 
-                        type="checkbox" 
-                        id="campActive"
-                        className="accent-purple-600 w-4 h-4 cursor-pointer"
-                        checked={campaignConfig?.active || false}
-                        onChange={async (e) => {
-                            const newConfig = { ...campaignConfig, active: e.target.checked };
-                            await setDoc(doc(db, 'settings', 'campaigns'), newConfig);
-                            setCampaignConfig(newConfig);
-                        }}
-                    />
-                    <label htmlFor="campActive" className="text-sm font-bold text-purple-700 cursor-pointer">Activar Campaña en la Web</label>
+
+                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-5 mb-4">
+                    {/* 1. TEMA Y MENSAJE */}
+                    <div>
+                        <label className="text-[10px] font-bold text-purple-600 uppercase block mb-1">Tema Visual</label>
+                        <select 
+                            className="w-full border border-purple-200 rounded-lg p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-400"
+                            value={campaignConfig?.type || 'none'}
+                            onChange={(e) => setCampaignConfig({ ...campaignConfig, type: e.target.value })}
+                        >
+                            <option value="none">Estándar (Verde)</option>
+                            <option value="christmas">Navidad 🎄</option>
+                            <option value="black_friday">Black Friday 🖤</option>
+                            <option value="summer">Verano / Fin Temporada ☀️</option>
+                        </select>
+                    </div>
+                    <div className="lg:col-span-3">
+                        <label className="text-[10px] font-bold text-purple-600 uppercase block mb-1">Mensaje del Banner</label>
+                        <input 
+                            className="w-full border border-purple-200 rounded-lg p-2.5 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-400"
+                            placeholder="Ej: ¡Próximamente nuevas equipaciones!"
+                            value={campaignConfig?.bannerMessage || ''}
+                            onChange={(e) => setCampaignConfig({ ...campaignConfig, bannerMessage: e.target.value })} 
+                        />
+                    </div>
+
+                    {/* 2. PROGRAMACIÓN AUTOMÁTICA */}
+                    <div className="lg:col-span-2 bg-white p-4 rounded-xl border border-purple-100 shadow-sm flex flex-col gap-3">
+                        <h4 className="text-[10px] font-bold text-purple-600 uppercase border-b border-purple-50 pb-1">2. Programación de Tiempos</h4>
+                        
+                        {/* Fecha de Inicio */}
+                        <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                            <div className="flex items-center gap-2 mb-2">
+                                <input 
+                                    type="checkbox" id="startActive" className="accent-purple-600 w-4 h-4"
+                                    checked={campaignConfig?.scheduleStartActive || false}
+                                    onChange={(e) => setCampaignConfig({ ...campaignConfig, scheduleStartActive: e.target.checked })}
+                                />
+                                <label htmlFor="startActive" className="text-xs font-bold text-gray-700 uppercase cursor-pointer">Programar Inicio (Empieza en...)</label>
+                            </div>
+                            {campaignConfig?.scheduleStartActive && (
+                                <input 
+                                    type="datetime-local" 
+                                    className="w-full border border-purple-200 rounded p-2 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+                                    value={campaignConfig?.startDate || ''}
+                                    onChange={(e) => setCampaignConfig({ ...campaignConfig, startDate: e.target.value })}
+                                />
+                            )}
+                        </div>
+
+                        {/* Fecha de Fin */}
+                        <div className="bg-gray-50 p-3 rounded-lg border border-gray-100">
+                            <div className="flex items-center gap-2 mb-2">
+                                <input 
+                                    type="checkbox" id="endActive" className="accent-purple-600 w-4 h-4"
+                                    checked={campaignConfig?.scheduleEndActive || false}
+                                    onChange={(e) => setCampaignConfig({ ...campaignConfig, scheduleEndActive: e.target.checked })}
+                                />
+                                <label htmlFor="endActive" className="text-xs font-bold text-gray-700 uppercase cursor-pointer">Programar Fin (Termina en...)</label>
+                            </div>
+                            {campaignConfig?.scheduleEndActive && (
+                                <input 
+                                    type="datetime-local" 
+                                    className="w-full border border-purple-200 rounded p-2 text-sm bg-white outline-none focus:ring-2 focus:ring-purple-400 font-mono"
+                                    value={campaignConfig?.endDate || ''}
+                                    onChange={(e) => setCampaignConfig({ ...campaignConfig, endDate: e.target.value })}
+                                />
+                            )}
+                        </div>
+                    </div>
+
+                    {/* 3. TIPO DE OFERTA */}
+                    <div className="lg:col-span-2 bg-white p-4 rounded-xl border border-purple-100 shadow-sm">
+                        <label className="text-[10px] font-bold text-purple-600 uppercase block mb-1">Lógica de Promoción</label>
+                        <select 
+                            className="w-full border border-purple-200 rounded-lg p-2 text-sm bg-gray-50 mb-3 outline-none focus:ring-2 focus:ring-purple-400 font-bold text-gray-700"
+                            value={campaignConfig?.promoMode || 'none'}
+                            onChange={(e) => setCampaignConfig({ ...campaignConfig, promoMode: e.target.value, targetProducts: [] })}
+                        >
+                            <option value="none">Solo Anuncio (Sin afectar precios)</option>
+                            <option value="global">Descuento Global a toda la tienda</option>
+                            <option value="specific">Descuento en Productos Específicos</option>
+                            <option value="free_mods">Modificaciones Gratis (Dorsal/Nombre)</option>
+                        </select>
+                        
+                        {(campaignConfig?.promoMode === 'global' || campaignConfig?.promoMode === 'specific') && (
+                            <div className="flex items-center gap-2 bg-purple-50 p-2 rounded-lg border border-purple-100 w-fit">
+                                <span className="text-xs font-bold text-purple-800">Descuento:</span>
+                                <input 
+                                    type="number" className="w-16 border border-purple-200 rounded p-1 text-sm text-center outline-none focus:ring-2 focus:ring-purple-400 font-bold"
+                                    value={campaignConfig?.discount || 0}
+                                    onChange={(e) => setCampaignConfig({ ...campaignConfig, discount: parseInt(e.target.value) || 0 })}
+                                />
+                                <span className="text-xs font-black text-purple-800">%</span>
+                            </div>
+                        )}
+                    </div>
+
+                    {/* 4. SELECTOR DE PRODUCTOS ESPECÍFICOS */}
+                    {campaignConfig?.promoMode === 'specific' && (
+                        <div className="lg:col-span-4 bg-white p-4 rounded-xl border border-purple-200 shadow-inner">
+                            <label className="text-[10px] font-bold text-purple-600 uppercase block mb-3">Selecciona los productos afectados por el descuento:</label>
+                            {(!products || products.length === 0) ? (
+                                <p className="text-xs text-red-500 font-bold">⚠️ Falta la propiedad 'products'. Asegúrate de añadirla en AdminDashboard.jsx.</p>
+                            ) : (
+                                <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-2 max-h-48 overflow-y-auto custom-scrollbar pr-2">
+                                    {products.map(p => {
+                                        const isSelected = campaignConfig?.targetProducts?.includes(p.id);
+                                        return (
+                                            <label key={p.id} className={`flex items-center gap-2 p-2.5 rounded-lg border cursor-pointer text-xs transition-colors ${isSelected ? 'bg-purple-100 border-purple-400 shadow-sm' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}>
+                                                <input 
+                                                    type="checkbox" className="accent-purple-600 w-4 h-4"
+                                                    checked={isSelected}
+                                                    onChange={(e) => {
+                                                        const current = campaignConfig?.targetProducts || [];
+                                                        const next = e.target.checked 
+                                                            ? [...current, p.id] 
+                                                            : current.filter(id => id !== p.id);
+                                                        setCampaignConfig({ ...campaignConfig, targetProducts: next });
+                                                    }}
+                                                />
+                                                <span className={`truncate ${isSelected ? 'font-bold text-purple-900' : 'text-gray-700'}`} title={p.name}>{p.name}</span>
+                                            </label>
+                                        );
+                                    })}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+
+                <div className="flex justify-end border-t border-purple-200 pt-4 mt-2">
+                    <Button onClick={async () => {
+                        await setDoc(doc(db, 'settings', 'campaigns'), campaignConfig);
+                        showNotification('Configuración de Campaña Guardada', 'success');
+                    }} className="bg-purple-600 hover:bg-purple-700 shadow-lg shadow-purple-200">
+                        Guardar Configuración de Campaña
+                    </Button>
                 </div>
             </div>
 

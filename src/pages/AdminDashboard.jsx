@@ -262,6 +262,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         setCampaignConfig={setCampaignConfig}
         orders={orders}
         clubs={clubs}
+        products={products}
         showNotification={showNotification}
         setConfirmation={setConfirmation}
     />

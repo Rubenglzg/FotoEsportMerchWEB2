@@ -1,5 +1,5 @@
 const { onSchedule } = require("firebase-functions/v2/scheduler");
-const { onDocumentUpdated } = require("firebase-functions/v2/firestore");
+const { onDocumentUpdated, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
 
@@ -98,11 +98,10 @@ exports.sendMassEmail = onCall(async (request) => {
 
     try {
         await db.collection("mail").add({
-            to: ["no-reply@fotoesport.com"], 
-            bcc: emails,
+            to: [userData.email], // <-- Se envía DIRECTAMENTE al email del formulario
             message: {
-                subject: subject,
-                html: html
+                subject: "Confirmación de eliminación de datos (RGPD) - FotoEsport",
+                html: `...`
             }
         });
 
@@ -137,4 +136,47 @@ exports.deleteOldEmails = onSchedule("every 24 hours", async (event) => {
 
     await batch.commit();
     console.log(`Limpieza completada: Eliminados ${snapshot.size} emails con más de 90 días de antigüedad.`);
+});
+
+// 6. ENVIAR EMAIL CUANDO UN CLUB RELLENA EL FORMULARIO DE CONTACTO
+exports.onClubRequestCreated = onDocumentCreated("club_requests/{requestId}", async (event) => {
+    // Obtenemos los datos que el usuario escribió en el formulario
+    const data = event.data.data();
+    
+    if (!data) return;
+
+    try {
+        // Añadimos un documento a la colección 'mail' para que Firebase mande el correo
+        await db.collection("mail").add({
+            to: ["fotoesportmerch@gmail.com"], // Tu correo de destino
+            replyTo: data.email, // Si le das a "Responder" en Gmail, le contestarás al cliente
+            message: {
+                subject: `🚀 Nueva Solicitud de Club: ${data.clubName}`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+                        <h2 style="color: #059669; text-align: center;">¡Nueva petición de información!</h2>
+                        <p style="font-size: 16px; color: #333;">Has recibido una nueva solicitud desde el panel de la web principal:</p>
+                        
+                        <div style="background-color: #f9fafb; padding: 15px; border-radius: 8px; margin-top: 20px;">
+                            <p style="margin: 5px 0;"><strong>🏢 Club:</strong> ${data.clubName}</p>
+                            <p style="margin: 5px 0;"><strong>👤 Contacto:</strong> ${data.contactName}</p>
+                            <p style="margin: 5px 0;"><strong>📱 Teléfono:</strong> <a href="tel:${data.phone}">${data.phone}</a></p>
+                            <p style="margin: 5px 0;"><strong>📧 Email:</strong> <a href="mailto:${data.email}">${data.email}</a></p>
+                        </div>
+
+                        <div style="margin-top: 20px;">
+                            <p style="font-weight: bold; color: #333;">Mensaje del club:</p>
+                            <blockquote style="background-color: #f3f4f6; border-left: 4px solid #059669; padding: 10px 15px; font-style: italic; color: #555;">
+                                ${data.message ? data.message : 'No han dejado ningún mensaje adicional.'}
+                            </blockquote>
+                        </div>
+                    </div>
+                `
+            }
+        });
+        
+        console.log(`Email de notificación encolado para la solicitud del club: ${data.clubName}`);
+    } catch (error) {
+        console.error("Error al enviar el email de notificación de club:", error);
+    }
 });

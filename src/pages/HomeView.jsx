@@ -1,9 +1,13 @@
 import React, { useState, useEffect } from 'react';
 // Importamos los iconos que usa la portada
-import { ShoppingCart, Search, Camera, Award, Package, CreditCard, Edit3, ArrowRight, AlertCircle } from 'lucide-react'; 
+import { ShoppingCart, Search, Camera, Award, Package, CreditCard, Edit3, ArrowRight, AlertCircle, Send, Mail, Phone, Users } from 'lucide-react';
 
 // Importamos el botón genérico
 import { Button } from '../components/ui/Button';
+
+// 2. Importa la base de datos y funciones de Firestore
+import { collection, addDoc } from 'firebase/firestore';
+import { db } from '../config/firebase';
 
 /* * ============================================================================
  * 🏠 VISTA: INICIO (HOME)
@@ -14,6 +18,16 @@ import { Button } from '../components/ui/Button';
 
 export function HomeView({ setView }) {
   const [currentSlide, setCurrentSlide] = useState(0);
+
+  // NUEVO: Estado para el formulario de contacto de clubes
+  const [contactForm, setContactForm] = useState({
+    clubName: '',
+    contactName: '',
+    phone: '',
+    email: '',
+    message: ''
+  });
+  const [formStatus, setFormStatus] = useState({ loading: false, success: false, error: null });
   
   // Imágenes de alta calidad relacionadas con deporte/merch
   const slides = [
@@ -28,6 +42,36 @@ export function HomeView({ setView }) {
     }, 5000); 
     return () => clearInterval(timer); 
   }, []);
+
+  // Función para actualizar los campos mientras el usuario escribe
+  const handleInputChange = (e) => {
+    const { name, value } = e.target;
+    setContactForm(prev => ({ ...prev, [name]: value }));
+  };
+
+  // Función para enviar los datos a Firebase
+  const handleContactSubmit = async (e) => {
+    e.preventDefault();
+    setFormStatus({ loading: true, success: false, error: null });
+    try {
+      // Guarda la información en la colección 'club_requests'
+      await addDoc(collection(db, 'club_requests'), {
+        ...contactForm,
+        createdAt: new Date(),
+        status: 'pending' // Esto te servirá luego para tu panel de administrador
+      });
+      
+      setFormStatus({ loading: false, success: true, error: null });
+      // Limpiamos el formulario
+      setContactForm({ clubName: '', contactName: '', phone: '', email: '', message: '' }); 
+      
+      // Ocultar el mensaje de éxito después de 5 segundos
+      setTimeout(() => setFormStatus(prev => ({ ...prev, success: false })), 5000);
+    } catch (error) {
+      console.error("Error al enviar el formulario:", error);
+      setFormStatus({ loading: false, success: false, error: "Hubo un error al enviar el mensaje. Por favor, inténtalo de nuevo." });
+    }
+  };
 
   return (
     <div className="space-y-16 pb-12 animate-fade-in">
@@ -141,7 +185,7 @@ export function HomeView({ setView }) {
           </div>
       </div>
 
-      {/* 4. ACCESOS RÁPIDOS (BENTO GRID STYLE) */}
+        {/* 4. ACCESOS RÁPIDOS (BENTO GRID STYLE) */}
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-auto md:h-80">
           
           {/* Card Tienda */}
@@ -188,6 +232,116 @@ export function HomeView({ setView }) {
                       Localizar <Search className="w-3 h-3"/>
                   </div>
               </div>
+          </div>
+      </div> {/* <-- ESTE DIV FALTABA PARA CERRAR LA SECCIÓN 4 ANTES DEL PANEL */}
+
+      {/* 5. PANEL DE CONTACTO PARA CLUBES (NUEVO) */}
+      <div className="bg-gray-900 rounded-3xl p-8 md:p-12 relative overflow-hidden mt-16 shadow-2xl border border-gray-800 mx-4 lg:mx-0">
+          {/* Decoración de fondo verde corporativa */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-600 rounded-full blur-3xl opacity-20 -mr-20 -mt-20 pointer-events-none"></div>
+
+          <div className="relative z-10 grid grid-cols-1 md:grid-cols-2 gap-12 items-center">
+          {/* Textos y propuesta de valor */}
+          <div className="text-white space-y-6">
+              <div className="inline-block px-4 py-1.5 rounded-full border border-emerald-400/30 bg-emerald-900/30 text-emerald-300 text-xs font-bold uppercase tracking-wider">
+                  Trabaja con nosotros
+              </div>
+              <h2 className="text-3xl md:text-5xl font-black leading-tight drop-shadow-md">
+                  ¿Quieres tener tu propio Merch personalizado?
+              </h2>
+              <p className="text-gray-300 text-lg leading-relaxed font-light">
+                  Ofrecemos un servicio integral y profesional: enviamos a nuestro fotógrafo, montamos vuestra tienda online exclusiva y producimos los artículos bajo demanda. ¡Sin inversión ni riesgo para el club!
+              </p>
+              <ul className="space-y-4 pt-4">
+                  <li className="flex items-center text-gray-200">
+                  <div className="bg-gray-800 p-2 rounded-lg mr-4"><Camera className="w-5 h-5 text-emerald-400"/></div>
+                  Fotógrafo profesional certificado
+                  </li>
+                  <li className="flex items-center text-gray-200">
+                  <div className="bg-gray-800 p-2 rounded-lg mr-4"><Package className="w-5 h-5 text-emerald-400"/></div>
+                  Merchandising 100% personalizado
+                  </li>
+                  <li className="flex items-center text-gray-200">
+                  <div className="bg-gray-800 p-2 rounded-lg mr-4"><Award className="w-5 h-5 text-emerald-400"/></div>
+                  Beneficios directos para tu entidad
+                  </li>
+              </ul>
+          </div>
+
+          {/* Formulario de Captación */}
+          <div className="bg-white rounded-2xl p-6 md:p-8 shadow-xl">
+              {formStatus.success ? (
+                  <div className="text-center py-10 space-y-4 animate-fade-in">
+                  <div className="w-20 h-20 bg-emerald-50 rounded-full flex items-center justify-center mx-auto text-emerald-500 shadow-inner">
+                      <Send className="w-10 h-10 ml-1" />
+                  </div>
+                  <h3 className="text-2xl font-black text-gray-900">¡Solicitud Enviada!</h3>
+                  <p className="text-gray-500 font-medium">Nos pondremos en contacto con vosotros lo antes posible para explicaros cómo empezar a trabajar juntos.</p>
+                  </div>
+              ) : (
+                  <form onSubmit={handleContactSubmit} className="space-y-5">
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Solicitar Información</h3>
+                  
+                  <div className="space-y-4">
+                      {/* Nombre del Club */}
+                      <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Club</label>
+                      <div className="relative">
+                          <Users className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                          <input required type="text" name="clubName" value={contactForm.clubName} onChange={handleInputChange} className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-medium text-gray-800" placeholder="Ej. CF FotoEsport" />
+                      </div>
+                      </div>
+
+                      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {/* Persona de Contacto */}
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Persona de Contacto</label>
+                          <input required type="text" name="contactName" value={contactForm.contactName} onChange={handleInputChange} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-medium text-gray-800" placeholder="Tu nombre" />
+                      </div>
+                      {/* Teléfono */}
+                      <div>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Teléfono</label>
+                          <div className="relative">
+                          <Phone className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                          <input required type="tel" name="phone" value={contactForm.phone} onChange={handleInputChange} className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-medium text-gray-800" placeholder="600 000 000" />
+                          </div>
+                      </div>
+                      </div>
+
+                      {/* Email */}
+                      <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Correo Electrónico</label>
+                      <div className="relative">
+                          <Mail className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
+                          <input required type="email" name="email" value={contactForm.email} onChange={handleInputChange} className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-medium text-gray-800" placeholder="correo@club.com" />
+                      </div>
+                      </div>
+
+                      {/* Mensaje */}
+                      <div>
+                      <label className="block text-sm font-bold text-gray-700 mb-1">Mensaje (Opcional)</label>
+                      <textarea name="message" value={contactForm.message} onChange={handleInputChange} rows="3" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors resize-none font-medium text-gray-800" placeholder="Cuéntanos un poco sobre tu club (nº de jugadores, categorías...)"></textarea>
+                      </div>
+                  </div>
+
+                  {formStatus.error && (
+                      <p className="text-red-500 text-sm mt-2 font-medium bg-red-50 p-3 rounded-lg border border-red-100">{formStatus.error}</p>
+                  )}
+
+                  <Button 
+                      type="submit" 
+                      disabled={formStatus.loading}
+                      className="w-full py-4 bg-emerald-600 hover:bg-emerald-500 text-white font-bold rounded-xl mt-6 transition-all transform hover:-translate-y-1 shadow-lg shadow-emerald-600/30 flex items-center justify-center text-lg"
+                  >
+                      {formStatus.loading ? 'Enviando petición...' : (
+                      <>
+                          Quiero más información <Send className="w-5 h-5 ml-2" />
+                      </>
+                      )}
+                  </Button>
+                  </form>
+              )}
+          </div>
           </div>
       </div>
 

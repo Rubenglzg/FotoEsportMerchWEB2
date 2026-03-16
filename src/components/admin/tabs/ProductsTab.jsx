@@ -246,11 +246,12 @@ export const ProductsTab = ({
                             <ProductEditorRow 
                                 key={p.id} 
                                 product={p} 
+                                allProducts={products} // 🟢 AÑADE ESTA LÍNEA AQUÍ
                                 updateProduct={updateProduct} 
                                 deleteProduct={deleteProduct} 
                                 suppliers={suppliers}
                                 availableSections={sections} 
-                                clubs={clubs} // <--- AÑADIR ESTA LÍNEA
+                                clubs={clubs} 
                             />
                         ))
                     )}

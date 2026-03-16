@@ -338,46 +338,76 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 
                     <div className="flex items-center justify-between pt-4 border-t border-gray-50 mt-auto">
                     {(() => {
-                        const isPack = product.category === 'Packs' || product.category === 'Ofertas';
                         let finalPrice = product.price;
+                        let crossedOutPrice = null;
                         let hasDiscount = false;
                         let remainingDiscountUnits = null; 
+                        let isPackTag = product.isPack || product.category === 'Packs' || product.category === 'Ofertas';
 
-                        const prodDiscount = product.discount || {};
-                        let isProdDiscountValid = false;
-                        if (prodDiscount.active) {
-                            const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
-                            const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
-                            if (notExpired && limitNotReached) {
-                                isProdDiscountValid = true;
-                                if (prodDiscount.maxUnits) {
-                                    remainingDiscountUnits = prodDiscount.maxUnits - (prodDiscount.unitsSold || 0);
+                        // 🟢 1. LÓGICA DE PACKS NATIVOS (Mayor prioridad)
+                        if (product.isPack && product.bundledProducts?.length > 0) {
+                            hasDiscount = true;
+                            // Calculamos la suma original buscando los productos reales
+                            crossedOutPrice = product.bundledProducts.reduce((sum, bId) => {
+                                const bp = products.find(p => p.id === bId);
+                                return sum + (bp ? bp.price : 0);
+                            }, 0);
+                            finalPrice = product.price; // El precio de venta que le pusiste
+                        } 
+                        // 2. LÓGICA DE DESCUENTOS INDIVIDUALES
+                        else {
+                            const prodDiscount = product.discount || {};
+                            let isProdDiscountValid = false;
+                            if (prodDiscount.active) {
+                                const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
+                                const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
+                                if (notExpired && limitNotReached) {
+                                    isProdDiscountValid = true;
+                                    if (prodDiscount.maxUnits) {
+                                        remainingDiscountUnits = prodDiscount.maxUnits - (prodDiscount.unitsSold || 0);
+                                    }
+                                }
+                            }
+
+                            if (isProdDiscountValid) {
+                                hasDiscount = true;
+                                crossedOutPrice = product.price;
+                                finalPrice = product.price * (1 - prodDiscount.percentage / 100);
+                            } else if (isCampaignActive && !isPackTag) {
+                                // 3. LÓGICA DE CAMPAÑAS GLOBALES
+                                if (campaignConfig.promoMode === 'global' && campaignConfig.discount > 0) {
+                                    hasDiscount = true;
+                                    crossedOutPrice = product.price;
+                                    finalPrice = product.price * (1 - campaignConfig.discount / 100);
+                                } else if (campaignConfig.promoMode === 'specific' && campaignConfig.discount > 0) {
+                                    if (campaignConfig.targetProducts?.includes(product.id)) {
+                                        hasDiscount = true;
+                                        crossedOutPrice = product.price;
+                                        finalPrice = product.price * (1 - campaignConfig.discount / 100);
+                                    }
                                 }
                             }
                         }
 
-                        if (isProdDiscountValid) {
-                            hasDiscount = true;
-                            finalPrice = product.price * (1 - prodDiscount.percentage / 100);
-                        } else if (isCampaignActive && !isPack) {
-                            // NUEVA LÓGICA DE CAMPAÑAS PRO (Visual en la tarjeta)
-                            if (campaignConfig.promoMode === 'global' && campaignConfig.discount > 0) {
-                                hasDiscount = true;
-                                finalPrice = product.price * (1 - campaignConfig.discount / 100);
-                            } else if (campaignConfig.promoMode === 'specific' && campaignConfig.discount > 0) {
-                                if (campaignConfig.targetProducts?.includes(product.id)) {
-                                    hasDiscount = true;
-                                    finalPrice = product.price * (1 - campaignConfig.discount / 100);
-                                }
-                            }
+                        // Calcular porcentaje de ahorro si existe un precio tachado mayor al final
+                        let savingPercentage = 0;
+                        if (hasDiscount && crossedOutPrice > finalPrice) {
+                            savingPercentage = Math.round(((crossedOutPrice - finalPrice) / crossedOutPrice) * 100);
                         }
 
                         return (
                             <div className="flex flex-col justify-center">
-                                {hasDiscount && (
-                                    <span className="text-xs text-red-400 line-through font-bold">
-                                        {product.price.toFixed(2)}€
-                                    </span>
+                                {hasDiscount && crossedOutPrice > finalPrice && (
+                                    <div className="flex items-center gap-1.5 mb-0.5">
+                                        <span className="text-xs text-gray-400 line-through font-bold">
+                                            {crossedOutPrice.toFixed(2)}€
+                                        </span>
+                                        {isPackTag && savingPercentage > 0 && (
+                                            <span className="text-[9px] bg-red-100 text-red-600 px-1.5 py-0.5 rounded font-black border border-red-200">
+                                                -{savingPercentage}% DTO
+                                            </span>
+                                        )}
+                                    </div>
                                 )}
                                 <span className={`text-2xl font-black ${hasDiscount ? 'text-red-600' : 'text-gray-900'}`}>
                                     {finalPrice.toFixed(2)}<span className="text-sm align-top">€</span>
@@ -418,6 +448,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
           <ProductCustomizer 
               key={selectedProduct.id} // 🟢 AÑADE ESTA LÍNEA AQUÍ
               product={selectedProduct} 
+              allProducts={products}
               activeClub={activeClub}
               activeGiftCode={activeGiftCode}
               isCampaignActive={isCampaignActive}
@@ -439,682 +470,630 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
 // ============================================================================
 // COMPONENTE SECUNDARIO: PERSONALIZADOR
 // ============================================================================
-export function ProductCustomizer({ product, activeClub, activeGiftCode, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig, showToast, isCampaignActive }) {
-  const defaults = product.defaults || {};
-  const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
-  const features = product.features || {};
-  const variants = product.variants || []; 
-  const sizeOptions = product.sizes && product.sizes.length > 0 ? product.sizes : null;
-
-  const [clubInput, setClubInput] = useState(activeClub ? activeClub.name : '');
-  const [categoryInput, setCategoryInput] = useState('');
-  const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
-  const [availableCategories, setAvailableCategories] = useState([]);
-
-  const [categoryInput2, setCategoryInput2] = useState('');
-  const [showCategorySuggestions2, setShowCategorySuggestions2] = useState(false);
-  const [categoryInput3, setCategoryInput3] = useState('');
-  const [showCategorySuggestions3, setShowCategorySuggestions3] = useState(false);
-
-  const [customization, setCustomization] = useState({ 
-      clubId: activeClub ? activeClub.id : '',
-      category: '', 
-      category2: '', 
-      category3: '', 
-      playerName: '', 
-      playerNumber: '', 
-      playerName2: '', 
-      playerNumber2: '', 
-      playerName3: '', 
-      playerNumber3: '',
-      color: 'white',
-      size: sizeOptions ? sizeOptions[0] : '', 
-      selectedPhoto: '',
-      includeName: defaults.name ?? false, 
-      includeNumber: defaults.number ?? false, 
-      includePhoto: defaults.photo ?? false, 
-      includeShield: defaults.shield ?? true,
-      selectedVariantId: null 
-  });
-
-// --- ESTADOS INDEPENDIENTES PARA LA BÚSQUEDA DE FOTO ---
-  const [searchPhotoName, setSearchPhotoName] = useState('');
-  const [searchPhotoNumber, setSearchPhotoNumber] = useState('');
-  const [photoSearchResult, setPhotoSearchResult] = useState(null);
-  const [isSearchingPhoto, setIsSearchingPhoto] = useState(false);
-  const [photoSearchError, setPhotoSearchError] = useState('');
-
- // Al escribir una nueva búsqueda, limpiamos la pantalla, pero NO borramos las fotos ya asignadas a los jugadores
-  useEffect(() => {
-      setPhotoSearchResult(null);
-      setPhotoSearchError('');
-  }, [customization.category, searchPhotoName, searchPhotoNumber]);
-
-  // Función de búsqueda Multijugador y Multicategoría
-  const handleSearchPhoto = async () => {
-      // 1. Recopilamos todas las categorías que el usuario haya seleccionado (J1, J2, J3) sin repetir
-      const categoriesToSearch = [...new Set([customization.category, customization.category2, customization.category3].filter(Boolean))];
-      
-      if (categoriesToSearch.length === 0) { 
-          setPhotoSearchError("Debes seleccionar al menos una categoría en los datos de arriba."); 
-          return; 
-      }
-      if (!isTeamPhoto && !searchPhotoName && !searchPhotoNumber) { 
-          setPhotoSearchError("Escribe el nombre o dorsal del jugador para buscar su foto."); 
-          return; 
-      }
-
-      setIsSearchingPhoto(true);
-      setPhotoSearchError('');
-      setPhotoSearchResult(null);
-
-      try {
-          const normSearchName = normalizeText(searchPhotoName || '');
-          const normSearchDorsal = normalizeText(searchPhotoNumber || '');
-          
-          let foundPhotoUrl = null;
-          let foundFileName = null;
-
-          // 2. Buscamos en todas las categorías elegidas hasta encontrar la foto
-          for (const cat of categoriesToSearch) {
-              const folderRef = ref(storage, `${activeClub.name}/${cat}`);
-              try {
-                  const res = await listAll(folderRef);
-                  for (const item of res.items) {
-                      const normFileName = normalizeText(item.name);
-                      
-                      if (isTeamPhoto) {
-                          foundPhotoUrl = await getDownloadURL(item);
-                          foundFileName = item.name;
-                          break;
-                      }
-
-                      let nameMatch = true;
-                      let dorsalMatch = true;
-
-                      if (normSearchName) {
-                          const cleanName = normFileName.replace(/_/g, ' ');
-                          nameMatch = cleanName.includes(normSearchName) || normFileName.includes(normSearchName);
-                      }
-                      if (normSearchDorsal) {
-                          const dorsalRegex = new RegExp(`[a-z0-9]_${normSearchDorsal}\\.|_${normSearchDorsal}$|_${normSearchDorsal}_`);
-                          dorsalMatch = dorsalRegex.test(normFileName) || normFileName.includes(`_${normSearchDorsal}`);
-                      }
-
-                      if (nameMatch && dorsalMatch) {
-                          foundPhotoUrl = await getDownloadURL(item);
-                          foundFileName = item.name;
-                          break;
-                      }
-                  }
-              } catch(e) { 
-                  // Si una categoría no tiene fotos aún, la ignoramos silenciosamente
-                  console.warn(`No se pudo leer la categoría: ${cat}`); 
-              }
-              
-              if (foundPhotoUrl) break; // Si ya encontramos la foto, dejamos de buscar en otras categorías
-          }
-
-          // 3. Resultado final
-          if (foundPhotoUrl) {
-              setPhotoSearchResult({ url: foundPhotoUrl, name: foundFileName });
-              // (Ya NO hacemos auto-asignación aquí, el usuario pulsa el botón para elegir a quién va)
-          } else {
-              setPhotoSearchError(`No se encontró ninguna foto con esos datos en las categorías seleccionadas.`);
-          }
-      } catch (err) {
-          console.error("Error buscando foto:", err);
-          setPhotoSearchError("Error al conectar con la base de datos de fotos.");
-      }
-      setIsSearchingPhoto(false);
-  };
-
-  const isGift = !!activeGiftCode;
-  const [quantity, setQuantity] = useState(1); 
-
-  const isPhotoProduct = product.name.toLowerCase().includes('foto');
-  const isCalendarProduct = product.name.toLowerCase().includes('calendario');
-  const activeVariant = variants.find(v => v.id === customization.selectedVariantId);
-  const isDouble = activeVariant && activeVariant.name.toLowerCase().includes('doble');
-  const isTriple = activeVariant && activeVariant.name.toLowerCase().includes('triple');
-  const isTeamPhoto = isPhotoProduct && activeVariant && activeVariant.name.toLowerCase().includes('equipo');
-
-  const categorySuggestions2 = useMemo(() => {
-      if (categoryInput2.length < 2) return [];
-      return availableCategories.filter(c => c.toLowerCase().includes(categoryInput2.toLowerCase()));
-  }, [categoryInput2, availableCategories]);
-
-  const categorySuggestions3 = useMemo(() => {
-      if (categoryInput3.length < 2) return [];
-      return availableCategories.filter(c => c.toLowerCase().includes(categoryInput3.toLowerCase()));
-  }, [categoryInput3, availableCategories]);
-
-  useEffect(() => {
-        const fetchCategories = async () => {
-            if (customization.clubId) {
-                try {
-                    const club = clubs.find(c => c.id === customization.clubId);
-                    if (club) {
-                        const clubRef = ref(storage, club.name);
-                        const res = await listAll(clubRef);
-                        setAvailableCategories(res.prefixes.map(p => p.name));
-                    }
-                } catch (error) { setAvailableCategories([]); }
-            } else { setAvailableCategories([]); }
-        };
-        fetchCategories();
-    }, [customization.clubId, clubs]);
-
-  const basePrice = useMemo(() => {
-      let price = product.price;
-      
-      if (activeGiftCode && activeGiftCode.applyTo === 'specific') {
-          if (activeGiftCode.codeType === 'product') return 0;
-          if (activeGiftCode.codeType === 'percent') price = price * (1 - (activeGiftCode.discountValue / 100));
-          if (activeGiftCode.codeType === 'fixed') price = Math.max(0, price - activeGiftCode.discountValue);
-          return price; 
-      }
-
-      const isPack = product.category === 'Packs' || product.category === 'Ofertas';
-      const prodDiscount = product.discount || {};
-      if (prodDiscount.active) {
-          const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
-          const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
-          if (notExpired && limitNotReached) {
-              return price * (1 - prodDiscount.percentage / 100);
-          }
-      }
-
-      // NUEVA LÓGICA DE CAMPAÑAS PRO
-      if (isCampaignActive && !isPack) {
-          if (campaignConfig.promoMode === 'global' && campaignConfig.discount > 0) {
-              return price * (1 - campaignConfig.discount / 100);
-          }
-          if (campaignConfig.promoMode === 'specific' && campaignConfig.discount > 0) {
-              // Comprueba si el producto actual está en la lista de elegidos
-              const isTargeted = campaignConfig.targetProducts?.includes(product.id);
-              if (isTargeted) {
-                  return price * (1 - campaignConfig.discount / 100);
-              }
-          }
-      }
-      return price;
-  }, [product, campaignConfig, activeGiftCode]);
-
-  const categorySuggestions = useMemo(() => {
-      if (categoryInput.length < 2) return [];
-      return availableCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase()));
-  }, [categoryInput, availableCategories]);
-
-  const modificationCount = useMemo(() => {
-      if (isGift) return 0; 
-      let count = 0;
-      const playersCount = isTriple ? 3 : isDouble ? 2 : 1;
-      const checkExtra = (key) => {
-          if (!features[key]) return false;
-          if (!modifiable[key]) return false;
-          const isSelected = customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`];
-          const isDefault = !!defaults[key];
-          return isSelected !== isDefault;
-      };
-      if (checkExtra('name')) count += playersCount;
-      if (checkExtra('number')) count += playersCount;
-      if (checkExtra('shield')) count += playersCount; 
-      return count;
-  }, [customization, defaults, features, modifiable, isDouble, isTriple, isGift]);
-
-   const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
-   
-   const isTotalGift = activeGiftCode && activeGiftCode.codeType === 'product';
-   
-   // Lógica de Modificaciones Gratis de la campaña
-   const areModsFree = isCampaignActive && campaignConfig?.promoMode === 'free_mods';
-   const currentModFee = areModsFree ? 0 : (modificationFee || 0);
-   
-   const unitPrice = isTotalGift ? 0 : (basePrice + variantPrice + (modificationCount * currentModFee));
-   const totalPrice = unitPrice * quantity;
+export function ProductCustomizer({ product, allProducts, activeClub, activeGiftCode, onBack, onAdd, clubs, modificationFee, storeConfig, setConfirmation, campaignConfig, showToast, isCampaignActive }) {
+    const isPackCard = product.isPack && product.bundledProducts?.length > 0;
+    const bundledProductsData = isPackCard ? product.bundledProducts.map(id => allProducts?.find(p => p.id === id)).filter(Boolean) : [];
   
-    const handleSubmit = (e) => { 
-      e.preventDefault(); 
-      if (!storeConfig.isOpen) return; 
-      if (!customization.clubId) { showToast("Debes seleccionar un club.", "error"); return; }
-      
-      // Validaciones del texto impreso (independiente de la foto)
-      if (!isTeamPhoto) {
-          if (features.name && customization.includeName && !customization.playerName) { 
-              showToast("El nombre a imprimir es obligatorio. Si no quieres nombre, desmarca la casilla.", "error"); 
-              return; 
-          }
-          if (features.number && customization.includeNumber && !customization.playerNumber) { 
-              showToast("El dorsal a imprimir es obligatorio. Si no quieres dorsal, desmarca la casilla.", "error"); 
-              return; 
-          }
-      }
-      
-      if (features.size && !customization.size) { showToast("Debes seleccionar una talla.", "error"); return; }
-      if ((isDouble || isTriple) && (!customization.playerName2 || !customization.playerNumber2)) { showToast("Datos del J2 obligatorios.", "error"); return; }
-      if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { showToast("Datos del J3 obligatorios.", "error"); return; }
+    const defaults = product.defaults || {};
+    const modifiable = product.modifiable || { name: true, number: true, photo: true, shield: true };
+    const features = product.features || {};
+    const variants = product.variants || []; 
+    const sizeOptions = product.sizes && product.sizes.length > 0 ? product.sizes : null;
+  
+    const [clubInput] = useState(activeClub ? activeClub.name : '');
+    const [categoryInput, setCategoryInput] = useState('');
+    const [showCategorySuggestions, setShowCategorySuggestions] = useState(false);
+    const [availableCategories, setAvailableCategories] = useState([]);
+  
+    const [categoryInput2, setCategoryInput2] = useState('');
+    const [showCategorySuggestions2, setShowCategorySuggestions2] = useState(false);
+    const [categoryInput3, setCategoryInput3] = useState('');
+    const [showCategorySuggestions3, setShowCategorySuggestions3] = useState(false);
+  
+    const [customization, setCustomization] = useState({ 
+        clubId: activeClub ? activeClub.id : '',
+        category: '', category2: '', category3: '', 
+        playerName: '', playerNumber: '', playerName2: '', playerNumber2: '', playerName3: '', playerNumber3: '',
+        color: 'white', size: sizeOptions ? sizeOptions[0] : '', selectedPhoto: '',
+        includeName: defaults.name ?? false, includeNumber: defaults.number ?? false, includePhoto: defaults.photo ?? false, includeShield: defaults.shield ?? true,
+        selectedVariantId: null 
+    });
+  
+    // 🟢 ESTADO PARA LOS PACKS (Datos individuales por ID de producto)
+    const [packData, setPackData] = useState({});
+    const [activePackCategoryFocus, setActivePackCategoryFocus] = useState(null);
 
-    // 🔒 Validación estricta de fotografías para productos Multijugador
-      if (features.photo && customization.includePhoto) { 
-          if (!customization.selectedPhoto) {
-              showToast("Falta asignar la foto del Jugador 1.", "error"); 
-              return; 
-          }
-          if ((isDouble || isTriple) && !customization.selectedPhoto2) {
-              showToast("Falta asignar la foto del Jugador 2.", "error"); 
-              return; 
-          }
-          if (isTriple && !customization.selectedPhoto3) {
-              showToast("Falta asignar la foto del Jugador 3.", "error"); 
-              return; 
-          }
-      }
-
-      let extendedName = product.name;
-      if (activeVariant) extendedName += ` (${activeVariant.name})`;
-      
-      let fullDetails = `Jugador 1: ${customization.playerName || 'Sin nombre'} #${customization.playerNumber || 'Sin dorsal'}`;
-      if(isDouble || isTriple) fullDetails += ` | J2: ${customization.playerName2} #${customization.playerNumber2}`;
-      if(isTriple) fullDetails += ` | J3: ${customization.playerName3} #${customization.playerNumber3}`;
-      if(isTeamPhoto) fullDetails = "Foto de Equipo";
-      if(features.size) fullDetails += ` | Talla: ${customization.size}`;
-
-      let confirmMsg = `Producto: ${extendedName}\nCantidad: ${isGift ? 1 : quantity}\nClub: ${clubInput}\n${fullDetails}`;
-      if (modificationCount > 0 && !isGift) confirmMsg += `\n\n(Incluye ${modificationCount} modificación/es)`;
-      if (isGift) confirmMsg += `\n\n🎁 APLICADO CÓDIGO REGALO (0.00€)`;
-
-      setConfirmation({
-          msg: confirmMsg,
-            onConfirm: () => {
-              const selectedClubObj = clubs.find(c => c.id === customization.clubId);
-              const clubNameStr = selectedClubObj ? selectedClubObj.name : 'Club';
-
-              const finalItem = {
-                  ...product,
-                  clubName: clubNameStr, 
-                  category: customization.category, 
-                  name: extendedName,
-                  playerName: isTeamPhoto ? '' : customization.playerName,
-                  playerNumber: isTeamPhoto ? '' : customization.playerNumber,
-                  photoFileName: (features.photo && customization.includePhoto) ? customization.selectedPhoto : null,
-                  photoFileName2: (features.photo && (isDouble || isTriple) && customization.includePhoto) ? customization.selectedPhoto2 : null,
-                  photoFileName3: (features.photo && isTriple && customization.includePhoto) ? customization.selectedPhoto3 : null,
-                  quantity: isGift ? 1 : quantity, 
-                  size: features.size ? customization.size : null, // Solo guarda la talla si el producto usa tallas
-                  price: isGift ? 0 : product.price,
-                  isGift: isGift,
-                  giftCode: isGift ? activeGiftCode.code : null,
-                  giftCodeId: isGift ? activeGiftCode.docId : null,
-                  details: {
-                        player2: (isDouble || isTriple) ? { name: customization.playerName2, number: customization.playerNumber2, category: customization.category2 } : null,
-                        player3: (isTriple) ? { name: customization.playerName3, number: customization.playerNumber3, category: customization.category3 } : null,
-                        variant: activeVariant ? activeVariant.name : 'Standard'
+    const [searchPhotoName, setSearchPhotoName] = useState('');
+    const [searchPhotoNumber, setSearchPhotoNumber] = useState('');
+    const [photoSearchResult, setPhotoSearchResult] = useState(null);
+    const [isSearchingPhoto, setIsSearchingPhoto] = useState(false);
+    const [photoSearchError, setPhotoSearchError] = useState('');
+  
+    useEffect(() => { setPhotoSearchResult(null); setPhotoSearchError(''); }, [customization.category, packData, searchPhotoName, searchPhotoNumber]);
+  
+    // Inicializar datos del pack
+    useEffect(() => {
+        if (isPackCard) {
+            const initial = {};
+            bundledProductsData.forEach(bp => {
+                const conf = product.bundleConfigs?.[bp.id];
+                initial[bp.id] = {
+                    category: '',
+                    size: bp.sizes && bp.sizes.length > 0 ? bp.sizes[0] : '',
+                    playerName: '', playerNumber: '', selectedPhoto: '',
+                    playerName2: '', playerNumber2: '', selectedPhoto2: '',
+                    playerName3: '', playerNumber3: '', selectedPhoto3: '',
+                    includeName: bp.defaults?.name ?? false,
+                    includeNumber: bp.defaults?.number ?? false,
+                    includePhoto: bp.defaults?.photo ?? false,
+                    includeShield: bp.defaults?.shield ?? true,
+                    // 🟢 ACTUALIZADO: Si el admin marcó 'none', no selecciona ninguna variante (Estándar)
+                    selectedVariantId: (conf && conf !== 'all' && conf !== 'none') ? conf : null
+                };
+            });
+            setPackData(initial);
+        }
+    }, [product]);
+  
+    const updatePackItem = (id, field, value) => {
+        setPackData(prev => ({ ...prev, [id]: { ...prev[id], [field]: value } }));
+    };
+  
+    const isTeamPhoto = !isPackCard && product.name.toLowerCase().includes('foto') && variants.find(v => v.id === customization.selectedVariantId)?.name.toLowerCase().includes('equipo');
+  
+    const handleSearchPhoto = async () => {
+        let categoriesToSearch = [];
+        if (isPackCard) {
+            categoriesToSearch = [...new Set(Object.values(packData).map(p => p.category).filter(Boolean))];
+        } else {
+            categoriesToSearch = [...new Set([customization.category, customization.category2, customization.category3].filter(Boolean))];
+        }
+        
+        if (categoriesToSearch.length === 0) { 
+            setPhotoSearchError("Debes seleccionar al menos una categoría en los datos de arriba."); return; 
+        }
+        if (!isTeamPhoto && !searchPhotoName && !searchPhotoNumber) { 
+            setPhotoSearchError("Escribe el nombre o dorsal del jugador para buscar su foto."); return; 
+        }
+  
+        setIsSearchingPhoto(true); setPhotoSearchError(''); setPhotoSearchResult(null);
+  
+        try {
+            const normSearchName = normalizeText(searchPhotoName || '');
+            const normSearchDorsal = normalizeText(searchPhotoNumber || '');
+            let foundPhotoUrl = null; let foundFileName = null;
+  
+            for (const cat of categoriesToSearch) {
+                const folderRef = ref(storage, `${activeClub.name}/${cat}`);
+                try {
+                    const res = await listAll(folderRef);
+                    for (const item of res.items) {
+                        const normFileName = normalizeText(item.name);
+                        if (isTeamPhoto) { foundPhotoUrl = await getDownloadURL(item); foundFileName = item.name; break; }
+                        let nameMatch = true; let dorsalMatch = true;
+                        if (normSearchName) {
+                            const cleanName = normFileName.replace(/_/g, ' ');
+                            nameMatch = cleanName.includes(normSearchName) || normFileName.includes(normSearchName);
+                        }
+                        if (normSearchDorsal) {
+                            const dorsalRegex = new RegExp(`[a-z0-9]_${normSearchDorsal}\\.|_${normSearchDorsal}$|_${normSearchDorsal}_`);
+                            dorsalMatch = dorsalRegex.test(normFileName) || normFileName.includes(`_${normSearchDorsal}`);
+                        }
+                        if (nameMatch && dorsalMatch) { foundPhotoUrl = await getDownloadURL(item); foundFileName = item.name; break; }
+                    }
+                } catch(e) { }
+                if (foundPhotoUrl) break;
+            }
+  
+            if (foundPhotoUrl) setPhotoSearchResult({ url: foundPhotoUrl, name: foundFileName });
+            else setPhotoSearchError(`No se encontró ninguna foto con esos datos en las categorías seleccionadas.`);
+        } catch (err) { setPhotoSearchError("Error al conectar con la base de datos de fotos."); }
+        setIsSearchingPhoto(false);
+    };
+  
+    const isGift = !!activeGiftCode;
+    const [quantity, setQuantity] = useState(1); 
+    const isPhotoProduct = product.name.toLowerCase().includes('foto');
+    const isCalendarProduct = product.name.toLowerCase().includes('calendario');
+    const activeVariant = variants.find(v => v.id === customization.selectedVariantId);
+    const isDouble = activeVariant && activeVariant.name.toLowerCase().includes('doble');
+    const isTriple = activeVariant && activeVariant.name.toLowerCase().includes('triple');
+  
+    const categorySuggestions2 = useMemo(() => { if (categoryInput2.length < 2) return []; return availableCategories.filter(c => c.toLowerCase().includes(categoryInput2.toLowerCase())); }, [categoryInput2, availableCategories]);
+    const categorySuggestions3 = useMemo(() => { if (categoryInput3.length < 2) return []; return availableCategories.filter(c => c.toLowerCase().includes(categoryInput3.toLowerCase())); }, [categoryInput3, availableCategories]);
+  
+    useEffect(() => {
+          const fetchCategories = async () => {
+              if (customization.clubId) {
+                  try {
+                      const club = clubs.find(c => c.id === customization.clubId);
+                      if (club) {
+                          const clubRef = ref(storage, club.name);
+                          const res = await listAll(clubRef);
+                          setAvailableCategories(res.prefixes.map(p => p.name));
+                      }
+                  } catch (error) { setAvailableCategories([]); }
+              } else { setAvailableCategories([]); }
+          };
+          fetchCategories();
+      }, [customization.clubId, clubs]);
+  
+    const basePrice = useMemo(() => {
+        let price = product.price;
+        if (activeGiftCode && activeGiftCode.applyTo === 'specific') {
+            if (activeGiftCode.codeType === 'product') return 0;
+            if (activeGiftCode.codeType === 'percent') price = price * (1 - (activeGiftCode.discountValue / 100));
+            if (activeGiftCode.codeType === 'fixed') price = Math.max(0, price - activeGiftCode.discountValue);
+            return price; 
+        }
+        if (isPackCard) return price;
+  
+        const isPack = product.category === 'Packs' || product.category === 'Ofertas';
+        const prodDiscount = product.discount || {};
+        if (prodDiscount.active) {
+            const notExpired = !prodDiscount.expiresAt || new Date() < new Date(prodDiscount.expiresAt);
+            const limitNotReached = !prodDiscount.maxUnits || (prodDiscount.unitsSold || 0) < prodDiscount.maxUnits;
+            if (notExpired && limitNotReached) return price * (1 - prodDiscount.percentage / 100);
+        }
+        if (isCampaignActive && !isPack) {
+            if (campaignConfig.promoMode === 'global' && campaignConfig.discount > 0) return price * (1 - campaignConfig.discount / 100);
+            if (campaignConfig.promoMode === 'specific' && campaignConfig.discount > 0) {
+                if (campaignConfig.targetProducts?.includes(product.id)) return price * (1 - campaignConfig.discount / 100);
+            }
+        }
+        return price;
+    }, [product, campaignConfig, activeGiftCode, isPackCard]);
+  
+    const categorySuggestions = useMemo(() => { if (categoryInput.length < 2) return []; return availableCategories.filter(c => c.toLowerCase().includes(categoryInput.toLowerCase())); }, [categoryInput, availableCategories]);
+  
+    const modificationCount = useMemo(() => {
+        if (isGift || isPackCard) return 0; 
+        let count = 0;
+        const playersCount = isTriple ? 3 : isDouble ? 2 : 1;
+        const checkExtra = (key) => {
+            if (!features[key]) return false;
+            if (!modifiable[key]) return false;
+            const isSelected = customization[`include${key.charAt(0).toUpperCase() + key.slice(1)}`];
+            const isDefault = !!defaults[key];
+            return isSelected !== isDefault;
+        };
+        if (checkExtra('name')) count += playersCount;
+        if (checkExtra('number')) count += playersCount;
+        if (checkExtra('shield')) count += playersCount; 
+        return count;
+    }, [customization, defaults, features, modifiable, isDouble, isTriple, isGift, isPackCard]);
+  
+     const variantPrice = activeVariant ? (activeVariant.priceMod || 0) : 0;
+     const isTotalGift = activeGiftCode && activeGiftCode.codeType === 'product';
+     const areModsFree = isCampaignActive && campaignConfig?.promoMode === 'free_mods';
+     const currentModFee = areModsFree ? 0 : (modificationFee || 0);
+     
+     const unitPrice = isTotalGift ? 0 : (basePrice + variantPrice + (modificationCount * currentModFee));
+     const totalPrice = unitPrice * quantity;
+    
+      const handleSubmit = (e) => { 
+        e.preventDefault(); 
+        if (!storeConfig.isOpen) return; 
+        if (!customization.clubId) { showToast("Debes seleccionar un club.", "error"); return; }
+        
+        let confirmMsg = "";
+        let finalItem = { ...product };
+  
+        if (isPackCard) {
+            // Validación Modo Pack
+            let hasError = false;
+            for (const bp of bundledProductsData) {
+                const pData = packData[bp.id] || {};
+                if (bp.features?.size && !pData.size) { showToast(`Falta la talla en: ${bp.name}`, "error"); hasError = true; break; }
+                if (bp.features?.name && pData.includeName && !pData.playerName) { showToast(`Falta el nombre en: ${bp.name}`, "error"); hasError = true; break; }
+                if (bp.features?.number && pData.includeNumber && !pData.playerNumber) { showToast(`Falta el dorsal en: ${bp.name}`, "error"); hasError = true; break; }
+                if (bp.features?.photo && pData.includePhoto && !pData.selectedPhoto) { showToast(`Falta foto asignada a: ${bp.name}`, "error"); hasError = true; break; }
+            }
+            if(hasError) return;
+  
+            const packItemsArr = bundledProductsData.map(bp => {
+                const pData = packData[bp.id] || {};
+                const activeVar = bp.variants?.find(v => v.id === pData.selectedVariantId);
+                return {
+                    productId: bp.id,
+                    productName: bp.name + (activeVar ? ` (${activeVar.name})` : ''),
+                    size: bp.features?.size ? pData.size : null,
+                    playerName: bp.features?.name && pData.includeName ? pData.playerName : null,
+                    playerNumber: bp.features?.number && pData.includeNumber ? pData.playerNumber : null,
+                    photoFileName: bp.features?.photo && pData.includePhoto ? pData.selectedPhoto : null,
+                    category: pData.category || '',
+                    details: {
+                         player2: (activeVar && (activeVar.name.toLowerCase().includes('doble') || activeVar.name.toLowerCase().includes('triple'))) ? { name: pData.playerName2, number: pData.playerNumber2, photo: pData.selectedPhoto2 } : null,
+                         player3: (activeVar && activeVar.name.toLowerCase().includes('triple')) ? { name: pData.playerName3, number: pData.playerNumber3, photo: pData.selectedPhoto3 } : null,
+                         variant: activeVar ? activeVar.name : 'Standard'
                     }
                 };
-              onAdd(finalItem, customization, unitPrice); 
-              onBack(); 
-          }
-      });
-  };
-
-  const displayImage = (activeVariant && activeVariant.image) ? activeVariant.image : product.image;
-
-  return (
-    <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col md:flex-row">
-      <div className="md:w-1/2 bg-gray-100 p-8 flex items-center justify-center relative">
-          <img src={displayImage} className="max-w-full h-auto rounded-lg shadow-md" />
-      </div>
-      <div className="md:w-1/2 p-8 overflow-y-auto max-h-[90vh]">
-        <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1">
-            <ChevronLeft className="rotate-180 w-4 h-4" /> Volver
-        </button>
-        <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
-        
-        {isGift && (
-            <div className="bg-gray-800 text-white px-4 py-3 rounded-xl mb-6 flex items-start gap-3 shadow-md">
-                <Gift className="w-6 h-6 shrink-0 mt-0.5"/>
-                <div>
-                    <h4 className="font-bold text-sm">Canjeando Regalo ({activeGiftCode.code})</h4>
-                    <p className="text-xs text-gray-300">Este producto es gratis gracias a tu código. Personalízalo a tu gusto sin coste adicional.</p>
+            });
+  
+            finalItem = {
+                ...product,
+                clubName: clubs.find(c => c.id === customization.clubId)?.name || 'Club',
+                quantity: isGift ? 1 : quantity,
+                price: isGift ? 0 : product.price,
+                isGift: isGift,
+                packItems: packItemsArr
+            };
+            confirmMsg = `Pack: ${product.name}\nCantidad: ${isGift ? 1 : quantity}\nClub: ${clubInput}\n(Incluye ${packItemsArr.length} artículos personalizados producto por producto)`;
+        } else {
+            // Validación Modo Normal
+            if (!isTeamPhoto) {
+                if (features.name && customization.includeName && !customization.playerName) { showToast("El nombre a imprimir es obligatorio.", "error"); return; }
+                if (features.number && customization.includeNumber && !customization.playerNumber) { showToast("El dorsal a imprimir es obligatorio.", "error"); return; }
+            }
+            if (features.size && !customization.size) { showToast("Debes seleccionar una talla.", "error"); return; }
+            if ((isDouble || isTriple) && (!customization.playerName2 || !customization.playerNumber2)) { showToast("Datos del J2 obligatorios.", "error"); return; }
+            if (isTriple && (!customization.playerName3 || !customization.playerNumber3)) { showToast("Datos del J3 obligatorios.", "error"); return; }
+            if (features.photo && customization.includePhoto) { 
+                if (!customization.selectedPhoto) { showToast("Falta foto del Jugador 1.", "error"); return; }
+                if ((isDouble || isTriple) && !customization.selectedPhoto2) { showToast("Falta foto del Jugador 2.", "error"); return; }
+                if (isTriple && !customization.selectedPhoto3) { showToast("Falta foto del Jugador 3.", "error"); return; }
+            }
+  
+            let extendedName = product.name;
+            if (activeVariant) extendedName += ` (${activeVariant.name})`;
+            
+            finalItem = {
+                ...product,
+                clubName: clubs.find(c => c.id === customization.clubId)?.name || 'Club', 
+                category: customization.category, 
+                name: extendedName,
+                playerName: isTeamPhoto ? '' : customization.playerName,
+                playerNumber: isTeamPhoto ? '' : customization.playerNumber,
+                photoFileName: (features.photo && customization.includePhoto) ? customization.selectedPhoto : null,
+                photoFileName2: (features.photo && (isDouble || isTriple) && customization.includePhoto) ? customization.selectedPhoto2 : null,
+                photoFileName3: (features.photo && isTriple && customization.includePhoto) ? customization.selectedPhoto3 : null,
+                quantity: isGift ? 1 : quantity, 
+                size: features.size ? customization.size : null,
+                price: isGift ? 0 : product.price,
+                isGift: isGift,
+                details: {
+                    player2: (isDouble || isTriple) ? { name: customization.playerName2, number: customization.playerNumber2, category: customization.category2 } : null,
+                    player3: (isTriple) ? { name: customization.playerName3, number: customization.playerNumber3, category: customization.category3 } : null,
+                    variant: activeVariant ? activeVariant.name : 'Standard'
+                }
+            };
+            confirmMsg = `Producto: ${extendedName}\nCantidad: ${isGift ? 1 : quantity}\nClub: ${clubInput}`;
+        }
+  
+        setConfirmation({
+            msg: confirmMsg,
+            onConfirm: () => {
+                onAdd(finalItem, customization, unitPrice); 
+                onBack(); 
+            }
+        });
+    };
+  
+    const displayImage = (activeVariant && activeVariant.image) ? activeVariant.image : product.image;
+  
+    return (
+      <div className="max-w-4xl mx-auto bg-white rounded-2xl shadow-lg overflow-hidden flex flex-col md:flex-row">
+        <div className="md:w-1/2 bg-gray-100 p-8 flex items-center justify-center relative">
+            <img src={displayImage} className="max-w-full h-auto rounded-lg shadow-md" />
+        </div>
+        <div className="md:w-1/2 p-8 overflow-y-auto max-h-[90vh]">
+          <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1">
+              <ChevronLeft className="rotate-180 w-4 h-4" /> Volver
+          </button>
+          <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
+          
+          <div className="flex items-end gap-2 mb-6">
+              <p className={`font-bold text-3xl ${isGift ? 'text-gray-800' : 'text-emerald-600'}`}>
+                  {isGift ? 'GRATIS' : `${unitPrice.toFixed(2)}€`}
+              </p>
+              {!isGift && <span className="text-gray-400 text-sm mb-1">/ unidad</span>}
+          </div>
+          
+          <form onSubmit={handleSubmit} className="space-y-6">
+            
+            <div>
+                <label className="block text-sm font-medium text-gray-500 mb-1">Club Seleccionado</label>
+                <div className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 flex items-center gap-3 opacity-90">
+                    {activeClub.logoUrl && <img src={activeClub.logoUrl} className="w-6 h-6 object-contain" />}
+                    <span className="font-bold text-gray-700">{activeClub.name}</span>
                 </div>
             </div>
-        )}
-
-        <div className="flex items-end gap-2 mb-6">
-            <p className={`font-bold text-3xl ${isGift ? 'text-gray-800' : 'text-emerald-600'}`}>
-                {isGift ? 'GRATIS' : `${unitPrice.toFixed(2)}€`}
-            </p>
-            {!isGift && <span className="text-gray-400 text-sm mb-1">/ unidad</span>}
-            {modificationCount > 0 && !isGift && (
-                <span className="text-[10px] bg-orange-100 text-orange-700 border border-orange-200 px-2 py-1 rounded mb-1 font-bold">
-                   +{modificationCount} Mod. (+{modificationCount * modificationFee}€)
-                </span>
-            )}
-        </div>
-        
-        <form onSubmit={handleSubmit} className="space-y-6">
-          {(variants.length > 0 || isPhotoProduct || isCalendarProduct) && (
-              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100">
-                  <label className="block text-sm font-bold text-blue-800 mb-2 uppercase">Tipo</label>
-                  <div className="flex flex-wrap gap-2">
-                      <button type="button" onClick={() => setCustomization({...customization, selectedVariantId: null})} className={`px-4 py-2 rounded-lg text-sm font-bold border ${!customization.selectedVariantId ? 'bg-blue-600 text-white' : 'bg-white'}`}>
-                          Estándar
-                      </button>
-                      {variants.map(v => (
-                          <button key={v.id} type="button" onClick={() => setCustomization({...customization, selectedVariantId: v.id})} className={`px-4 py-2 rounded-lg text-sm font-bold border ${customization.selectedVariantId === v.id ? 'bg-blue-600 text-white' : 'bg-white'}`}>
-                              {v.name}
-                          </button>
-                      ))}
-                  </div>
-              </div>
-          )}
-
-          <div>
-              <label className="block text-sm font-medium text-gray-500 mb-1">Club Seleccionado</label>
-              <div className="w-full bg-gray-50 border border-gray-200 rounded-xl py-3 px-4 flex items-center gap-3 opacity-90">
-                  {activeClub.logoUrl && <img src={activeClub.logoUrl} className="w-6 h-6 object-contain" />}
-                  <span className="font-bold text-gray-700">{activeClub.name}</span>
-              </div>
-          </div>
-
-          {customization.clubId && (
-                <div className="relative animate-fade-in">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
-                    <Input 
-                        placeholder="Buscar categoría..." 
-                        value={categoryInput} 
-                        onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: e.target.value}); setShowCategorySuggestions(true); }}
-                        onFocus={() => setShowCategorySuggestions(true)} 
-                        onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)} 
-                    />
-                    {showCategorySuggestions && categorySuggestions.length > 0 && (
-                        <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                            {categorySuggestions.map(cat => (
-                                <div key={cat} onMouseDown={() => { setCustomization({ ...customization, category: cat }); setCategoryInput(cat); setShowCategorySuggestions(false); }} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer">
-                                    {cat}
-                                </div>
-                            ))}
-                        </div>
-                    )}
-                </div>
-            )}
-
-            {features.size && (
-                <div className="animate-fade-in">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Talla <span className="text-red-500">*</span></label>
-                    {sizeOptions ? (
-                        <select className="w-full px-3 py-2 border rounded-md bg-white" value={customization.size} onChange={(e) => setCustomization({...customization, size: e.target.value})}>
-                            <option value="">-- Selecciona Talla --</option>
-                            {sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}
-                        </select>
-                    ) : (
-                        <Input placeholder="Tu talla..." value={customization.size} onChange={e => setCustomization({...customization, size: e.target.value})}/>
-                    )}
-                </div>
-            )}
-
-          {!isTeamPhoto && (
-              <div className="space-y-4 border-t pt-4 border-gray-100">
-                  <h4 className="font-bold text-gray-600 text-xs uppercase">Datos Personalización</h4>
-                  <div className="flex gap-4 flex-wrap">
-                      {features.name && modifiable.name && (
-                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
-                              <input type="checkbox" className="accent-emerald-600" checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})}/>
-                              <span className="text-sm">Incluir Nombre</span>
-                              {customization.includeName !== !!defaults.name && !isGift && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
-                          </label>
-                      )}
-                      {features.number && modifiable.number && (
-                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
-                              <input type="checkbox" className="accent-emerald-600" checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})}/>
-                              <span className="text-sm">Incluir Dorsal</span>
-                              {customization.includeNumber !== !!defaults.number && !isGift && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
-                          </label>
-                      )}
-                      {features.shield && modifiable.shield && (
-                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
-                              <input type="checkbox" className="accent-emerald-600" checked={customization.includeShield} onChange={e => setCustomization({...customization, includeShield: e.target.checked})}/>
-                              <span className="text-sm">Incluir Escudo</span>
-                              {customization.includeShield !== !!defaults.shield && !isGift && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
-                          </label>
-                      )}
-                      {/* CHECKBOX DE FOTO AQUÍ */}
-                      {features.photo && modifiable.photo && (
-                          <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50">
-                              <input type="checkbox" className="accent-emerald-600" checked={customization.includePhoto} onChange={e => setCustomization({...customization, includePhoto: e.target.checked})}/>
-                              <span className="text-sm">Incluir Foto</span>
-                              {customization.includePhoto !== !!defaults.photo && !isGift && <span className="text-xs text-orange-500 font-bold ml-1">(Modificado)</span>}
-                          </label>
-                      )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                    {features.name && (
-                        <div className={!customization.includeName ? 'opacity-30 pointer-events-none' : ''}>
-                            <label className="text-sm font-medium mb-1 block">Nombre</label>
-                            <Input value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/>
-                        </div>
-                    )}
-                    {features.number && (
-                        <div className={!customization.includeNumber ? 'opacity-30 pointer-events-none' : ''}>
-                            <label className="text-sm font-medium mb-1 block">Dorsal</label>
-                            <Input type="number" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/>
-                        </div>
-                    )}
-                  </div>
-              </div>
-          )}
-
-            {(isDouble || isTriple) && (
-              <div className="bg-blue-50 p-4 rounded-xl border border-blue-100 relative">
-                  <h4 className="font-bold text-blue-800 text-xs uppercase mb-3">Datos Jugador 2</h4>
-                  <div className="relative mb-3">
-                      <label className="block text-[10px] font-bold text-blue-600 mb-1 uppercase">Categoría J2</label>
-                      <Input 
-                          placeholder="Buscar categoría J2..." 
-                          value={categoryInput2} 
-                          onChange={e => { setCategoryInput2(e.target.value); setCustomization({...customization, category2: e.target.value}); setShowCategorySuggestions2(true); }}
-                          onFocus={() => setShowCategorySuggestions2(true)} 
-                          onBlur={() => setTimeout(() => setShowCategorySuggestions2(false), 200)} 
-                      />
-                      {showCategorySuggestions2 && categorySuggestions2.length > 0 && (
-                          <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                              {categorySuggestions2.map(cat => (
-                                  <div key={cat} onMouseDown={() => { setCustomization({ ...customization, category2: cat }); setCategoryInput2(cat); setShowCategorySuggestions2(false); }} className="px-4 py-3 hover:bg-blue-50 cursor-pointer text-sm">
-                                      {cat}
-                                  </div>
-                              ))}
-                          </div>
-                      )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                      <div className={!customization.includeName ? 'opacity-40 pointer-events-none grayscale' : ''}>
-                          <Input placeholder="Nombre J2" value={customization.playerName2} onChange={e => setCustomization({...customization, playerName2: e.target.value})}/>
-                      </div>
-                      <div className={!customization.includeNumber ? 'opacity-40 pointer-events-none grayscale' : ''}>
-                          <Input placeholder="Dorsal J2" type="number" value={customization.playerNumber2} onChange={e => setCustomization({...customization, playerNumber2: e.target.value})}/>
-                      </div>
-                  </div>
-              </div>
-          )}
-          
-          {isTriple && (
-              <div className="bg-purple-50 p-4 rounded-xl border border-purple-100 relative">
-                   <h4 className="font-bold text-purple-800 text-xs uppercase mb-3">Datos Jugador 3</h4>
-                  <div className="relative mb-3">
-                      <label className="block text-[10px] font-bold text-purple-600 mb-1 uppercase">Categoría J3</label>
-                      <Input 
-                          placeholder="Buscar categoría J3..." 
-                          value={categoryInput3} 
-                          onChange={e => { setCategoryInput3(e.target.value); setCustomization({...customization, category3: e.target.value}); setShowCategorySuggestions3(true); }}
-                          onFocus={() => setShowCategorySuggestions3(true)} 
-                          onBlur={() => setTimeout(() => setShowCategorySuggestions3(false), 200)} 
-                      />
-                      {showCategorySuggestions3 && categorySuggestions3.length > 0 && (
-                          <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
-                              {categorySuggestions3.map(cat => (
-                                  <div key={cat} onMouseDown={() => { setCustomization({ ...customization, category3: cat }); setCategoryInput3(cat); setShowCategorySuggestions3(false); }} className="px-4 py-3 hover:bg-purple-50 cursor-pointer text-sm">
-                                      {cat}
-                                  </div>
-                              ))}
-                          </div>
-                      )}
-                  </div>
-                  <div className="grid grid-cols-2 gap-4">
-                      <div className={!customization.includeName ? 'opacity-40 pointer-events-none grayscale' : ''}>
-                          <Input placeholder="Nombre J3" value={customization.playerName3} onChange={e => setCustomization({...customization, playerName3: e.target.value})}/>
-                      </div>
-                      <div className={!customization.includeNumber ? 'opacity-40 pointer-events-none grayscale' : ''}>
-                          <Input placeholder="Dorsal J3" type="number" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/>
-                      </div>
-                  </div>
-              </div>
-          )}
-
-          {/* SECCIÓN INDEPENDIENTE: BÚSQUEDA DE FOTOGRAFÍA */}
-          {features.photo && customization.includePhoto && (
-              <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 mt-6 relative overflow-hidden shadow-inner">
-                  <h4 className="font-bold text-emerald-800 text-sm uppercase mb-2">Buscador de Fotografía <span className="text-red-500">*</span></h4>
-                  <p className="text-xs text-gray-600 mb-4 leading-relaxed">
-                      {isTeamPhoto 
-                          ? 'Al ser foto de equipo, solo pulsa en buscar.' 
-                          : 'Independientemente de si has pedido imprimir tu nombre o no, necesitamos que busques tu foto en el servidor usando tu nombre o dorsal:'}
-                  </p>
-                  
-                  {!isTeamPhoto && (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
-                          <div>
-                              <label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Nombre (Para buscar la foto)</label>
-                              <Input 
-                                  placeholder="Ej: Marc" 
-                                  value={searchPhotoName} 
-                                  onChange={e => setSearchPhotoName(e.target.value)}
-                              />
-                          </div>
-                          <div>
-                              <label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Dorsal (Para buscar la foto)</label>
-                              <Input 
-                                  type="number"
-                                  placeholder="Ej: 10" 
-                                  value={searchPhotoNumber} 
-                                  onChange={e => setSearchPhotoNumber(e.target.value)}
-                              />
-                          </div>
-                      </div>
-                  )}
-                  
-                  <Button 
-                      type="button" 
-                      onClick={handleSearchPhoto}
-                      disabled={isSearchingPhoto}
-                      className="w-full flex items-center justify-center gap-2 mb-3 bg-emerald-600 hover:bg-emerald-700 text-white shadow-md transition-all active:scale-95 py-3"
-                  >
-                      {isSearchingPhoto ? <RefreshCw className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>}
-                      {isSearchingPhoto ? 'Buscando foto...' : 'Buscar y Confirmar Fotografía'}
-                  </Button>
-
-                  {photoSearchError && (
-                      <div className="text-red-600 text-xs bg-red-50 p-3 rounded-lg border border-red-200 flex items-center gap-2 mt-2 font-medium shadow-sm">
-                          <AlertTriangle className="w-5 h-5 shrink-0"/> {photoSearchError}
-                      </div>
-                  )}
-
-                    {photoSearchResult && (
-                      <div className="mt-5 animate-fade-in-up">
-                          <div className="pointer-events-none rounded-xl overflow-hidden border-[3px] border-emerald-300 shadow-xl bg-white p-1 mb-3">
-                              <ProtectedWatermarkImage 
-                                  imageUrl={photoSearchResult.url}
-                                  fileName={photoSearchResult.name}
-                                  logoUrl={LOGO_URL}
-                              />
-                          </div>
-
-                          {/* BOTONES MULTIJUGADOR INTELIGENTES */}
-                          <div className="flex flex-col gap-2 mt-2">
-                              <p className="text-xs font-bold text-emerald-800 text-center uppercase tracking-wide">¿A quién asignamos esta foto?</p>
-                              
-                              <button 
-                                  type="button"
-                                  onClick={() => {
-                                      setCustomization({...customization, selectedPhoto: photoSearchResult.name});
-                                      showToast("📸 Foto asignada al Jugador 1");
-                                  }}
-                                  className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full transition-colors shadow-sm"
-                              >
-                                  Asignar a Jugador 1
-                              </button>
-                              
-                              {(isDouble || isTriple) && (
-                                  <button 
-                                      type="button"
-                                      onClick={() => {
-                                          setCustomization({...customization, selectedPhoto2: photoSearchResult.name});
-                                          showToast("📸 Foto asignada al Jugador 2");
-                                      }}
-                                      className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full transition-colors shadow-sm"
-                                  >
-                                      Asignar a Jugador 2
-                                  </button>
-                              )}
-
-                              {isTriple && (
-                                  <button 
-                                      type="button"
-                                      onClick={() => {
-                                          setCustomization({...customization, selectedPhoto3: photoSearchResult.name});
-                                          showToast("📸 Foto asignada al Jugador 3");
-                                      }}
-                                      className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full transition-colors shadow-sm"
-                                  >
-                                      Asignar a Jugador 3
-                                  </button>
-                              )}
-                          </div>
-                      </div>
-                  )}
-                  {/* RESUMEN DE FOTOS ASIGNADAS */}
-                <div className="mt-5 bg-white p-3 rounded-lg border border-emerald-200">
-                    <p className="text-sm font-bold text-emerald-800 mb-2 border-b border-emerald-50 pb-1">📸 Fotos asignadas en este producto:</p>
-                    
-                    <div className="space-y-1">
-                        <p className="text-xs">
-                            <strong>Jugador 1:</strong> {customization.selectedPhoto ? <span className="text-emerald-600 font-bold">{customization.selectedPhoto}</span> : <span className="text-red-500 font-medium">Pendiente</span>}
-                        </p>
-                        {(isDouble || isTriple) && (
-                            <p className="text-xs">
-                                <strong>Jugador 2:</strong> {customization.selectedPhoto2 ? <span className="text-blue-600 font-bold">{customization.selectedPhoto2}</span> : <span className="text-red-500 font-medium">Pendiente</span>}
-                            </p>
-                        )}
-                        {isTriple && (
-                            <p className="text-xs">
-                                <strong>Jugador 3:</strong> {customization.selectedPhoto3 ? <span className="text-purple-600 font-bold">{customization.selectedPhoto3}</span> : <span className="text-red-500 font-medium">Pendiente</span>}
-                            </p>
-                        )}
+  
+            {/* 🟢 RENDERIZADO DINÁMICO: PACKS VS NORMAL */}
+            {isPackCard ? (
+                <div className="space-y-4 border-t border-gray-100 pt-4">
+                    <div className="bg-emerald-50 text-emerald-800 p-4 rounded-xl border border-emerald-200 text-sm font-medium">
+                        Rellena los datos de cada artículo del pack individualmente.
                     </div>
-                </div>
-              </div>
-          )}
-          
-          <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border mt-6">
-              <label className="font-bold text-gray-700 text-sm">CANTIDAD:</label>
-                <div className="flex items-center gap-2">
-                  <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className={`w-10 h-10 rounded-full border font-bold bg-white`}>-</button>
-                  <span className="text-xl font-bold w-12 text-center">{quantity}</span>
-                    <button type="button" onClick={() => {
-                      const maxAllowed = (activeGiftCode && activeGiftCode.maxUnits > 0) ? activeGiftCode.maxUnits : 99;
-                      if (quantity < maxAllowed) setQuantity(quantity + 1);
-                      else showToast(`Este cupón solo te permite comprar un máximo de ${maxAllowed} unidades con descuento.`, "error");
-                  }} className={`w-10 h-10 rounded-full border font-bold bg-white`}>+</button>
-              </div>
-          </div>
+                    {bundledProductsData.map((bp, index) => {
+                        const pData = packData[bp.id] || {};
+                        const bpFeatures = bp.features || {};
+                        const bpModifiable = bp.modifiable || {};
+                        const bpDefaults = bp.defaults || {};
+                        
+                        // 🟢 LÓGICA DE VARIANTES POR PRODUCTO
+                        const bpConfig = product.bundleConfigs?.[bp.id] || 'all';
+                        const bpVariants = bp.variants || [];
+                        const bpActiveVariant = bpVariants.find(v => v.id === pData.selectedVariantId);
+                        const bpIsDouble = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('doble');
+                        const bpIsTriple = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('triple');
+                        const bpIsTeamPhoto = bp.name.toLowerCase().includes('foto') && bpActiveVariant?.name.toLowerCase().includes('equipo');
+                        
+                        return (
+                            <div key={bp.id} className="bg-white p-4 rounded-xl border border-gray-200 shadow-sm relative overflow-hidden">
+                                <div className="absolute top-0 left-0 w-1 h-full bg-emerald-500"></div>
+                                <h4 className="font-bold text-gray-800 text-sm mb-3 ml-2 border-b pb-2 text-emerald-700">{index + 1}. {bp.name}</h4>
+                                <div className="space-y-4 ml-2">
+                                    {/* 🟢 SELECTOR DE VARIANTE (Si el admin le dejó elegir) */}
+                                    {bpConfig === 'all' && bpVariants.length > 0 && (
+                                        <div className="bg-emerald-50/50 p-2.5 rounded-lg border border-emerald-100">
+                                            <label className="block text-[11px] font-bold text-emerald-800 uppercase mb-2">Selecciona Tipo de {bp.name} <span className="text-red-500">*</span></label>
+                                            <div className="flex flex-wrap gap-2">
+                                                <button type="button" onClick={() => updatePackItem(bp.id, 'selectedVariantId', null)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${!pData.selectedVariantId ? 'bg-emerald-600 text-white shadow-sm border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}>Estándar</button>
+                                                {bpVariants.map(v => (
+                                                    <button key={v.id} type="button" onClick={() => updatePackItem(bp.id, 'selectedVariantId', v.id)} className={`px-3 py-1.5 text-xs font-bold rounded-lg border transition-all ${pData.selectedVariantId === v.id ? 'bg-emerald-600 text-white shadow-sm border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300'}`}>{v.name}</button>
+                                                ))}
+                                            </div>
+                                        </div>
+                                    )}
+                                    {/* Etiqueta si está forzado por el admin */}
+                                    {bpConfig !== 'all' && (
+                                        <div className="mb-2">
+                                            <span className="inline-flex items-center gap-1 bg-emerald-100 text-emerald-800 text-[10px] px-2.5 py-1.5 rounded font-black border border-emerald-200 uppercase tracking-wide">
+                                                Incluye: {bpConfig === 'none' ? 'Estándar' : bpActiveVariant?.name}
+                                            </span>
+                                        </div>
+                                    )}
+                                    <div className="grid grid-cols-2 gap-3">
+                                        <div className="relative">
+                                            <label className="block text-xs font-medium text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
+                                            <Input 
+                                                placeholder="Buscar categoría..." 
+                                                value={pData.category || ''} 
+                                                onChange={e => updatePackItem(bp.id, 'category', e.target.value)}
+                                                onFocus={() => setActivePackCategoryFocus(bp.id)}
+                                                onBlur={() => setTimeout(() => setActivePackCategoryFocus(null), 200)}
+                                            />
+                                            {activePackCategoryFocus === bp.id && pData.category?.length >= 2 && availableCategories.filter(c => c.toLowerCase().includes(pData.category.toLowerCase())).length > 0 && (
+                                                <div className="absolute top-full left-0 w-full bg-white border border-gray-200 rounded-b-lg shadow-xl z-50 max-h-48 overflow-y-auto mt-1">
+                                                    {availableCategories.filter(c => c.toLowerCase().includes(pData.category.toLowerCase())).map(cat => (
+                                                        <div key={cat} onMouseDown={() => { updatePackItem(bp.id, 'category', cat); setActivePackCategoryFocus(null); }} className="px-4 py-2 hover:bg-emerald-50 cursor-pointer text-sm font-medium border-b border-gray-50 last:border-0">{cat}</div>
+                                                    ))}
+                                                </div>
+                                            )}
+                                        </div>
+                                        {bpFeatures.size && (
+                                            <div>
+                                                <label className="block text-xs font-medium text-gray-700 mb-1">Talla <span className="text-red-500">*</span></label>
+                                                {bp.sizes && bp.sizes.length > 0 ? (
+                                                    <select className="w-full px-3 py-2 border border-gray-200 rounded-xl bg-white text-sm outline-none focus:ring-2 focus:ring-emerald-500" value={pData.size || ''} onChange={(e) => updatePackItem(bp.id, 'size', e.target.value)}>
+                                                        <option value="">-- Selecciona --</option>
+                                                        {bp.sizes.map(s => <option key={s} value={s}>{s}</option>)}
+                                                    </select>
+                                                ) : (
+                                                    <Input placeholder="Tu talla..." value={pData.size || ''} onChange={e => updatePackItem(bp.id, 'size', e.target.value)}/>
+                                                )}
+                                            </div>
+                                        )}
+                                    </div>
+  
+                                    <div className="flex gap-2 flex-wrap pt-2">
+                                        {bpFeatures.name && bpModifiable.name && (
+                                            <label className="flex items-center gap-1.5 border px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" className="accent-emerald-600 w-3 h-3" checked={pData.includeName ?? bpDefaults.name} onChange={e => updatePackItem(bp.id, 'includeName', e.target.checked)}/> <span className="text-xs font-medium">Nombre</span>
+                                            </label>
+                                        )}
+                                        {bpFeatures.number && bpModifiable.number && (
+                                            <label className="flex items-center gap-1.5 border px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" className="accent-emerald-600 w-3 h-3" checked={pData.includeNumber ?? bpDefaults.number} onChange={e => updatePackItem(bp.id, 'includeNumber', e.target.checked)}/> <span className="text-xs font-medium">Dorsal</span>
+                                            </label>
+                                        )}
+                                        {bpFeatures.photo && bpModifiable.photo && (
+                                            <label className="flex items-center gap-1.5 border px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+                                                <input type="checkbox" className="accent-emerald-600 w-3 h-3" checked={pData.includePhoto ?? bpDefaults.photo} onChange={e => updatePackItem(bp.id, 'includePhoto', e.target.checked)}/> <span className="text-xs font-medium">Foto</span>
+                                            </label>
+                                        )}
+                                    </div>
+  
+                                    {/* 🟢 CAMPOS JUGADOR 1, 2 Y 3 (Dinámicos) */}
+                                    <div className="grid grid-cols-2 gap-3 pt-2">
+                                        {bpFeatures.name && (
+                                            <div className={(pData.includeName ?? bpDefaults.name) === false ? 'opacity-30 pointer-events-none' : ''}>
+                                                <label className="text-xs font-medium mb-1 block text-emerald-700">Nombre {bpIsDouble||bpIsTriple?'(J1)':''}</label>
+                                                <Input value={pData.playerName || ''} onChange={e => updatePackItem(bp.id, 'playerName', e.target.value)}/>
+                                            </div>
+                                        )}
+                                        {bpFeatures.number && (
+                                            <div className={(pData.includeNumber ?? bpDefaults.number) === false ? 'opacity-30 pointer-events-none' : ''}>
+                                                <label className="text-xs font-medium mb-1 block text-emerald-700">Dorsal {bpIsDouble||bpIsTriple?'(J1)':''}</label>
+                                                <Input type="number" value={pData.playerNumber || ''} onChange={e => updatePackItem(bp.id, 'playerNumber', e.target.value)}/>
+                                            </div>
+                                        )}
+                                    </div>
 
-          <div className="pt-2 border-t">
-              <Button type="submit" disabled={!storeConfig.isOpen} className={`w-full py-4 text-lg ${isGift ? 'bg-gray-800 hover:bg-gray-900' : ''}`}>
-                  {storeConfig.isOpen ? `Añadir al Carrito (${isGift ? 'GRATIS' : totalPrice.toFixed(2)+'€'})` : 'TIENDA CERRADA'}
-              </Button>
-          </div>
-        </form>
+                                    {(bpIsDouble || bpIsTriple) && (
+                                        <div className="grid grid-cols-2 gap-3 mt-2 border-t border-emerald-100 pt-2 animate-fade-in">
+                                            <div className={(pData.includeName ?? bpDefaults.name) === false ? 'opacity-30 pointer-events-none' : ''}>
+                                                <label className="text-xs font-medium mb-1 block text-blue-700">Nombre (J2)</label>
+                                                <Input value={pData.playerName2 || ''} onChange={e => updatePackItem(bp.id, 'playerName2', e.target.value)}/>
+                                            </div>
+                                            <div className={(pData.includeNumber ?? bpDefaults.number) === false ? 'opacity-30 pointer-events-none' : ''}>
+                                                <label className="text-xs font-medium mb-1 block text-blue-700">Dorsal (J2)</label>
+                                                <Input type="number" value={pData.playerNumber2 || ''} onChange={e => updatePackItem(bp.id, 'playerNumber2', e.target.value)}/>
+                                            </div>
+                                        </div>
+                                    )}
+                                    {bpIsTriple && (
+                                        <div className="grid grid-cols-2 gap-3 mt-2 border-t border-emerald-100 pt-2 animate-fade-in">
+                                            <div className={(pData.includeName ?? bpDefaults.name) === false ? 'opacity-30 pointer-events-none' : ''}>
+                                                <label className="text-xs font-medium mb-1 block text-purple-700">Nombre (J3)</label>
+                                                <Input value={pData.playerName3 || ''} onChange={e => updatePackItem(bp.id, 'playerName3', e.target.value)}/>
+                                            </div>
+                                            <div className={(pData.includeNumber ?? bpDefaults.number) === false ? 'opacity-30 pointer-events-none' : ''}>
+                                                <label className="text-xs font-medium mb-1 block text-purple-700">Dorsal (J3)</label>
+                                                <Input type="number" value={pData.playerNumber3 || ''} onChange={e => updatePackItem(bp.id, 'playerNumber3', e.target.value)}/>
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
+                            </div>
+                        );
+                    })}
+                </div>
+            ) : (
+                /* 🟢 MODO NORMAL (Mantenemos tu código original para no packs) */
+                <>
+                    {customization.clubId && (
+                        <div className="relative animate-fade-in border-t border-gray-100 pt-4">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
+                            <Input placeholder="Buscar categoría..." value={categoryInput} onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: e.target.value}); setShowCategorySuggestions(true); }} onFocus={() => setShowCategorySuggestions(true)} onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)} />
+                            {showCategorySuggestions && categorySuggestions.length > 0 && (
+                                <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
+                                    {categorySuggestions.map(cat => (
+                                        <div key={cat} onMouseDown={() => { setCustomization({ ...customization, category: cat }); setCategoryInput(cat); setShowCategorySuggestions(false); }} className="px-4 py-3 hover:bg-emerald-50 cursor-pointer">{cat}</div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                    {features.size && (
+                        <div className="animate-fade-in">
+                            <label className="block text-sm font-medium text-gray-700 mb-1">Talla <span className="text-red-500">*</span></label>
+                            {sizeOptions ? (
+                                <select className="w-full px-3 py-2 border rounded-xl bg-white focus:ring-2 focus:ring-emerald-500 outline-none" value={customization.size} onChange={(e) => setCustomization({...customization, size: e.target.value})}>
+                                    <option value="">-- Selecciona Talla --</option>
+                                    {sizeOptions.map(s => <option key={s} value={s}>{s}</option>)}
+                                </select>
+                            ) : (
+                                <Input placeholder="Tu talla..." value={customization.size} onChange={e => setCustomization({...customization, size: e.target.value})}/>
+                            )}
+                        </div>
+                    )}
+                    {!isTeamPhoto && (
+                        <div className="space-y-4 border-t pt-4 border-gray-100">
+                            <h4 className="font-bold text-gray-600 text-xs uppercase">Datos Personalización</h4>
+                            <div className="flex gap-4 flex-wrap">
+                                {features.name && modifiable.name && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})}/><span className="text-sm">Incluir Nombre</span></label> )}
+                                {features.number && modifiable.number && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})}/><span className="text-sm">Incluir Dorsal</span></label> )}
+                                {features.photo && modifiable.photo && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includePhoto} onChange={e => setCustomization({...customization, includePhoto: e.target.checked})}/><span className="text-sm">Incluir Foto</span></label> )}
+                            </div>
+                            <div className="grid grid-cols-2 gap-4">
+                                {features.name && ( <div className={!customization.includeName ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block">Nombre</label><Input value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/></div> )}
+                                {features.number && ( <div className={!customization.includeNumber ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block">Dorsal</label><Input type="number" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/></div> )}
+                            </div>
+                        </div>
+                    )}
+                </>
+            )}
+  
+            {/* SECCIÓN INDEPENDIENTE: BÚSQUEDA DE FOTOGRAFÍA (Hereda la lógica de ambos) */}
+            {((isPackCard && bundledProductsData.some(bp => bp.features?.photo && (packData[bp.id]?.includePhoto ?? bp.defaults?.photo))) || (!isPackCard && features.photo && customization.includePhoto)) && (
+                <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 mt-6 relative overflow-hidden shadow-inner">
+                    <h4 className="font-bold text-emerald-800 text-sm uppercase mb-2">Buscador de Fotografía <span className="text-red-500">*</span></h4>
+                    <p className="text-xs text-gray-600 mb-4 leading-relaxed">Independientemente de si has pedido imprimir tu nombre o no, necesitamos que busques tu foto usando tu nombre o dorsal:</p>
+                    
+                    {!isTeamPhoto && (
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
+                            <div><label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Nombre</label><Input placeholder="Ej: Marc" value={searchPhotoName} onChange={e => setSearchPhotoName(e.target.value)}/></div>
+                            <div><label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Dorsal</label><Input type="number" placeholder="Ej: 10" value={searchPhotoNumber} onChange={e => setSearchPhotoNumber(e.target.value)}/></div>
+                        </div>
+                    )}
+                    
+                    <Button type="button" onClick={handleSearchPhoto} disabled={isSearchingPhoto} className="w-full flex items-center justify-center gap-2 mb-3 bg-emerald-600 py-3">
+                        {isSearchingPhoto ? <RefreshCw className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>} {isSearchingPhoto ? 'Buscando foto...' : 'Buscar y Confirmar Fotografía'}
+                    </Button>
+  
+                    {photoSearchError && <div className="text-red-600 text-xs bg-red-50 p-3 rounded-lg border border-red-200 flex items-center gap-2 mt-2 font-medium shadow-sm"><AlertTriangle className="w-5 h-5 shrink-0"/> {photoSearchError}</div>}
+  
+                    {photoSearchResult && (
+                        <div className="mt-5 animate-fade-in-up">
+                            <div className="pointer-events-none rounded-xl overflow-hidden border-[3px] border-emerald-300 shadow-xl bg-white p-1 mb-3">
+                                <ProtectedWatermarkImage imageUrl={photoSearchResult.url} fileName={photoSearchResult.name} logoUrl={LOGO_URL} />
+                            </div>
+                            <div className="flex flex-col gap-2 mt-2">
+                                <p className="text-xs font-bold text-emerald-800 text-center uppercase tracking-wide">¿A dónde asignamos esta foto?</p>
+                                
+                                {isPackCard ? (
+                                    bundledProductsData.filter(bp => bp.features?.photo && (packData[bp.id]?.includePhoto ?? bp.defaults?.photo)).map(bp => {
+                                        const pData = packData[bp.id] || {};
+                                        const bpActiveVariant = bp.variants?.find(v => v.id === pData.selectedVariantId);
+                                        const bpIsDouble = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('doble');
+                                        const bpIsTriple = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('triple');
+
+                                        return (
+                                            <div key={bp.id} className="mb-3 bg-white p-2 rounded border border-emerald-100 shadow-sm">
+                                                <p className="text-[10px] font-bold text-emerald-800 uppercase mb-1.5">{bp.name}</p>
+                                                <div className="flex flex-col gap-1.5">
+                                                    <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J1)`); }} className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 1</button>
+                                                    {(bpIsDouble || bpIsTriple) && (
+                                                        <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto2', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J2)`); }} className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 2</button>
+                                                    )}
+                                                    {bpIsTriple && (
+                                                        <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto3', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J3)`); }} className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 3</button>
+                                                    )}
+                                                </div>
+                                            </div>
+                                        );
+                                    })
+                                ) : (
+                                    <>
+                                        <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 1"); }} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 1</button>
+                                        {(isDouble || isTriple) && <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto2: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 2"); }} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 2</button>}
+                                        {isTriple && <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto3: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 3"); }} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 3</button>}
+                                    </>
+                                )}
+                            </div>
+                        </div>
+                    )}
+                    
+                  <div className="mt-5 bg-white p-3 rounded-lg border border-emerald-200">
+                      <p className="text-sm font-bold text-emerald-800 mb-2 border-b border-emerald-50 pb-1">📸 Fotos asignadas en este producto:</p>
+                      <div className="space-y-1">
+                            {isPackCard ? (
+                              bundledProductsData.filter(bp => bp.features?.photo && (packData[bp.id]?.includePhoto ?? bp.defaults?.photo)).map(bp => {
+                                  const pData = packData[bp.id] || {};
+                                  const bpActiveVariant = bp.variants?.find(v => v.id === pData.selectedVariantId);
+                                  const bpIsDouble = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('doble');
+                                  const bpIsTriple = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('triple');
+
+                                  return (
+                                      <div key={bp.id} className="text-xs border-b border-gray-50 pb-2 mb-2 last:border-0 last:mb-0 last:pb-0">
+                                          <strong className="block text-gray-800 mb-0.5">{bp.name}:</strong>
+                                          <div className="ml-2 space-y-0.5">
+                                              <p>• J1: {pData.selectedPhoto ? <span className="text-emerald-600 font-bold">{pData.selectedPhoto}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>
+                                              {(bpIsDouble || bpIsTriple) && <p>• J2: {pData.selectedPhoto2 ? <span className="text-blue-600 font-bold">{pData.selectedPhoto2}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>}
+                                              {bpIsTriple && <p>• J3: {pData.selectedPhoto3 ? <span className="text-purple-600 font-bold">{pData.selectedPhoto3}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>}
+                                          </div>
+                                      </div>
+                                  )
+                              })
+                          ) : (
+                              <>
+                                  <p className="text-xs"><strong>Jugador 1:</strong> {customization.selectedPhoto ? <span className="text-emerald-600 font-bold">{customization.selectedPhoto}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>
+                                  {(isDouble || isTriple) && <p className="text-xs"><strong>Jugador 2:</strong> {customization.selectedPhoto2 ? <span className="text-blue-600 font-bold">{customization.selectedPhoto2}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>}
+                              </>
+                          )}
+                      </div>
+                  </div>
+                </div>
+            )}
+            
+            <div className="flex items-center justify-between bg-gray-50 p-4 rounded-xl border mt-6">
+                <label className="font-bold text-gray-700 text-sm">CANTIDAD:</label>
+                  <div className="flex items-center gap-2">
+                    <button type="button" onClick={() => setQuantity(Math.max(1, quantity - 1))} className={`w-10 h-10 rounded-full border font-bold bg-white`}>-</button>
+                    <span className="text-xl font-bold w-12 text-center">{quantity}</span>
+                      <button type="button" onClick={() => { setQuantity(quantity + 1); }} className={`w-10 h-10 rounded-full border font-bold bg-white`}>+</button>
+                </div>
+            </div>
+  
+            <div className="pt-2 border-t">
+                <Button type="submit" disabled={!storeConfig.isOpen} className={`w-full py-4 text-lg ${isGift ? 'bg-gray-800 hover:bg-gray-900' : ''}`}>
+                    {storeConfig.isOpen ? `Añadir al Carrito (${isGift ? 'GRATIS' : totalPrice.toFixed(2)+'€'})` : 'TIENDA CERRADA'}
+                </Button>
+            </div>
+          </form>
+        </div>
       </div>
-    </div>
-  );
-}
+    );
+  }

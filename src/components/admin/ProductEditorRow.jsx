@@ -5,7 +5,7 @@ import {
     Eye, CalendarClock, Hourglass, ToggleLeft, ToggleRight, CheckCircle2, Circle, Calendar
 } from 'lucide-react';
 
-export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections, clubs = [] }) => {
+export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections, clubs = [], allProducts = [] }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [localSizeInput, setLocalSizeInput] = useState(product.sizes ? product.sizes.join(', ') : '');
 
@@ -73,6 +73,27 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
     ];
 
     const currentVisStatus = product.visibility?.status || 'visible';
+
+    // 🟢 NUEVO: LÓGICA DE CÁLCULO AUTOMÁTICO PARA PACKS
+    let displayCost = product.cost || 0;
+    let displaySuppliers = [];
+
+    if (product.isPack && product.bundledProducts) {
+        displayCost = 0;
+        const supSet = new Set();
+        product.bundledProducts.forEach(bId => {
+            const bp = allProducts.find(item => item.id === bId);
+            if (bp) {
+                displayCost += (bp.cost || 0);
+                if (bp.supplierId) supSet.add(bp.supplierId);
+            }
+        });
+        displaySuppliers = Array.from(supSet).map(id => {
+            const s = suppliers?.find(sup => sup.id === id);
+            return s ? s.name : 'Desconocido';
+        });
+    }
+    const packSupplierText = displaySuppliers.length > 0 ? displaySuppliers.join(' + ') : 'Ninguno';
 
     return (
         <div className={`bg-white rounded-xl transition-all duration-300 overflow-hidden group mb-3 ${isExpanded ? 'border-2 border-emerald-500 shadow-xl ring-4 ring-emerald-50/50 z-10 transform scale-[1.01]' : 'border border-gray-100 shadow-sm hover:border-emerald-200 hover:shadow-md'}`}>
@@ -148,6 +169,97 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
 
                         <div className="flex-1 space-y-5">
                             <div className="bg-white p-5 rounded-xl border border-gray-200 shadow-sm space-y-4">
+
+                                {/* 🟢 NUEVO: SELECTOR DE TIPO (SIMPLE O PACK) */}
+                                <div className="flex items-center gap-4 pb-4 border-b border-gray-100">
+                                    <label className="text-xs font-bold text-gray-700">Tipo de Producto:</label>
+                                    <div className="flex bg-gray-100 p-1 rounded-lg">
+                                        <button onClick={() => updateProduct({...product, isPack: false})} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${!product.isPack ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>Individual</button>
+                                        <button onClick={() => updateProduct({...product, isPack: true, bundledProducts: product.bundledProducts || []})} className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${product.isPack ? 'bg-emerald-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}><Layers className="w-3 h-3"/> Pack Ahorro</button>
+                                    </div>
+                                </div>
+
+                                {/* 🟢 NUEVO: CONSTRUCTOR DE PACKS (Solo visible si es pack - Color Verde) */}
+                                {product.isPack && (
+                                    <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 animate-fade-in mb-4">
+                                        <h4 className="text-xs font-bold text-emerald-800 uppercase mb-3">📦 Productos incluidos en el Pack</h4>
+                                        <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-48 overflow-y-auto custom-scrollbar p-2 bg-white rounded-lg border border-emerald-100">
+                                            {/* allProducts viene de ProductsTab */}
+                                            {allProducts.filter(p => p.id !== product.id && !p.isPack).map(p => {
+                                                const isIncluded = (product.bundledProducts || []).includes(p.id);
+                                                const config = product.bundleConfigs?.[p.id] || 'all';
+                                                
+                                                return (
+                                                    <div key={p.id} className={`flex flex-col p-2 rounded border transition-colors ${isIncluded ? 'bg-emerald-100 border-emerald-300' : 'hover:bg-gray-50 border-gray-100'}`}>
+                                                        <label className="flex items-center gap-2 cursor-pointer">
+                                                            <input type="checkbox" className="accent-emerald-600 w-4 h-4" checked={isIncluded} onChange={(e) => {
+                                                                let newBundled = product.bundledProducts ? [...product.bundledProducts] : [];
+                                                                let newConfigs = product.bundleConfigs ? {...product.bundleConfigs} : {};
+                                                                
+                                                                if (e.target.checked) {
+                                                                    newBundled.push(p.id);
+                                                                    newConfigs[p.id] = 'all'; // Por defecto, el cliente elige
+                                                                } else {
+                                                                    newBundled = newBundled.filter(id => id !== p.id);
+                                                                    delete newConfigs[p.id];
+                                                                }
+                                                                
+                                                                let newCost = 0;
+                                                                let newSuppliers = [];
+                                                                newBundled.forEach(bId => {
+                                                                     const bp = allProducts.find(item => item.id === bId);
+                                                                     if(bp) {
+                                                                         newCost += (bp.cost || 0);
+                                                                         if(bp.supplierId && !newSuppliers.includes(bp.supplierId)) newSuppliers.push(bp.supplierId);
+                                                                     }
+                                                                });
+
+                                                                updateProduct({...product, bundledProducts: newBundled, bundleConfigs: newConfigs, cost: newCost, packSuppliers: newSuppliers, supplierId: newSuppliers.length === 1 ? newSuppliers[0] : 'multiple'});
+                                                            }}/>
+                                                            <div className="flex flex-col min-w-0 flex-1">
+                                                                <span className="text-xs font-bold text-gray-800 truncate">{p.name}</span>
+                                                                <span className="text-[10px] text-gray-500">{p.price.toFixed(2)}€</span>
+                                                            </div>
+                                                        </label>
+                                                        
+                                                        {/* 🟢 NUEVO: SELECTOR DE VARIANTES VISUAL (Desplegable Compacto) */}
+                                                        {isIncluded && p.variants && p.variants.length > 0 && (
+                                                            <div className="ml-6 mt-2 border-t border-emerald-100 pt-2 pb-1 animate-fade-in">
+                                                                <label className="text-[10px] font-bold text-emerald-800 uppercase flex items-center gap-1.5 mb-1.5">
+                                                                    <Settings className="w-3 h-3"/> Configuración para el cliente:
+                                                                </label>
+                                                                <select 
+                                                                    className="w-full text-xs p-2 border border-emerald-300 rounded-lg outline-none bg-emerald-50 text-emerald-900 font-bold focus:ring-2 focus:ring-emerald-500 cursor-pointer"
+                                                                    value={config || 'all'}
+                                                                    onChange={(e) => {
+                                                                        const val = e.target.value === 'all' || e.target.value === 'none' ? e.target.value : Number(e.target.value);
+                                                                        updateProduct({...product, bundleConfigs: {...(product.bundleConfigs||{}), [p.id]: val}});
+                                                                    }}
+                                                                >
+                                                                    <option value="all">🤷‍♂️ Dejar que elija en tienda</option>
+                                                                    <option value="none">🔒 Fijar Básico (Estándar)</option>
+                                                                    {p.variants.map(v => (
+                                                                        <option key={v.id} value={v.id}>🔒 Fijar {v.name}</option>
+                                                                    ))}
+                                                                </select>
+                                                            </div>
+                                                        )}
+                                                    </div>
+                                                );
+                                            })}
+                                        </div>
+                                        <div className="mt-3 flex justify-between items-center bg-white p-3 rounded-lg border border-emerald-100">
+                                            <span className="text-xs font-bold text-gray-600">Suma del precio real de estos artículos:</span>
+                                            <span className="text-sm font-black text-gray-400 line-through">
+                                                {(product.bundledProducts || []).reduce((sum, bId) => {
+                                                    const p = allProducts.find(item => item.id === bId);
+                                                    return sum + (p ? p.price : 0);
+                                                }, 0).toFixed(2)}€
+                                            </span>
+                                        </div>
+                                    </div>
+                                )}
+
                                 <div>
                                     <label className="text-xs font-bold text-gray-500 uppercase mb-1 block">Nombre del Producto</label>
                                     <input 
@@ -167,20 +279,25 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                         </div>
                                     </div>
                                     
+                                    {/* COSTE DE PRODUCCIÓN */}
                                     <div>
                                         <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Coste Producción</label>
                                         <div className="relative">
                                             <input 
                                                 type="number" 
                                                 step="0.01" 
-                                                className={`w-full border rounded-lg py-2 pl-3 pr-8 text-sm font-bold outline-none ${currentSupplier ? 'bg-indigo-50 border-indigo-200 text-indigo-700 cursor-not-allowed' : 'bg-gray-50 border-gray-200 text-gray-600 focus:ring-2 focus:ring-gray-200'}`}
-                                                value={product.cost} 
-                                                onChange={e => !currentSupplier && updateProduct({...product, cost: parseFloat(e.target.value)})}
-                                                readOnly={!!currentSupplier}
+                                                className={`w-full border rounded-lg py-2 pl-3 pr-8 text-sm font-bold outline-none ${product.isPack ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed' : currentSupplier ? 'bg-indigo-50 border-indigo-200 text-indigo-700 cursor-not-allowed' : 'bg-gray-50 border-gray-200 text-gray-600 focus:ring-2 focus:ring-gray-200'}`}
+                                                value={product.isPack ? displayCost.toFixed(2) : product.cost} 
+                                                onChange={e => !currentSupplier && !product.isPack && updateProduct({...product, cost: parseFloat(e.target.value)})}
+                                                readOnly={!!currentSupplier || product.isPack}
                                             />
                                             <span className="absolute right-3 top-2 text-gray-400 text-xs font-bold">€</span>
                                         </div>
-                                        {currentSupplier && <p className="text-[9px] text-indigo-500 mt-1 flex items-center gap-1"><Lock className="w-3 h-3"/> Gestionado por proveedor</p>}
+                                        {product.isPack ? (
+                                            <p className="text-[9px] text-emerald-600 mt-1 flex items-center gap-1"><Layers className="w-3 h-3"/> Autocalculado del pack</p>
+                                        ) : currentSupplier && (
+                                            <p className="text-[9px] text-indigo-500 mt-1 flex items-center gap-1"><Lock className="w-3 h-3"/> Gestionado por proveedor</p>
+                                        )}
                                     </div>
                                 </div>
 
@@ -189,27 +306,33 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                     <div>
                                         <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Proveedor Asignado</label>
                                         <div className="relative">
-                                            <select 
-                                                className="w-full border border-gray-200 rounded-lg py-2 pl-8 pr-3 text-sm bg-white focus:ring-2 focus:ring-indigo-100 outline-none appearance-none"
-                                                value={product.supplierId || ''}
-                                                onChange={(e) => {
-                                                    const supId = e.target.value;
-                                                    let newCost = product.cost;
-                                                    if (supId) {
-                                                        const s = suppliers.find(su => su.id === supId);
-                                                        if (s && s.priceList && s.priceList[product.id]) {
-                                                            newCost = s.priceList[product.id];
+                                            {product.isPack ? (
+                                                <div className="w-full border border-emerald-200 rounded-lg py-2 pl-8 pr-3 text-sm bg-emerald-50 text-emerald-700 font-bold truncate cursor-not-allowed">
+                                                    {packSupplierText}
+                                                </div>
+                                            ) : (
+                                                <select 
+                                                    className="w-full border border-gray-200 rounded-lg py-2 pl-8 pr-3 text-sm bg-white focus:ring-2 focus:ring-indigo-100 outline-none appearance-none"
+                                                    value={product.supplierId || ''}
+                                                    onChange={(e) => {
+                                                        const supId = e.target.value;
+                                                        let newCost = product.cost;
+                                                        if (supId) {
+                                                            const s = suppliers.find(su => su.id === supId);
+                                                            if (s && s.priceList && s.priceList[product.id]) {
+                                                                newCost = s.priceList[product.id];
+                                                            }
                                                         }
-                                                    }
-                                                    updateProduct({...product, supplierId: supId, cost: newCost});
-                                                }}
-                                            >
-                                                <option value="">-- Sin asignar (Coste manual) --</option>
-                                                {suppliers && suppliers.map(s => (
-                                                    <option key={s.id} value={s.id}>{s.name}</option>
-                                                ))}
-                                            </select>
-                                            <Truck className="absolute left-2.5 top-2.5 w-4 h-4 text-gray-400"/>
+                                                        updateProduct({...product, supplierId: supId, cost: newCost});
+                                                    }}
+                                                >
+                                                    <option value="">-- Sin asignar (Coste manual) --</option>
+                                                    {suppliers && suppliers.map(s => (
+                                                        <option key={s.id} value={s.id}>{s.name}</option>
+                                                    ))}
+                                                </select>
+                                            )}
+                                            <Truck className={`absolute left-2.5 top-2.5 w-4 h-4 ${product.isPack ? 'text-emerald-500' : 'text-gray-400'}`}/>
                                         </div>
                                     </div>
 
@@ -293,17 +416,19 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                         </div>
                     </div>
 
-                    <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm mt-6">
-                        <div className="bg-gray-100 px-6 py-3 border-b border-gray-200 flex justify-between items-center">
-                            <h4 className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
-                                <Settings className="w-4 h-4"/> Opciones y Personalización
-                            </h4>
-                            <div className="flex gap-8 text-[9px] font-bold uppercase text-gray-400 pr-2">
-                                <span className="w-12 text-center">Activo</span>
-                                <span className="w-12 text-center">Default</span>
-                                <span className="w-12 text-center">Lock</span>
+                    {/* 🟢 NUEVO: CONDICIONAL PARA PACKS EN OPCIONES */}
+                    {!product.isPack ? (
+                        <div className="bg-white rounded-xl border border-gray-200 overflow-hidden shadow-sm mt-6">
+                            <div className="bg-gray-100 px-6 py-3 border-b border-gray-200 flex justify-between items-center">
+                                <h4 className="text-xs font-bold text-gray-600 uppercase flex items-center gap-2">
+                                    <Settings className="w-4 h-4"/> Opciones y Personalización
+                                </h4>
+                                <div className="flex gap-8 text-[9px] font-bold uppercase text-gray-400 pr-2">
+                                    <span className="w-12 text-center">Activo</span>
+                                    <span className="w-12 text-center">Default</span>
+                                    <span className="w-12 text-center">Lock</span>
+                                </div>
                             </div>
-                        </div>
 
                         <div className="divide-y divide-gray-50 p-4">
                             <div className="flex flex-col gap-2 py-2">
@@ -392,6 +517,16 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                             </div>
                         </div>
                     </div>
+                    ) : (
+                        <div className="bg-emerald-50 rounded-xl border border-emerald-200 p-6 mt-6 text-center shadow-sm">
+                            <Layers className="w-8 h-8 text-emerald-400 mx-auto mb-2" />
+                            <h4 className="font-bold text-emerald-800 text-sm">Opciones Heredadas (Modo Pack)</h4>
+                            <p className="text-xs text-emerald-600 mt-1">
+                                Al ser un pack, este producto no tiene opciones propias. <br/>
+                                En la tienda, el cliente rellenará los datos <b>producto por producto</b>.
+                            </p>
+                        </div>
+                    )}
 
                     {/* NUEVO PANEL: VISIBILIDAD, DESCUENTOS Y EXCLUSIVIDAD (Más interactivo y visual) */}
                     <div className="bg-white rounded-xl border border-purple-200 overflow-hidden shadow-sm mt-6">

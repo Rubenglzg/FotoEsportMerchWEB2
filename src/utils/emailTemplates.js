@@ -90,7 +90,7 @@ export const generateEmailHTML = (order, newStatus, clubName) => {
                                 isValid(item.size) ? `Talla: <strong>${item.size}</strong>` : null,
                                 isValid(item.color) ? `Color: <strong>${colorName}</strong>` : null
                             ].filter(Boolean).join(', ');
-                            return `<tr><td>${item.name}</td><td>${detailsList || '-'}</td><td style="text-align:right;">${item.quantity || 1}</td></tr>`;
+                            return `<tr><td>${item.name}</td><td>${detailsList || '-'}${item.packItems ? `<div style="margin-top: 10px; border-top: 1px solid #10b981; padding-top: 8px;"><strong style="color: #059669; font-size: 11px; text-transform: uppercase;">Contenido del Pack:</strong><br>${item.packItems.map(pi => `<div style="margin-top: 6px; margin-bottom: 8px; padding-left: 8px; border-left: 2px solid #34d399;"><strong style="font-size: 13px;">${pi.productName}</strong><br><span style="font-size: 12px; color: #555; line-height: 1.4;">${isValid(pi.size) ? `• Talla: <strong>${pi.size}</strong><br>` : ''}${isValid(pi.playerName) ? `• Nombre: <strong>${pi.playerName}</strong><br>` : ''}${isValid(pi.playerNumber) ? `• Dorsal: <strong>${pi.playerNumber}</strong><br>` : ''}${isValid(pi.photoFileName) ? `• 📸 Foto: <strong>${pi.photoFileName}</strong><br>` : ''}</span></div>`).join('')}</div>` : ''}</td><td style="text-align:right; vertical-align: top;">${item.quantity || 1}</td></tr>`;
                         }).join('')}
                     </tbody>
                 </table>
@@ -169,6 +169,37 @@ export const generateInvoiceEmailHTML = (order, clubName) => {
                                                 ${isValid(p3Name) ? `• Nombre: <strong>${p3Name}</strong><br>` : ''}
                                                 ${isValid(p3Num) ? `• Número: <strong>${p3Num}</strong><br>` : ''}
                                                 ${isValid(item.photoFileName3) ? `• 📸 Foto: <strong>${item.photoFileName3}</strong>` : ''}
+                                            </div>
+                                        ` : ''}
+
+                                        ${item.packItems ? `
+                                            <div style="margin-top: 10px; border-top: 1px solid #10b981; padding-top: 8px;">
+                                                <strong style="color: #059669; font-size: 11px; text-transform: uppercase;">Contenido Personalizado del Pack:</strong><br>
+                                                ${item.packItems.map(pi => `
+                                                    <div style="margin-top: 6px; margin-bottom: 8px; padding-left: 8px; border-left: 2px solid #34d399;">
+                                                        <strong style="font-size: 13px;">${pi.productName}</strong><br>
+                                                        <span style="font-size: 12px; color: #555; line-height: 1.4;">
+                                                            ${isValid(pi.size) ? `• Talla: <strong>${pi.size}</strong><br>` : ''}
+                                                            ${isValid(pi.playerName) ? `• Nombre: <strong>${pi.playerName}</strong><br>` : ''}
+                                                            ${isValid(pi.playerNumber) ? `• Número: <strong>${pi.playerNumber}</strong><br>` : ''}
+                                                            ${isValid(pi.photoFileName) ? `• 📸 Foto: <strong>${pi.photoFileName}</strong><br>` : ''}
+                                                            
+                                                            ${pi.details?.player2 ? `
+                                                                <br><strong style="font-size: 11px; color:#3b82f6;">JUGADOR 2:</strong><br>
+                                                                ${isValid(pi.details.player2.name) ? `• Nombre: <strong>${pi.details.player2.name}</strong><br>` : ''}
+                                                                ${isValid(pi.details.player2.number) ? `• Número: <strong>${pi.details.player2.number}</strong><br>` : ''}
+                                                                ${isValid(pi.details.player2.photo) ? `• 📸 Foto: <strong>${pi.details.player2.photo}</strong><br>` : ''}
+                                                            ` : ''}
+
+                                                            ${pi.details?.player3 ? `
+                                                                <br><strong style="font-size: 11px; color:#9333ea;">JUGADOR 3:</strong><br>
+                                                                ${isValid(pi.details.player3.name) ? `• Nombre: <strong>${pi.details.player3.name}</strong><br>` : ''}
+                                                                ${isValid(pi.details.player3.number) ? `• Número: <strong>${pi.details.player3.number}</strong><br>` : ''}
+                                                                ${isValid(pi.details.player3.photo) ? `• 📸 Foto: <strong>${pi.details.player3.photo}</strong><br>` : ''}
+                                                            ` : ''}
+                                                        </span>
+                                                    </div>
+                                                `).join('')}
                                             </div>
                                         ` : ''}
                                     </div>

@@ -113,3 +113,28 @@ exports.sendMassEmail = onCall(async (request) => {
         throw new HttpsError("internal", "Error al encolar los correos en la base de datos.");
     }
 });
+
+// 5. CRON DIARIO: Borrar emails de la base de datos tras 90 días
+exports.deleteOldEmails = onSchedule("every 24 hours", async (event) => {
+    const ninetyDaysAgo = new Date();
+    ninetyDaysAgo.setDate(ninetyDaysAgo.getDate() - 90);
+
+    // La extensión de correos de Firebase guarda la fecha en formato Timestamp dentro de 'delivery.endTime'
+    const snapshot = await db.collection('mail')
+        .where('delivery.endTime', '<=', admin.firestore.Timestamp.fromDate(ninetyDaysAgo))
+        .get();
+
+    if (snapshot.empty) {
+        console.log("No hay correos antiguos para borrar hoy.");
+        return;
+    }
+
+    // Usamos un batch para borrar en bloque (es más rápido y consume menos recursos)
+    const batch = db.batch();
+    snapshot.forEach(doc => {
+        batch.delete(doc.ref);
+    });
+
+    await batch.commit();
+    console.log(`Limpieza completada: Eliminados ${snapshot.size} emails con más de 90 días de antigüedad.`);
+});

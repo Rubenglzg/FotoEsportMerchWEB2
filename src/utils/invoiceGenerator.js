@@ -1,54 +1,8 @@
 import jsPDF from 'jspdf';
 import autoTable from 'jspdf-autotable';
 
-// Función auxiliar para cargar el logo de tu carpeta public
-const getBase64ImageFromUrl = async (url) => {
-    const res = await fetch(url);
-    const blob = await res.blob();
-    
-    return new Promise((resolve, reject) => {
-        const img = new Image();
-        const objectUrl = URL.createObjectURL(blob);
-        
-        img.onload = () => {
-            const canvas = document.createElement('canvas');
-            
-            const maxWidth = 200;
-            const scale = Math.min(1, maxWidth / img.width);
-            canvas.width = img.width * scale;
-            canvas.height = img.height * scale;
-            
-            const ctx = canvas.getContext('2d');
-            
-            // Rellenamos el fondo de blanco ANTES de dibujar el logo
-            ctx.fillStyle = '#FFFFFF';
-            ctx.fillRect(0, 0, canvas.width, canvas.height);
-            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-            
-            // Ahora sí podemos usar JPEG sin fondo negro
-            const compressed = canvas.toDataURL('image/jpeg', 0.6);
-            
-            URL.revokeObjectURL(objectUrl);
-            resolve(compressed.split(',')[1]);
-        };
-        
-        img.onerror = reject;
-        img.src = objectUrl;
-    });
-};
-
-// 🟢 NOTA: Ahora la función tiene la palabra "async" delante
 export const generateInvoicePDF = async (orderId, orderData) => {
     const doc = new jsPDF();
-
-    // --- 1. INTENTAMOS CARGAR EL LOGO ---
-    try {
-        // Carga el logo de tu carpeta public (puedes cambiarlo por /logonegro.png si queda mejor)
-        const logoBase64 = await getBase64ImageFromUrl('/logo.png'); 
-        doc.addImage(logoBase64, 'JPEG', 14, 12, 40, 15); // Posición X, Y, Ancho, Alto
-    } catch (error) {
-        console.warn("No se pudo cargar el logo para el PDF", error);
-    }
 
     // --- 2. DATOS FISCALES ---
     const emisor = {
@@ -67,34 +21,35 @@ export const generateInvoicePDF = async (orderId, orderData) => {
     // --- 3. CABECERA ---
     doc.setFontSize(20);
     doc.setTextColor(16, 185, 129); 
-    // Desplazamos la palabra FACTURA a la derecha para hacerle hueco al logo
-    doc.text('FACTURA', 150, 22);
+    
+    // 🟢 Como hemos quitado el logo, alineamos la palabra FACTURA a la izquierda (eje X = 14)
+    doc.text('FACTURA', 14, 22);
 
     doc.setFontSize(10);
     doc.setTextColor(80, 80, 80);
     const invoiceNum = `FAC-${orderId.substring(0, 8).toUpperCase()}`;
     const dateStr = new Date().toLocaleDateString('es-ES');
     
-    doc.text(`Número de Factura: ${invoiceNum}`, 14, 38);
-    doc.text(`Fecha de Expedición: ${dateStr}`, 14, 44);
+    // Bajamos un poco los textos para que respiren respecto al título
+    doc.text(`Número de Factura: ${invoiceNum}`, 14, 34);
+    doc.text(`Fecha de Expedición: ${dateStr}`, 14, 40);
 
     // --- 4. BLOQUES DE DATOS ---
     doc.setTextColor(0, 0, 0);
     doc.setFontSize(11);
     doc.setFont(undefined, 'bold');
-    doc.text('Datos del Emisor:', 14, 56);
-    doc.text('Datos del Cliente:', 120, 56);
+    doc.text('Datos del Emisor:', 14, 52);
+    doc.text('Datos del Cliente:', 120, 52);
 
     doc.setFont(undefined, 'normal');
     doc.setFontSize(10);
-    doc.text(emisor.nombre, 14, 62);
-    doc.text(`NIF/CIF: ${emisor.nif}`, 14, 68);
+    doc.text(emisor.nombre, 14, 58);
+    doc.text(`NIF/CIF: ${emisor.nif}`, 14, 64);
     
-    // jsPDF detecta el \n de tu dirección y pinta dos líneas sin chocar
-    doc.text(emisor.direccion, 14, 74); 
+    doc.text(emisor.direccion, 14, 70); 
 
-    doc.text(receptor.nombre, 120, 62);
-    doc.text(receptor.email, 120, 68);
+    doc.text(receptor.nombre, 120, 58);
+    doc.text(receptor.email, 120, 64);
 
     // --- 5. TABLA DE PRODUCTOS ---
     const tableBody = (orderData.items || []).map(item => {
@@ -112,7 +67,7 @@ export const generateInvoicePDF = async (orderId, orderData) => {
     });
 
     autoTable(doc, {
-        startY: 92, // Empezamos un poquito más abajo por seguridad
+        startY: 88, // Ajustado tras mover la cabecera
         headStyles: { fillColor: [16, 185, 129] },
         head: [['Concepto', 'Uds.', 'Precio ud. (Sin IVA)', 'Importe']],
         body: tableBody,
@@ -123,10 +78,9 @@ export const generateInvoicePDF = async (orderId, orderData) => {
     const baseImponible = totalConIva / 1.21;
     const cuotaIva = totalConIva - baseImponible;
 
-    const finalY = doc.lastAutoTable.finalY || 92;
+    const finalY = doc.lastAutoTable.finalY || 88;
 
     doc.setFontSize(10);
-    // 🟢 ARREGLADO: Unimos los textos y los pegamos a la derecha. Ya nunca se chocarán.
     doc.text(`Base Imponible:   ${baseImponible.toFixed(2)} €`, 180, finalY + 15, { align: 'right' });
     doc.text(`IVA (21%):   ${cuotaIva.toFixed(2)} €`, 180, finalY + 22, { align: 'right' });
 

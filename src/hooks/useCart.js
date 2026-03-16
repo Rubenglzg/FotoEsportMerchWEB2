@@ -8,7 +8,8 @@ export function useCart(storeConfig, showNotification) {
             showNotification('La tienda está cerrada temporalmente.', 'error'); 
             return; 
         } 
-        setCart(prevCart => [...prevCart, { ...product, ...customization, price: finalPrice, cartId: Date.now() }]); 
+        // 🟢 ARREGLADO: Invertimos el orden (...customization, ...product)
+        setCart(prevCart => [...prevCart, { ...customization, ...product, price: finalPrice, cartId: Date.now() }]); 
         showNotification('Producto añadido al carrito'); 
     };
     

@@ -416,6 +416,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
       ) : (
         <div className="animate-fade-in-up">
           <ProductCustomizer 
+              key={selectedProduct.id} // 🟢 AÑADE ESTA LÍNEA AQUÍ
               product={selectedProduct} 
               activeClub={activeClub}
               activeGiftCode={activeGiftCode}
@@ -427,7 +428,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
               storeConfig={storeConfig} 
               setConfirmation={setConfirmation} 
               campaignConfig={campaignConfig}
-              showToast={showToast}  // <--- AÑADE ESTA LÍNEA
+              showToast={showToast}
           />
         </div>
       )}

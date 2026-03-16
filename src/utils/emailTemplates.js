@@ -9,8 +9,8 @@ import { AVAILABLE_COLORS } from '../config/constants';
 const isValid = (val) => {
     if (val === null || val === undefined) return false;
     const str = String(val).trim();
-    // Filtramos cadenas vacías, el texto "null", "undefined", guiones o el valor false
-    const forbidden = ['', 'null', 'undefined', 'false', '-', 'n/a'];
+    // Filtramos cadenas vacías, el texto "null", "undefined", guiones, el valor false, y tallas únicas
+    const forbidden = ['', 'null', 'undefined', 'false', '-', 'n/a', 'única', 'unica', 'sin talla'];
     return !forbidden.includes(str.toLowerCase());
 };
 

@@ -780,14 +780,31 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
           <button onClick={onBack} className="text-gray-500 mb-4 hover:text-gray-700 flex items-center gap-1">
               <ChevronLeft className="rotate-180 w-4 h-4" /> Volver
           </button>
-          <h2 className="text-2xl font-bold mb-2">Personalizar {product.name}</h2>
+            {/* Título y Precio con letra más grande */}
+          <h2 className="text-3xl font-black mb-1 text-gray-900 leading-tight">
+              {product.name}
+          </h2>
           
-          <div className="flex items-end gap-2 mb-6">
-              <p className={`font-bold text-3xl ${isGift ? 'text-gray-800' : 'text-emerald-600'}`}>
+          <div className="flex items-baseline gap-2 mb-6">
+              <p className={`font-black text-4xl ${isGift ? 'text-gray-800' : 'text-emerald-600'}`}>
                   {isGift ? 'GRATIS' : `${unitPrice.toFixed(2)}€`}
               </p>
-              {!isGift && <span className="text-gray-400 text-sm mb-1">/ unidad</span>}
+              {!isGift && <span className="text-gray-400 font-bold text-base">/ unidad</span>}
           </div>
+
+            {/* 🟢 ETIQUETAS DE CARACTERÍSTICAS MÁS GRANDES Y VISIBLES */}
+          {product.characteristics && product.characteristics.length > 0 && (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mb-8">
+                  {product.characteristics.map((char, idx) => (
+                      <div key={idx} className="bg-emerald-50/50 text-emerald-800 text-sm font-bold px-4 py-2.5 rounded-xl border border-emerald-100 flex items-center gap-3 shadow-sm">
+                          <div className="bg-emerald-500 rounded-full p-1 shadow-sm shadow-emerald-200">
+                             <Check className="w-3.5 h-3.5 text-white stroke-[3px]" />
+                          </div>
+                          {char}
+                      </div>
+                  ))}
+              </div>
+          )}
           
           <form onSubmit={handleSubmit} className="space-y-6">
             

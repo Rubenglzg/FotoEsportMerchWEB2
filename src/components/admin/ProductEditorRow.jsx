@@ -2,18 +2,28 @@ import React, { useState, useEffect } from 'react';
 import { 
     ChevronRight, Settings, Trash2, Image as ImageIcon, Upload, Plus, Layers, Hash, 
     FileText, ShieldCheck, Lock, Unlock, Truck, Clock, Percent, EyeOff, Users,
-    Eye, CalendarClock, Hourglass, ToggleLeft, ToggleRight, CheckCircle2, Circle, Calendar
+    Eye, CalendarClock, Hourglass, ToggleLeft, ToggleRight, CheckCircle2, Circle, Calendar, Tag, X
 } from 'lucide-react';
 
 export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections, clubs = [], allProducts = [] }) => {
     const [isExpanded, setIsExpanded] = useState(false);
     const [localSizeInput, setLocalSizeInput] = useState(product.sizes ? product.sizes.join(', ') : '');
 
+    const [localCharInput, setLocalCharInput] = useState(product.characteristics ? product.characteristics.join(', ') : '');
+
     useEffect(() => {
         if (!isExpanded) { 
              setLocalSizeInput(product.sizes ? product.sizes.join(', ') : '');
+             setLocalCharInput(product.characteristics ? product.characteristics.join(', ') : '');
         }
-    }, [product.sizes, isExpanded]);
+    }, [product.sizes, product.characteristics, isExpanded]);
+
+    const handleCharBlur = () => {
+        const newChars = localCharInput.split(',')
+            .map(s => s.trim())
+            .filter(s => s !== ''); 
+        updateProduct({ ...product, characteristics: newChars });
+    };
 
     const handleSizeBlur = () => {
         const newSizes = localSizeInput.split(',')
@@ -354,6 +364,60 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                         </div>
                                     </div>
                                 </div>
+
+                                {/* 🟢 PANEL DE CARACTERÍSTICAS MEJORADO */}
+                                <div className="pt-4 border-t border-gray-100 mt-4">
+                                    <label className="text-[10px] font-bold text-gray-500 uppercase mb-2 flex items-center gap-1">
+                                        <Tag className="w-3.5 h-3.5 text-emerald-600"/> Gestión de Características y Ventajas
+                                    </label>
+                                    
+                                    <div className="bg-gray-50 p-3 rounded-xl border border-gray-200">
+                                        {/* Contenedor de etiquetas */}
+                                        <div className="flex flex-wrap gap-2 mb-3">
+                                            {product.characteristics?.map((char, index) => (
+                                                <span key={index} className="flex items-center gap-1.5 bg-white border border-emerald-200 text-emerald-700 px-2.5 py-1 rounded-lg text-xs font-bold shadow-sm animate-fade-in">
+                                                    {char}
+                                                    <button 
+                                                        onClick={() => {
+                                                            const newChars = product.characteristics.filter((_, i) => i !== index);
+                                                            updateProduct({ ...product, characteristics: newChars });
+                                                        }}
+                                                        className="hover:bg-red-50 hover:text-red-500 rounded-full p-0.5 transition-colors"
+                                                    >
+                                                        <X className="w-3 h-3" />
+                                                    </button>
+                                                </span>
+                                            ))}
+                                            {(!product.characteristics || product.characteristics.length === 0) && (
+                                                <span className="text-[11px] text-gray-400 italic">No hay características añadidas...</span>
+                                            )}
+                                        </div>
+
+                                        {/* Input para añadir */}
+                                        <div className="relative">
+                                            <input
+                                                type="text"
+                                                className="w-full border border-gray-200 rounded-lg py-2 pl-3 pr-24 text-sm bg-white focus:ring-2 focus:ring-emerald-500 outline-none font-medium text-gray-700 placeholder:text-gray-300"
+                                                placeholder="Ej: Apto lavavajillas"
+                                                onKeyDown={(e) => {
+                                                    if (e.key === 'Enter' && e.target.value.trim()) {
+                                                        e.preventDefault();
+                                                        const val = e.target.value.trim();
+                                                        const current = product.characteristics || [];
+                                                        if (!current.includes(val)) {
+                                                            updateProduct({ ...product, characteristics: [...current, val] });
+                                                        }
+                                                        e.target.value = '';
+                                                    }
+                                                }}
+                                            />
+                                            <div className="absolute right-2 top-1.5 px-2 py-1 bg-gray-100 rounded text-[10px] font-bold text-gray-400 border border-gray-200 pointer-events-none">
+                                                Pulsar Enter ↵
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                                
                             </div>
                         </div>
                     </div>

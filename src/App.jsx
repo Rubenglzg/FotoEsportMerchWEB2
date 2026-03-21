@@ -152,7 +152,7 @@ export default function App() {
         <NotificationToast notification={notification} />
         
         <Routes>
-          <Route path="/" element={<HomeView setView={setView} />} />
+          <Route path="/" element={<HomeView setView={setView} products={products} orders={orders} />} />
           <Route path="/tienda" element={<ShopView products={products} addToCart={addToCart} clubs={clubs} modificationFee={financialConfig.modificationFee} storeConfig={storeConfig} setConfirmation={setConfirmation} campaignConfig={campaignConfig}/>} />
           <Route path="/carrito" element={<CartView cart={cart} removeFromCart={removeFromCart} createOrder={createOrder} total={cart.reduce((total, item) => total + (item.price * (item.quantity || 1)), 0)} clubs={clubs} storeConfig={storeConfig} />} />
           <Route path="/fotos" element={<PhotoSearchView clubs={clubs} />} />

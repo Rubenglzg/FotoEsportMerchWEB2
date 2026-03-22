@@ -601,7 +601,11 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
         if (categoriesToSearch.length === 0) { 
             setPhotoSearchError("Debes seleccionar al menos una categoría en los datos de arriba."); return; 
         }
-        if (!isTeamPhoto && !searchPhotoName && !searchPhotoNumber) { 
+
+        // 🟢 MEJORA: Permitimos buscar foto de equipo en productos individuales o en packs (si no se pone nombre/dorsal)
+        const isSearchingTeamPhoto = isTeamPhoto || (isPackCard && !searchPhotoName && !searchPhotoNumber);
+
+        if (!isSearchingTeamPhoto && !searchPhotoName && !searchPhotoNumber) { 
             setPhotoSearchError("Escribe el nombre o dorsal del jugador para buscar su foto."); return; 
         }
   
@@ -616,9 +620,33 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
                 const folderRef = ref(storage, `${activeClub.name}/${cat}`);
                 try {
                     const res = await listAll(folderRef);
+                    
+                    // Normalizar la categoría para la búsqueda (Ej: "Alevín A" -> "alevin_a")
+                    const normCat = normalizeText(cat);
+                    const catWithUnderscores = normCat.replace(/\s+/g, '_');
+
                     for (const item of res.items) {
                         const normFileName = normalizeText(item.name);
-                        if (isTeamPhoto) { foundPhotoUrl = await getDownloadURL(item); foundFileName = item.name; break; }
+                        
+                        // --- 🟢 NUEVA LÓGICA DE FOTO DE EQUIPO ---
+                        if (isSearchingTeamPhoto) { 
+                            // 1. ¿Contiene la palabra "equipo"?
+                            const hasEquipo = normFileName.includes('equipo');
+                            
+                            // 2. ¿Se llama exactamente como la categoría con guiones? (Ej: alevin_a.jpg)
+                            const matchesCategory = normFileName.includes(catWithUnderscores);
+
+                            if (hasEquipo || matchesCategory) { 
+                                foundPhotoUrl = await getDownloadURL(item); 
+                                foundFileName = item.name; 
+                                break; 
+                            }
+                            // Si busca equipo, no evaluamos la lógica de jugador para este archivo
+                            continue; 
+                        }
+                        // --- FIN LÓGICA DE FOTO DE EQUIPO ---
+
+                        // Lógica normal para foto de jugador individual
                         let nameMatch = true; let dorsalMatch = true;
                         if (normSearchName) {
                             const cleanName = normFileName.replace(/_/g, ' ');
@@ -630,7 +658,7 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
                         }
                         if (nameMatch && dorsalMatch) { foundPhotoUrl = await getDownloadURL(item); foundFileName = item.name; break; }
                     }
-                } catch(e) { }
+                } catch(e) { console.error(e) }
                 if (foundPhotoUrl) break;
             }
   

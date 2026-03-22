@@ -510,7 +510,7 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
     const [photoSearchError, setPhotoSearchError] = useState('');
   
     useEffect(() => { setPhotoSearchResult(null); setPhotoSearchError(''); }, [customization.category, packData, searchPhotoName, searchPhotoNumber]);
-  
+
     // Inicializar datos del pack
     useEffect(() => {
         if (isPackCard) {
@@ -541,6 +541,55 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
   
     const isTeamPhoto = !isPackCard && product.name.toLowerCase().includes('foto') && variants.find(v => v.id === customization.selectedVariantId)?.name.toLowerCase().includes('equipo');
   
+    // 🟢 NUEVO: Auto-buscar foto de equipo con retraso (Debounce) para no molestar al escribir
+    useEffect(() => {
+        // 1. Limpiamos el error inmediatamente en cuanto el usuario cambia el texto
+        setPhotoSearchError('');
+
+        // 2. Creamos un temporizador para esperar a que el usuario termine de escribir
+        const timer = setTimeout(() => {
+            const fetchTeamPhoto = async () => {
+                // Solo buscamos si hay categoría, el club está activo y tiene al menos 3 caracteres
+                if (isTeamPhoto && customization.category && customization.category.length >= 3 && activeClub) {
+                    setIsSearchingPhoto(true);
+                    try {
+                        const folderRef = ref(storage, `${activeClub.name}/${customization.category}`);
+                        const res = await listAll(folderRef);
+                        
+                        const teamItem = res.items.find(item => normalizeText(item.name).includes('equipo'));
+                        
+                        if (teamItem) {
+                            const url = await getDownloadURL(teamItem);
+                            setPhotoSearchResult({ url, name: teamItem.name });
+                            setCustomization(prev => ({ ...prev, selectedPhoto: teamItem.name }));
+                            showToast("📸 Foto de equipo asignada automáticamente.");
+                        } else {
+                            // Solo mostramos el error si realmente ha dejado de escribir y no existe
+                            setPhotoSearchResult(null);
+                            setCustomization(prev => ({ ...prev, selectedPhoto: '' }));
+                            setPhotoSearchError(`No se encontró ninguna foto con la palabra "equipo" en la categoría ${customization.category}.`);
+                        }
+                    } catch (e) {
+                        // Silenciamos errores de "carpeta no encontrada" mientras escribe
+                        console.log("Buscando categoría...");
+                    }
+                    setIsSearchingPhoto(false);
+                }
+            };
+
+            if (isTeamPhoto && customization.category) {
+                fetchTeamPhoto();
+            } else if (isTeamPhoto && !customization.category) {
+                // Limpiar si el campo está vacío
+                setPhotoSearchResult(null);
+                setCustomization(prev => ({ ...prev, selectedPhoto: '' }));
+            }
+        }, 800); // Espera 0.8 segundos de calma antes de buscar
+
+        // 3. Si el usuario pulsa otra tecla antes de los 800ms, cancelamos el temporizador anterior
+        return () => clearTimeout(timer);
+    }, [isTeamPhoto, customization.category, activeClub]);
+
     const handleSearchPhoto = async () => {
         let categoriesToSearch = [];
         if (isPackCard) {
@@ -960,9 +1009,74 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
             ) : (
                 /* 🟢 MODO NORMAL (Mantenemos tu código original para no packs) */
                 <>
+                    {/* 1. SELECTOR DE VARIANTES CON RESETEO TOTAL (INCLUYE CATEGORÍA) */}
+                    {variants && variants.length > 0 && (
+                        <div className="bg-emerald-50/50 p-4 rounded-xl border border-emerald-100 mb-4 animate-fade-in shadow-inner">
+                            <label className="block text-xs font-bold text-emerald-800 uppercase mb-3">
+                                Formato del Producto <span className="text-red-500">*</span>
+                            </label>
+                            <div className="flex flex-wrap gap-2">
+                                {/* Botón Estándar con reset completo */}
+                                <button 
+                                    type="button" 
+                                    onClick={() => {
+                                        setCustomization({
+                                            ...customization, 
+                                            selectedVariantId: null,
+                                            category: '', // Limpia el valor interno de la categoría
+                                            playerName: '', playerNumber: '', playerName2: '', playerNumber2: '', playerName3: '', playerNumber3: '',
+                                            selectedPhoto: '', selectedPhoto2: '', selectedPhoto3: ''
+                                        });
+                                        setCategoryInput(''); // Limpia visualmente el campo de texto de la categoría
+                                        setPhotoSearchResult(null);
+                                        setPhotoSearchError('');
+                                        setSearchPhotoName('');
+                                        setSearchPhotoNumber('');
+                                    }} 
+                                    className={`px-4 py-2.5 text-sm font-bold rounded-xl border transition-all shadow-sm ${!customization.selectedVariantId ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50'}`}
+                                >
+                                    Estándar
+                                </button>
+
+                                {/* Botones de Variantes (Doble, Triple, Equipo...) con reset completo */}
+                                {variants.map(v => (
+                                    <button 
+                                        key={v.id} 
+                                        type="button" 
+                                        onClick={() => {
+                                            setCustomization({
+                                                ...customization, 
+                                                selectedVariantId: v.id,
+                                                category: '', // Limpia el valor interno de la categoría
+                                                playerName: '', playerNumber: '', playerName2: '', playerNumber2: '', playerName3: '', playerNumber3: '',
+                                                selectedPhoto: '', selectedPhoto2: '', selectedPhoto3: ''
+                                            });
+                                            setCategoryInput(''); // Limpia visualmente el campo de texto de la categoría
+                                            setPhotoSearchResult(null);
+                                            setPhotoSearchError('');
+                                            setSearchPhotoName('');
+                                            setSearchPhotoNumber('');
+                                        }} 
+                                        className={`px-4 py-2.5 text-sm font-bold rounded-xl border transition-all shadow-sm ${customization.selectedVariantId === v.id ? 'bg-emerald-600 text-white border-emerald-600' : 'bg-white text-gray-600 border-gray-200 hover:border-emerald-300 hover:bg-emerald-50'}`}
+                                    >
+                                        {v.name} {v.priceMod > 0 ? `(+${v.priceMod}€)` : ''}
+                                    </button>
+                                ))}
+                            </div>
+                        </div>
+                    )}
+
                     {customization.clubId && (
                         <div className="relative animate-fade-in border-t border-gray-100 pt-4">
                             <label className="block text-sm font-medium text-gray-700 mb-1">Categoría <span className="text-red-500">*</span></label>
+                            
+                            {/* 🟢 MENSAJE AVISO EQUIPO */}
+                            {isTeamPhoto && (
+                                <p className="text-[11px] text-emerald-700 font-bold mb-2 bg-emerald-50 p-2 rounded-lg border border-emerald-100 flex items-center gap-1.5">
+                                    <Check className="w-3.5 h-3.5" /> Selecciona la categoría para cargar automáticamente la foto del equipo.
+                                </p>
+                            )}
+
                             <Input placeholder="Buscar categoría..." value={categoryInput} onChange={e => { setCategoryInput(e.target.value); setCustomization({...customization, category: e.target.value}); setShowCategorySuggestions(true); }} onFocus={() => setShowCategorySuggestions(true)} onBlur={() => setTimeout(() => setShowCategorySuggestions(false), 200)} />
                             {showCategorySuggestions && categorySuggestions.length > 0 && (
                                 <div className="absolute top-full w-full bg-white border rounded-b-lg shadow-lg z-20 max-h-48 overflow-y-auto">
@@ -994,31 +1108,57 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
                                 {features.number && modifiable.number && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})}/><span className="text-sm">Incluir Dorsal</span></label> )}
                                 {features.photo && modifiable.photo && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includePhoto} onChange={e => setCustomization({...customization, includePhoto: e.target.checked})}/><span className="text-sm">Incluir Foto</span></label> )}
                             </div>
+                            
+                            {/* CAMPOS JUGADOR 1 */}
                             <div className="grid grid-cols-2 gap-4">
-                                {features.name && ( <div className={!customization.includeName ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block">Nombre</label><Input value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/></div> )}
-                                {features.number && ( <div className={!customization.includeNumber ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block">Dorsal</label><Input type="number" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/></div> )}
+                                {features.name && ( <div className={!customization.includeName ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block text-emerald-700">Nombre {(isDouble||isTriple)?'(J1)':''}</label><Input value={customization.playerName} onChange={e => setCustomization({...customization, playerName: e.target.value})}/></div> )}
+                                {features.number && ( <div className={!customization.includeNumber ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block text-emerald-700">Dorsal {(isDouble||isTriple)?'(J1)':''}</label><Input type="number" value={customization.playerNumber} onChange={e => setCustomization({...customization, playerNumber: e.target.value})}/></div> )}
                             </div>
+
+                            {/* CAMPOS JUGADOR 2 (Aparece si marcas la variante Doble o Triple) */}
+                            {(isDouble || isTriple) && (
+                                <div className="grid grid-cols-2 gap-4 mt-4 border-t border-emerald-50 pt-4 animate-fade-in">
+                                    {features.name && ( <div className={!customization.includeName ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block text-blue-700">Nombre (J2)</label><Input value={customization.playerName2} onChange={e => setCustomization({...customization, playerName2: e.target.value})}/></div> )}
+                                    {features.number && ( <div className={!customization.includeNumber ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block text-blue-700">Dorsal (J2)</label><Input type="number" value={customization.playerNumber2} onChange={e => setCustomization({...customization, playerNumber2: e.target.value})}/></div> )}
+                                </div>
+                            )}
+
+                            {/* CAMPOS JUGADOR 3 (Aparece si marcas la variante Triple) */}
+                            {isTriple && (
+                                <div className="grid grid-cols-2 gap-4 mt-4 border-t border-emerald-50 pt-4 animate-fade-in">
+                                    {features.name && ( <div className={!customization.includeName ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block text-purple-700">Nombre (J3)</label><Input value={customization.playerName3} onChange={e => setCustomization({...customization, playerName3: e.target.value})}/></div> )}
+                                    {features.number && ( <div className={!customization.includeNumber ? 'opacity-30 pointer-events-none' : ''}><label className="text-sm font-medium mb-1 block text-purple-700">Dorsal (J3)</label><Input type="number" value={customization.playerNumber3} onChange={e => setCustomization({...customization, playerNumber3: e.target.value})}/></div> )}
+                                </div>
+                            )}
                         </div>
                     )}
                 </>
             )}
   
-            {/* SECCIÓN INDEPENDIENTE: BÚSQUEDA DE FOTOGRAFÍA (Hereda la lógica de ambos) */}
+            {/* SECCIÓN INDEPENDIENTE: BÚSQUEDA DE FOTOGRAFÍA */}
             {((isPackCard && bundledProductsData.some(bp => bp.features?.photo && (packData[bp.id]?.includePhoto ?? bp.defaults?.photo))) || (!isPackCard && features.photo && customization.includePhoto)) && (
                 <div className="bg-emerald-50/50 p-5 rounded-xl border border-emerald-100 mt-6 relative overflow-hidden shadow-inner">
-                    <h4 className="font-bold text-emerald-800 text-sm uppercase mb-2">Buscador de Fotografía <span className="text-red-500">*</span></h4>
-                    <p className="text-xs text-gray-600 mb-4 leading-relaxed">Independientemente de si has pedido imprimir tu nombre o no, necesitamos que busques tu foto usando tu nombre o dorsal:</p>
+                    <h4 className="font-bold text-emerald-800 text-sm uppercase mb-2">
+                        {isTeamPhoto ? 'Fotografía de Equipo' : 'Buscador de Fotografía'} <span className="text-red-500">*</span>
+                    </h4>
+                    <p className="text-xs text-gray-600 mb-4 leading-relaxed">
+                        {isTeamPhoto 
+                            ? 'La foto del equipo se carga automáticamente al seleccionar la categoría en la parte superior.' 
+                            : 'Independientemente de si has pedido imprimir tu nombre o no, necesitamos que busques tu foto usando tu nombre o dorsal:'}
+                    </p>
                     
                     {!isTeamPhoto && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
-                            <div><label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Nombre</label><Input placeholder="Ej: Marc" value={searchPhotoName} onChange={e => setSearchPhotoName(e.target.value)}/></div>
-                            <div><label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Dorsal</label><Input type="number" placeholder="Ej: 10" value={searchPhotoNumber} onChange={e => setSearchPhotoNumber(e.target.value)}/></div>
-                        </div>
+                        <>
+                            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-4 bg-white p-3 rounded-lg border border-emerald-100 shadow-sm">
+                                <div><label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Nombre</label><Input placeholder="Ej: Marc" value={searchPhotoName} onChange={e => setSearchPhotoName(e.target.value)}/></div>
+                                <div><label className="text-[10px] font-bold text-emerald-700 uppercase block mb-1">Dorsal</label><Input type="number" placeholder="Ej: 10" value={searchPhotoNumber} onChange={e => setSearchPhotoNumber(e.target.value)}/></div>
+                            </div>
+                            
+                            <Button type="button" onClick={handleSearchPhoto} disabled={isSearchingPhoto} className="w-full flex items-center justify-center gap-2 mb-3 bg-emerald-600 py-3">
+                                {isSearchingPhoto ? <RefreshCw className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>} {isSearchingPhoto ? 'Buscando foto...' : 'Buscar y Confirmar Fotografía'}
+                            </Button>
+                        </>
                     )}
-                    
-                    <Button type="button" onClick={handleSearchPhoto} disabled={isSearchingPhoto} className="w-full flex items-center justify-center gap-2 mb-3 bg-emerald-600 py-3">
-                        {isSearchingPhoto ? <RefreshCw className="w-5 h-5 animate-spin"/> : <Search className="w-5 h-5"/>} {isSearchingPhoto ? 'Buscando foto...' : 'Buscar y Confirmar Fotografía'}
-                    </Button>
   
                     {photoSearchError && <div className="text-red-600 text-xs bg-red-50 p-3 rounded-lg border border-red-200 flex items-center gap-2 mt-2 font-medium shadow-sm"><AlertTriangle className="w-5 h-5 shrink-0"/> {photoSearchError}</div>}
   
@@ -1027,39 +1167,43 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
                             <div className="pointer-events-none rounded-xl overflow-hidden border-[3px] border-emerald-300 shadow-xl bg-white p-1 mb-3">
                                 <ProtectedWatermarkImage imageUrl={photoSearchResult.url} fileName={photoSearchResult.name} logoUrl={LOGO_URL} />
                             </div>
-                            <div className="flex flex-col gap-2 mt-2">
-                                <p className="text-xs font-bold text-emerald-800 text-center uppercase tracking-wide">¿A dónde asignamos esta foto?</p>
-                                
-                                {isPackCard ? (
-                                    bundledProductsData.filter(bp => bp.features?.photo && (packData[bp.id]?.includePhoto ?? bp.defaults?.photo)).map(bp => {
-                                        const pData = packData[bp.id] || {};
-                                        const bpActiveVariant = bp.variants?.find(v => v.id === pData.selectedVariantId);
-                                        const bpIsDouble = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('doble');
-                                        const bpIsTriple = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('triple');
+                            
+                            {/* Ocultamos los botones de asignar si es equipo porque ya se asignó automáticamente */}
+                            {!isTeamPhoto && (
+                                <div className="flex flex-col gap-2 mt-2">
+                                    <p className="text-xs font-bold text-emerald-800 text-center uppercase tracking-wide">¿A dónde asignamos esta foto?</p>
+                                    
+                                    {isPackCard ? (
+                                        bundledProductsData.filter(bp => bp.features?.photo && (packData[bp.id]?.includePhoto ?? bp.defaults?.photo)).map(bp => {
+                                            const pData = packData[bp.id] || {};
+                                            const bpActiveVariant = bp.variants?.find(v => v.id === pData.selectedVariantId);
+                                            const bpIsDouble = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('doble');
+                                            const bpIsTriple = bpActiveVariant && bpActiveVariant.name.toLowerCase().includes('triple');
 
-                                        return (
-                                            <div key={bp.id} className="mb-3 bg-white p-2 rounded border border-emerald-100 shadow-sm">
-                                                <p className="text-[10px] font-bold text-emerald-800 uppercase mb-1.5">{bp.name}</p>
-                                                <div className="flex flex-col gap-1.5">
-                                                    <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J1)`); }} className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 1</button>
-                                                    {(bpIsDouble || bpIsTriple) && (
-                                                        <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto2', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J2)`); }} className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 2</button>
-                                                    )}
-                                                    {bpIsTriple && (
-                                                        <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto3', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J3)`); }} className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 3</button>
-                                                    )}
+                                            return (
+                                                <div key={bp.id} className="mb-3 bg-white p-2 rounded border border-emerald-100 shadow-sm">
+                                                    <p className="text-[10px] font-bold text-emerald-800 uppercase mb-1.5">{bp.name}</p>
+                                                    <div className="flex flex-col gap-1.5">
+                                                        <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J1)`); }} className="bg-emerald-600 hover:bg-emerald-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 1</button>
+                                                        {(bpIsDouble || bpIsTriple) && (
+                                                            <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto2', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J2)`); }} className="bg-blue-600 hover:bg-blue-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 2</button>
+                                                        )}
+                                                        {bpIsTriple && (
+                                                            <button type="button" onClick={() => { updatePackItem(bp.id, 'selectedPhoto3', photoSearchResult.name); showToast(`📸 Foto asignada a ${bp.name} (J3)`); }} className="bg-purple-600 hover:bg-purple-700 text-white text-[11px] font-bold py-2 px-3 rounded-lg w-full shadow-sm text-left pl-3">Asignar a Jugador 3</button>
+                                                        )}
+                                                    </div>
                                                 </div>
-                                            </div>
-                                        );
-                                    })
-                                ) : (
-                                    <>
-                                        <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 1"); }} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 1</button>
-                                        {(isDouble || isTriple) && <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto2: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 2"); }} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 2</button>}
-                                        {isTriple && <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto3: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 3"); }} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 3</button>}
-                                    </>
-                                )}
-                            </div>
+                                            );
+                                        })
+                                    ) : (
+                                        <>
+                                            <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 1"); }} className="bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 1</button>
+                                            {(isDouble || isTriple) && <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto2: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 2"); }} className="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 2</button>}
+                                            {isTriple && <button type="button" onClick={() => { setCustomization({...customization, selectedPhoto3: photoSearchResult.name}); showToast("📸 Foto asignada al Jugador 3"); }} className="bg-purple-600 hover:bg-purple-700 text-white text-xs font-bold py-2.5 px-3 rounded-lg w-full">Asignar a Jugador 3</button>}
+                                        </>
+                                    )}
+                                </div>
+                            )}
                         </div>
                     )}
                     
@@ -1086,8 +1230,9 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
                               })
                           ) : (
                               <>
-                                  <p className="text-xs"><strong>Jugador 1:</strong> {customization.selectedPhoto ? <span className="text-emerald-600 font-bold">{customization.selectedPhoto}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>
-                                  {(isDouble || isTriple) && <p className="text-xs"><strong>Jugador 2:</strong> {customization.selectedPhoto2 ? <span className="text-blue-600 font-bold">{customization.selectedPhoto2}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>}
+                                  <p className="text-xs"><strong>{isTeamPhoto ? 'Equipo:' : 'Jugador 1:'}</strong> {customization.selectedPhoto ? <span className="text-emerald-600 font-bold">{customization.selectedPhoto}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>
+                                  {(isDouble || isTriple) && !isTeamPhoto && <p className="text-xs"><strong>Jugador 2:</strong> {customization.selectedPhoto2 ? <span className="text-blue-600 font-bold">{customization.selectedPhoto2}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>}
+                                  {isTriple && !isTeamPhoto && <p className="text-xs"><strong>Jugador 3:</strong> {customization.selectedPhoto3 ? <span className="text-purple-600 font-bold">{customization.selectedPhoto3}</span> : <span className="text-red-500 font-medium">Pendiente</span>}</p>}
                               </>
                           )}
                       </div>

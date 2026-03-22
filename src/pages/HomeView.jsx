@@ -26,11 +26,14 @@ export function HomeView({ setView, products = [], orders = [] }) {
   // Estado para los posts de Instagram
   const [igPosts, setIgPosts] = useState([]);
 
-  // Carrusel principal
+  // Carrusel principal (Sustituidas imágenes de ejemplo por deportes verificados)
   const slides = [
-    'https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&q=80&w=1200', 
-    'https://images.unsplash.com/photo-1540747913346-19e32dc3e97e?auto=format&fit=crop&q=80&w=1200', 
-    'https://images.unsplash.com/photo-1511512578047-929550a8a23e?auto=format&fit=crop&q=80&w=1200'  
+    // ⚽ 1. Fútbol (Verificado)
+    'https://images.pexels.com/photos/114296/pexels-photo-114296.jpeg?auto=compress&cs=tinysrgb&w=1200', 
+    // 🏀 2. Baloncesto (Balón en canasta al atardecer - Verificado)
+    'https://images.unsplash.com/photo-1519861531473-9200262188bf?auto=format&fit=crop&q=80&w=1200',
+    // 🏟️ 3. Polideportivo / Acción (Verificado)
+    'https://images.pexels.com/photos/47730/the-ball-stadion-football-the-pitch-47730.jpeg?auto=compress&cs=tinysrgb&w=1200'  
   ];
 
   useEffect(() => { 
@@ -288,7 +291,14 @@ export function HomeView({ setView, products = [], orders = [] }) {
       <div className="grid grid-cols-1 md:grid-cols-3 gap-6 h-auto md:h-80 mx-4 lg:mx-12">
           <div onClick={() => setView('shop')} className="md:col-span-2 bg-gray-100 rounded-3xl relative overflow-hidden cursor-pointer group shadow-sm hover:shadow-md transition-all">
               <div className="absolute inset-0 bg-gradient-to-r from-black/60 to-transparent z-10"></div>
-              <img src="https://images.unsplash.com/photo-1556906781-9a412961c28c?auto=format&fit=crop&q=80&w=800" className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" alt="Tienda" />
+              
+              {/* ✅ FOTO ACTUALIZADA: Pexels Polideportivo (Fútbol, Basket, Running) */}
+                <img 
+                  src="https://images.unsplash.com/photo-1579952363873-27f3bade9f55?auto=format&fit=crop&q=80&w=800" 
+                  className="absolute inset-0 w-full h-full object-cover group-hover:scale-105 transition-transform duration-700" 
+                  alt="Tienda Oficial de Merchandising Fútbol" 
+                />
+
               <div className="relative z-20 p-8 h-full flex flex-col justify-end items-start">
                   <span className="bg-white/20 backdrop-blur-md text-white text-xs font-bold px-3 py-1 rounded-full mb-3 border border-white/30">Catálogo Completo</span>
                   <h3 className="text-3xl font-bold text-white mb-2">Tienda Oficial</h3>

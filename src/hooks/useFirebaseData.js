@@ -19,6 +19,8 @@ export function useFirebaseData(user) {
     });
 
     // 2. Efectos de escucha en tiempo real
+
+    // Configuración de campañas (Público)
     useEffect(() => {
         const unsub = onSnapshot(doc(db, 'settings', 'campaigns'), (docSnap) => {
             if (docSnap.exists()) setCampaignConfig(docSnap.data());
@@ -26,25 +28,30 @@ export function useFirebaseData(user) {
         return () => unsub();
     }, []);
 
+    // PEDIDOS (Privado: requiere usuario)
     useEffect(() => { 
-        if (!user) return; 
+        if (!user) { setOrders([]); return; } 
         const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); 
         const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { 
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
             ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); 
             setOrders(ordersData); 
-        }); 
+        }, (error) => console.log("Listener de pedidos detenido por cierre de sesión")); // Silenciamos el error
         return () => unsubOrders(); 
     }, [user]);
 
+    // PROVEEDORES (Privado: requiere usuario)
     useEffect(() => {
+        if (!user) { setSuppliers([]); return; }
         const unsub = onSnapshot(query(collection(db, 'suppliers')), (snapshot) => {
             setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        });
+        }, (error) => console.log("Listener de proveedores detenido"));
         return () => unsub();
-    }, []);
+    }, [user]);
 
+    // Configuración Financiera (Público/Privado: mejor con user)
     useEffect(() => {
+        if (!user) return;
         const unsub = onSnapshot(doc(db, 'settings', 'financial'), (doc) => {
             if (doc.exists()) {
                 const data = doc.data();
@@ -57,8 +64,9 @@ export function useFirebaseData(user) {
             }
         });
         return () => unsub();
-    }, []);
+    }, [user]);
 
+    // PRODUCTOS (Público)
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, 'products')), (snapshot) => {
             setProducts(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -66,6 +74,7 @@ export function useFirebaseData(user) {
         return () => unsub();
     }, []);
 
+    // CLUBES (Público)
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, 'clubs')), (snapshot) => {
             setClubs(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
@@ -73,6 +82,7 @@ export function useFirebaseData(user) {
         return () => unsub();
     }, []);
 
+    // TEMPORADAS (Público)
     useEffect(() => {
         const unsub = onSnapshot(query(collection(db, 'seasons')), (snapshot) => {
             const seasonsData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
@@ -87,6 +97,6 @@ export function useFirebaseData(user) {
     // 3. Devolvemos los datos para que App.jsx los pueda usar
     return {
         orders, products, clubs, seasons, suppliers, financialConfig, campaignConfig,
-        setCampaignConfig, setFinancialConfig // Exportamos estos dos porque los modificas desde el Admin
+        setCampaignConfig, setFinancialConfig 
     };
 }

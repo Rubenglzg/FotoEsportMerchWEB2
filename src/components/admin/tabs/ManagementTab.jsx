@@ -1,11 +1,12 @@
 import React, { useState, useEffect } from 'react';
-import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye, Gift, Trash2, Copy, Tag, Mail, Download } from 'lucide-react';
+import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye, Gift, Trash2, Copy, Tag, Mail, Download, Shield, Lock, Unlock, Info } from 'lucide-react';
 
-// 1. Aquí van las cosas de la base de datos (Firestore)
-import { doc, setDoc, getDocs, query, collection, addDoc, deleteDoc } from 'firebase/firestore';
+// Firebase Firestore
+import { doc, setDoc, getDoc, getDocs, query, collection, addDoc, deleteDoc } from 'firebase/firestore';
+// Firebase Auth
+import { updateEmail, updatePassword, sendPasswordResetEmail } from 'firebase/auth';
+import { db, auth } from '../../../config/firebase'; 
 
-// 2. Tu configuración local
-import { db } from '../../../config/firebase'; 
 import { Button } from '../../ui/Button';
 import { ColorPicker } from '../ui/ColorPicker';
 import { ClubEditorRow } from '../ClubEditorRow';
@@ -21,39 +22,133 @@ export const ManagementTab = ({
     const [showNewClubPass, setShowNewClubPass] = useState(false);
     const [newClubColor, setNewClubColor] = useState('white');
 
-    // --- NUEVOS ESTADOS PARA CÓDIGOS DE REGALO ---
+    // Estados para Códigos de Regalo
     const [giftCodes, setGiftCodes] = useState([]);
-    const [filterStatus, setFilterStatus] = useState('pending'); // 'pending' | 'redeemed'
+    const [filterStatus, setFilterStatus] = useState('pending');
     const [newManualProduct, setNewManualProduct] = useState('');
     const [newManualEmail, setNewManualEmail] = useState('');
     const [isGenerating, setIsGenerating] = useState(false);
-    const [codeType, setCodeType] = useState('product'); // 'product' (Regalo), 'percent' (%), 'fixed' (€)
-    const [applyTo, setApplyTo] = useState('specific'); // 'specific' (Producto concreto), 'all' (Toda la cesta)
-    const [discountValue, setDiscountValue] = useState(''); // Valor del descuento (Ej: 10, 50...)
-    const [productQuantity, setProductQuantity] = useState(1); // Cantidad de productos a regalar
+    const [codeType, setCodeType] = useState('product');
+    const [applyTo, setApplyTo] = useState('specific');
+    const [discountValue, setDiscountValue] = useState('');
+    const [productQuantity, setProductQuantity] = useState(1);
     const [allowedClub, setAllowedClub] = useState('all');
 
-    // Cargar los códigos al abrir la pestaña
+    // Estados para Seguridad y Acceso Admin
+    const [adminAlias, setAdminAlias] = useState('');
+    const [adminEmail, setAdminEmail] = useState('');
+    const [adminPass, setAdminPass] = useState('');
+    const [secModal, setSecModal] = useState({ show: false, code: '', pending: null, input: '' });
+    
+    // Estado de bloqueo de seguridad
+    const [isSecurityUnlocked, setIsSecurityUnlocked] = useState(false);
+
+    // 1. Carga inicial de datos
+    useEffect(() => {
+        fetchGiftCodes();
+        fetchAdminAuth();
+    }, []);
+
     const fetchGiftCodes = async () => {
         try {
             const snap = await getDocs(query(collection(db, 'giftCodes')));
             const codes = snap.docs.map(d => ({id: d.id, ...d.data()}));
-            // Ordenar por fecha de creación (más recientes primero)
             codes.sort((a,b) => new Date(b.createdAt) - new Date(a.createdAt));
             setGiftCodes(codes);
         } catch (err) {
-            console.error("Error cargando códigos:", err);
-            showNotification("Error al cargar los códigos de regalo", "error");
+            showNotification("Error al cargar códigos de regalo", "error");
         }
     };
 
-    useEffect(() => {
-        fetchGiftCodes();
-    }, []);
+    const fetchAdminAuth = async () => {
+        try {
+            const snap = await getDoc(doc(db, 'settings', 'admin_auth'));
+            if (snap.exists()) {
+                setAdminAlias(snap.data().alias);
+                setAdminEmail(snap.data().email);
+            } else {
+                setAdminAlias('admin');
+                setAdminEmail(auth.currentUser?.email || 'fotoesportmerch@gmail.com');
+            }
+        } catch (e) {
+            console.error("Error cargando configuración admin", e);
+        }
+    };
 
-    // Función para generar un código manualmente
+    // 2. Funciones de Seguridad (Administrador)
+    const handleSaveSecurity = async () => {
+        if (!adminAlias.trim() || !adminEmail.trim()) {
+            return showNotification("El usuario y el email no pueden estar vacíos", "error");
+        }
+        
+        const currentMail = auth.currentUser?.email || 'fotoesportmerch@gmail.com';
+        const code = Math.floor(100000 + Math.random() * 900000).toString();
+
+        try {
+            await addDoc(collection(db, 'mail'), {
+                to: currentMail,
+                message: {
+                    subject: "Autorización de Cambios - FotoEsport Merch",
+                    html: `<div style="font-family:sans-serif; border:1px solid #eee; padding:20px; border-radius:10px;">
+                            <h2 style="color:#333;">Modificación de Seguridad</h2>
+                            <p>Se ha solicitado cambiar las credenciales de acceso. Introduce este código para confirmar:</p>
+                            <div style="font-size:32px; font-weight:bold; color:#4F46E5; letter-spacing:5px;">${code}</div>
+                           </div>`
+                }
+            });
+            setSecModal({ show: true, code, pending: { alias: adminAlias, email: adminEmail, pass: adminPass }, input: '' });
+            showNotification("Revisa tu correo actual. Te hemos enviado un código.", "info");
+        } catch (e) {
+            showNotification("Error al enviar el código de seguridad", "error");
+        }
+    };
+
+    const confirmSecurityChanges = async () => {
+        if (secModal.input !== secModal.code) {
+            return showNotification("Código incorrecto", "error");
+        }
+
+        try {
+            const p = secModal.pending;
+            
+            if (p.email !== auth.currentUser?.email) {
+                await updateEmail(auth.currentUser, p.email);
+            }
+            if (p.pass) {
+                await updatePassword(auth.currentUser, p.pass);
+            }
+            
+            await setDoc(doc(db, 'settings', 'admin_auth'), {
+                alias: p.alias,
+                email: p.email
+            });
+
+            showNotification("Credenciales de seguridad actualizadas con éxito");
+            setSecModal({ show: false, code: '', pending: null, input: '' });
+            setAdminPass(''); 
+            
+            setIsSecurityUnlocked(false);
+        } catch (error) {
+            if (error.code === 'auth/requires-recent-login') {
+                showNotification("Por seguridad, debes cerrar sesión y volver a entrar para cambiar tu contraseña/email.", "error");
+            } else {
+                showNotification("Error: " + error.message, "error");
+            }
+        }
+    };
+
+    const handleResetPassword = async () => {
+        try {
+            const emailToReset = auth.currentUser?.email || 'fotoesportmerch@gmail.com';
+            await sendPasswordResetEmail(auth, emailToReset);
+            showNotification(`Se ha enviado un correo oficial de recuperación a ${emailToReset}`, "success");
+        } catch (error) {
+            showNotification("Error enviando el correo de recuperación", "error");
+        }
+    };
+
+    // 3. Funciones de Códigos de Regalo
     const handleGenerateManualCode = async () => {
-        // Validaciones
         if ((codeType === 'product' || applyTo === 'specific') && !newManualProduct) {
             return showNotification("Debes seleccionar un producto del catálogo", "error");
         }
@@ -62,23 +157,20 @@ export const ManagementTab = ({
         }
 
         setIsGenerating(true);
-
         const prod = (codeType === 'product' || applyTo === 'specific') ? products.find(p => p.id === newManualProduct) : null;
-        
-        // Creamos un prefijo inteligente para saber a simple vista qué tipo de código es
         const prefix = codeType === 'percent' ? 'PCT' : (codeType === 'fixed' ? 'FIX' : 'REG');
         const codeStr = `${prefix}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
         try {
             await addDoc(collection(db, 'giftCodes'), {
                 code: codeStr,
-                type: 'manual', // Origen manual
-                codeType: codeType, // 'product', 'percent', 'fixed'
-                applyTo: codeType === 'product' ? 'specific' : applyTo, // 'specific', 'all'
+                type: 'manual',
+                codeType: codeType,
+                applyTo: codeType === 'product' ? 'specific' : applyTo,
                 productId: prod ? prod.id : null,
                 productName: prod ? prod.name : 'Toda la cesta',
                 discountValue: codeType !== 'product' ? parseFloat(discountValue) : null,
-                maxUnits: (codeType === 'product' || applyTo === 'specific') ? parseInt(productQuantity) : 0, // 0 = sin límite
+                maxUnits: (codeType === 'product' || applyTo === 'specific') ? parseInt(productQuantity) : 0,
                 userEmail: newManualEmail || 'Generado Manualmente',
                 allowedClub: allowedClub,
                 status: 'pending',
@@ -86,45 +178,30 @@ export const ManagementTab = ({
             });
             
             showNotification("Código promocional generado con éxito");
-            
-            // Limpiamos el formulario para el siguiente
-            setNewManualProduct('');
-            setNewManualEmail('');
-            setDiscountValue('');
-            setProductQuantity(1);
-            setAllowedClub('all');
-            fetchGiftCodes(); // Recargamos la lista
+            setNewManualProduct(''); setNewManualEmail(''); setDiscountValue('');
+            setProductQuantity(1); setAllowedClub('all');
+            fetchGiftCodes();
         } catch (e) {
-            console.error(e);
             showNotification("Hubo un error al generar el código", "error");
         }
         setIsGenerating(false);
     };
 
-    // Función para borrar un código (solo si no se ha usado)
     const handleDeleteCode = async (id) => {
-        if (!window.confirm("¿Estás seguro de que quieres eliminar este código? Dejará de funcionar.")) return;
+        if (!window.confirm("¿Seguro que quieres eliminar este código?")) return;
         try {
             await deleteDoc(doc(db, 'giftCodes', id));
             showNotification("Código eliminado correctamente");
             fetchGiftCodes();
-        } catch (e) {
-            showNotification("Error al eliminar el código", "error");
-        }
-    };
-
-    const copyToClipboard = (text) => {
-        navigator.clipboard.writeText(text);
-        showNotification("Código copiado al portapapeles");
+        } catch (e) { showNotification("Error al eliminar", "error"); }
     };
 
     return (
         <div className="space-y-8 animate-fade-in">
             
-            {/* CONFIGURACIONES GLOBALES */}
+            {/* BLOQUES GLOBALES: ESTADO Y FINANZAS */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                 
-                {/* ESTADO DE LA TIENDA */}
                 <div className={`rounded-xl shadow-sm border p-5 flex items-center justify-between transition-all ${storeConfig.isOpen ? 'bg-white border-emerald-200' : 'bg-red-50 border-red-200'}`}>
                     <div className="flex items-center gap-4">
                         <div className={`p-3 rounded-full ${storeConfig.isOpen ? 'bg-emerald-100 text-emerald-600' : 'bg-red-100 text-red-600'}`}>
@@ -137,10 +214,9 @@ export const ManagementTab = ({
                             </p>
                             {!storeConfig.isOpen && (
                                 <input 
-                                    className="mt-2 text-xs border border-red-200 p-1.5 rounded w-full bg-white text-red-800 placeholder-red-300 focus:outline-none" 
+                                    className="mt-2 text-xs border border-red-200 p-1.5 rounded w-full bg-white text-red-800 outline-none" 
                                     value={storeConfig.closedMessage} 
                                     onChange={e => setStoreConfig({...storeConfig, closedMessage: e.target.value})} 
-                                    placeholder="Mensaje de cierre..."
                                 />
                             )}
                         </div>
@@ -154,7 +230,6 @@ export const ManagementTab = ({
                     </button>
                 </div>
 
-                {/* CONFIGURACIÓN FINANCIERA */}
                 <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-5">
                     <div className="flex items-center gap-2 mb-4 pb-2 border-b border-gray-100">
                         <Banknote className="w-5 h-5 text-blue-600"/>
@@ -163,11 +238,11 @@ export const ManagementTab = ({
                     
                     <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Comisión Comercial Global</label>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Comisión Global</label>
                             <div className="relative">
                                 <input 
                                     type="number" 
-                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 focus:border-blue-500 outline-none bg-gray-50 focus:bg-white transition-colors"
+                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 outline-none"
                                     value={(financialConfig.commercialCommissionPct * 100).toFixed(0)}
                                     onChange={(e) => setFinancialConfig(prev => ({...prev, commercialCommissionPct: parseFloat(e.target.value)/100}))}
                                     onBlur={() => updateFinancialConfig(financialConfig)}
@@ -180,53 +255,177 @@ export const ManagementTab = ({
                             <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Extra Personalización</label>
                             <div className="relative">
                                 <input 
-                                    type="number" 
-                                    step="0.10"
-                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 focus:border-blue-500 outline-none bg-gray-50 focus:bg-white transition-colors"
+                                    type="number" step="0.10"
+                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 outline-none"
                                     value={financialConfig.modificationFee}
                                     onChange={(e) => setFinancialConfig(prev => ({...prev, modificationFee: parseFloat(e.target.value)}))}
                                     onBlur={() => updateFinancialConfig(financialConfig)}
                                 />
                                 <span className="absolute right-2 top-2 text-gray-400 font-bold text-sm">€</span>
                             </div>
-                            <p className="text-[9px] text-gray-400 mt-1">Coste unitario por cada modificación.</p>
                         </div>
 
                         <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Coste Pasarela (Var + Fijo)</label>
+                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Pasarela (Var/Fijo)</label>
                             <div className="flex gap-2">
-                                <div className="relative flex-1">
-                                    <input 
-                                        type="number" step="0.1"
-                                        className="w-full border border-gray-300 rounded-lg p-2 text-right pr-5 font-bold text-gray-800 text-xs focus:border-blue-500 outline-none"
-                                        value={(financialConfig.gatewayPercentFee * 100).toFixed(1)}
-                                        onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayPercentFee: parseFloat(e.target.value)/100}))}
-                                        onBlur={() => updateFinancialConfig(financialConfig)}
-                                    />
-                                    <span className="absolute right-1 top-2 text-gray-400 font-bold text-[10px]">%</span>
-                                </div>
-                                <div className="relative flex-1">
-                                    <input 
-                                        type="number" step="0.01"
-                                        className="w-full border border-gray-300 rounded-lg p-2 text-right pr-4 font-bold text-gray-800 text-xs focus:border-blue-500 outline-none"
-                                        value={financialConfig.gatewayFixedFee}
-                                        onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayFixedFee: parseFloat(e.target.value)}))}
-                                        onBlur={() => updateFinancialConfig(financialConfig)}
-                                    />
-                                    <span className="absolute right-1 top-2 text-gray-400 font-bold text-[10px]">€</span>
-                                </div>
+                                <input 
+                                    type="number" step="0.1"
+                                    className="w-full border border-gray-300 rounded-lg p-2 text-right font-bold text-gray-800 text-xs"
+                                    value={(financialConfig.gatewayPercentFee * 100).toFixed(1)}
+                                    onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayPercentFee: parseFloat(e.target.value)/100}))}
+                                    onBlur={() => updateFinancialConfig(financialConfig)}
+                                />
+                                <input 
+                                    type="number" step="0.01"
+                                    className="w-full border border-gray-300 rounded-lg p-2 text-right font-bold text-gray-800 text-xs"
+                                    value={financialConfig.gatewayFixedFee}
+                                    onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayFixedFee: parseFloat(e.target.value)}))}
+                                    onBlur={() => updateFinancialConfig(financialConfig)}
+                                />
                             </div>
                         </div>
                     </div>
                 </div>
             </div>
 
-            {/* SECCIÓN PRINCIPAL DIVIDIDA EN DOS COLUMNAS (CÓDIGOS Y CLUBES) */}
+            {/* SEGURIDAD Y ACCESO ADMINISTRADOR (CON SAFE-LOCK) */}
+            <div className={`rounded-xl shadow-sm border p-6 transition-all duration-300 ${isSecurityUnlocked ? 'bg-white border-indigo-200 ring-2 ring-indigo-50' : 'bg-gray-50 border-gray-200'}`}>
+                <div className="flex items-center justify-between mb-5 pb-3 border-b border-gray-100">
+                    <div className="flex items-center gap-2">
+                        <Shield className={`w-6 h-6 ${isSecurityUnlocked ? 'text-indigo-600' : 'text-gray-400'}`}/>
+                        <div>
+                            <h4 className="font-extrabold text-gray-800 text-sm uppercase tracking-wide">Seguridad y Acceso Administrador</h4>
+                            <p className="text-xs text-gray-500 mt-0.5">
+                                {isSecurityUnlocked ? 'Modo de edición activo. Recuerda guardar los cambios.' : 'Los campos están bloqueados por seguridad para evitar cambios accidentales.'}
+                            </p>
+                        </div>
+                    </div>
+                    
+                    {!isSecurityUnlocked && (
+                        <button
+                            onClick={() => setIsSecurityUnlocked(true)}
+                            className="px-4 py-2 bg-white border border-gray-200 hover:bg-indigo-50 hover:text-indigo-700 hover:border-indigo-200 text-gray-600 font-bold rounded-lg text-xs transition-all flex items-center gap-2 shadow-sm"
+                        >
+                            <Lock className="w-4 h-4"/> Editar Accesos
+                        </button>
+                    )}
+                </div>
+
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Palabra de Acceso (Usuario)</label>
+                        <input
+                            type="text"
+                            disabled={!isSecurityUnlocked}
+                            className={`w-full border-2 rounded-lg p-2.5 font-bold outline-none transition-colors ${!isSecurityUnlocked ? 'bg-gray-100 border-gray-100 text-gray-500 cursor-not-allowed' : 'bg-white border-gray-200 text-gray-800 focus:border-indigo-500'}`}
+                            value={adminAlias}
+                            onChange={(e) => setAdminAlias(e.target.value)}
+                            placeholder="Ej: admin"
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Email Principal</label>
+                        <input
+                            type="email"
+                            disabled={!isSecurityUnlocked}
+                            className={`w-full border-2 rounded-lg p-2.5 font-bold outline-none transition-colors ${!isSecurityUnlocked ? 'bg-gray-100 border-gray-100 text-gray-500 cursor-not-allowed' : 'bg-white border-gray-200 text-gray-800 focus:border-indigo-500'}`}
+                            value={adminEmail}
+                            onChange={(e) => setAdminEmail(e.target.value)}
+                        />
+                    </div>
+                    <div>
+                        <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Nueva Contraseña (Opcional)</label>
+                        <input
+                            type="password"
+                            disabled={!isSecurityUnlocked}
+                            className={`w-full border-2 rounded-lg p-2.5 font-bold outline-none transition-colors placeholder-gray-300 ${!isSecurityUnlocked ? 'bg-gray-100 border-gray-100 text-gray-400 cursor-not-allowed' : 'bg-white border-gray-200 text-gray-800 focus:border-indigo-500'}`}
+                            value={adminPass}
+                            onChange={(e) => setAdminPass(e.target.value)}
+                            placeholder={!isSecurityUnlocked ? "Bloqueado" : "Dejar vacío para mantener"}
+                        />
+                    </div>
+                </div>
+
+                {isSecurityUnlocked && (
+                    <div className="flex justify-end gap-3 mt-5 pt-4 border-t border-indigo-50 animate-fade-in items-center">
+                        <button
+                            onClick={() => {
+                                setIsSecurityUnlocked(false);
+                                fetchAdminAuth(); 
+                                setAdminPass('');
+                            }}
+                            className="px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-600 font-bold rounded-lg text-xs transition-colors"
+                        >
+                            Cancelar
+                        </button>
+                        
+                        {/* Botón de Restablecer con la "i" de información y Tooltip */}
+                        <div className="relative group flex items-center">
+                            <button
+                                onClick={handleResetPassword}
+                                className="px-4 py-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold rounded-lg text-xs transition-colors flex items-center gap-1.5"
+                            >
+                                Restablecer con Enlace Oficial
+                                <Info className="w-4 h-4 text-indigo-400" />
+                            </button>
+                            
+                            {/* Burbuja de información flotante */}
+                            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 w-64 p-3 bg-slate-800 text-white text-[12px] leading-relaxed rounded-lg shadow-xl opacity-0 invisible group-hover:opacity-100 group-hover:visible transition-all duration-200 z-10 pointer-events-none text-center">
+                                Úsalo si Firebase bloquea tu cambio de contraseña por llevar mucho tiempo conectado. Te enviará un enlace (¡revisa la carpeta de SPAM!).
+                                <div className="absolute -bottom-1 left-1/2 -translate-x-1/2 w-2 h-2 bg-slate-800 rotate-45"></div>
+                            </div>
+                        </div>
+
+                        <button
+                            onClick={handleSaveSecurity}
+                            className="px-6 py-2 bg-slate-800 hover:bg-slate-900 text-white font-bold rounded-lg text-xs transition-colors flex items-center gap-2 shadow-md"
+                        >
+                            <Unlock className="w-4 h-4"/> Guardar Cambios
+                        </button>
+                    </div>
+                )}
+
+                {/* MODAL DE 2FA DE SEGURIDAD */}
+                {secModal.show && (
+                    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+                        <div className="bg-white rounded-2xl shadow-2xl p-8 max-w-sm w-full border border-indigo-100 animate-fade-in">
+                            <h3 className="text-xl font-extrabold text-gray-800 text-center mb-2">Autorización</h3>
+                            <p className="text-xs text-gray-500 text-center mb-6 leading-relaxed">
+                                Hemos enviado un código a tu correo actual por seguridad.
+                            </p>
+                            <input
+                                type="text"
+                                maxLength={6}
+                                className="w-full text-center text-4xl font-mono tracking-[0.4em] py-4 rounded-xl border-2 border-indigo-200 focus:border-indigo-600 outline-none bg-indigo-50/50 text-indigo-900 mb-6"
+                                placeholder="000000"
+                                value={secModal.input}
+                                autoFocus
+                                onChange={(e) => setSecModal({...secModal, input: e.target.value.replace(/[^0-9]/g, '')})}
+                            />
+                            <div className="flex gap-3">
+                                <button
+                                    onClick={() => setSecModal({ show: false, code: '', pending: null, input: '' })}
+                                    className="flex-1 py-3 text-sm font-bold text-gray-600 bg-gray-100 hover:bg-gray-200 rounded-xl transition-colors"
+                                >
+                                    Cancelar
+                                </button>
+                                <button
+                                    onClick={confirmSecurityChanges}
+                                    className="flex-1 py-3 text-sm font-bold text-white bg-indigo-600 hover:bg-indigo-700 rounded-xl shadow-md transition-colors"
+                                >
+                                    Confirmar
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                )}
+            </div>
+
+            {/* SECCIÓN PRINCIPAL: CÓDIGOS Y CLUBES */}
             <div className="grid grid-cols-1 lg:grid-cols-2 max-w-7xl mx-auto gap-8 items-start">
                 
-                {/* --- COLUMNA IZQUIERDA: GESTIÓN DE CÓDIGOS DE REGALO --- */}
+                {/* COLUMNA IZQUIERDA: CÓDIGOS DE REGALO */}
                 <div className="space-y-6">
-                    {/* Generador Manual de Códigos */}
                     <div className="bg-gradient-to-br from-pink-50 via-purple-50 to-indigo-50 rounded-2xl shadow-sm border border-pink-100 p-6 relative overflow-hidden">
                         <div className="absolute -bottom-10 -left-10 w-48 h-48 bg-white rounded-full blur-3xl opacity-50 pointer-events-none"></div>
                         <div className="flex items-center gap-4 mb-6 relative z-10">
@@ -240,50 +439,43 @@ export const ManagementTab = ({
                         </div>
 
                         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 border border-white shadow-sm relative z-10 space-y-4">
-                            
-                            {/* 1. TIPO DE CUPÓN */}
                             <div>
                                 <label className="text-[10px] uppercase font-bold text-gray-500 block mb-2">1. Tipo de Promoción</label>
                                 <div className="grid grid-cols-3 gap-2">
-                                    <button onClick={() => setCodeType('product')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'product' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Regalar Producto</button>
-                                    <button onClick={() => setCodeType('percent')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'percent' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Descuento (%)</button>
-                                    <button onClick={() => setCodeType('fixed')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'fixed' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500 hover:bg-gray-50'}`}>Descuento (€)</button>
+                                    <button onClick={() => setCodeType('product')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'product' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500'}`}>Regalo</button>
+                                    <button onClick={() => setCodeType('percent')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'percent' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500'}`}>Descuento (%)</button>
+                                    <button onClick={() => setCodeType('fixed')} className={`py-2 px-1 text-xs font-bold rounded-lg border transition-all ${codeType === 'fixed' ? 'bg-pink-100 border-pink-300 text-pink-700' : 'bg-white text-gray-500'}`}>Descuento (€)</button>
                                 </div>
                             </div>
 
-                            {/* 2. VALOR Y ALCANCE (Solo si es descuento) */}
                             {codeType !== 'product' && (
                                 <div>
                                     <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
-                                        2. Valor del descuento ({codeType === 'percent' ? '%' : '€'}) y Alcance
+                                        2. Valor y Alcance
                                     </label>
                                     <div className="flex gap-2">
                                         <input 
                                             type="number" min="0.1" step={codeType === 'fixed' ? "0.5" : "1"}
-                                            placeholder={codeType === 'percent' ? "Ej: 10" : "Ej: 5.50"}
-                                            className="w-1/3 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 outline-none"
+                                            className="w-1/3 bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none"
                                             value={discountValue} onChange={(e) => setDiscountValue(e.target.value)}
                                         />
                                         <select 
-                                            className="w-2/3 bg-gray-50 border border-gray-200 rounded-lg px-2 text-xs font-bold text-gray-700 outline-none"
+                                            className="w-2/3 bg-gray-50 border border-gray-200 rounded-lg px-2 text-xs font-bold outline-none"
                                             value={applyTo} onChange={(e) => setApplyTo(e.target.value)}
                                         >
-                                            <option value="specific">A un producto concreto</option>
+                                            <option value="specific">A un producto</option>
                                             <option value="all">A toda la cesta</option>
                                         </select>
                                     </div>
                                 </div>
                             )}
 
-                            {/* 3. PRODUCTO Y CANTIDAD (Oculto si es a toda la cesta) */}
                             {(codeType === 'product' || applyTo === 'specific') && (
                                 <div className="grid grid-cols-12 gap-2">
                                     <div className="col-span-8">
-                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
-                                            {codeType === 'product' ? '2. Producto a regalar' : '3. Producto con descuento'}
-                                        </label>
+                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Producto</label>
                                         <select 
-                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
+                                            className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none"
                                             value={newManualProduct} onChange={(e) => setNewManualProduct(e.target.value)}
                                         >
                                             <option value="">-- Selecciona --</option>
@@ -291,133 +483,85 @@ export const ManagementTab = ({
                                         </select>
                                     </div>
                                     <div className="col-span-4">
-                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
-                                            Unidades
-                                        </label>
+                                        <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Unidades</label>
                                         <input 
                                             type="number" min="0"
-                                            title="Pon 0 si quieres que el descuento se aplique a todas las unidades sin límite."
-                                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 outline-none"
+                                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none"
                                             value={productQuantity} onChange={(e) => setProductQuantity(Math.max(0, parseInt(e.target.value) || 0))}
                                         />
-                                        {codeType !== 'product' && <p className="text-[10px] text-gray-400 mt-0.5 leading-tight">Pon 0 para aplicar a todas las uds.</p>}
                                     </div>
                                 </div>
                             )}
 
-                            {/* 4. EMAIL / REFERENCIA */}
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
-                                    {codeType === 'product' ? '3.' : (applyTo === 'all' ? '3.' : '4.')} Email de referencia (Opcional)
-                                </label>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Email / Ref</label>
                                 <input 
                                     type="text" 
-                                    placeholder="Ej: cliente@email.com o 'Sorteo'"
-                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none"
                                     value={newManualEmail} onChange={(e) => setNewManualEmail(e.target.value)}
                                 />
                             </div>
 
-                            {/* NUEVO: RESTRICCIÓN DE CLUB */}
                             <div>
-                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">
-                                    Restricción de Club
-                                </label>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Restricción de Club</label>
                                 <select 
-                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 font-bold focus:ring-2 focus:ring-pink-200 focus:border-pink-300 outline-none transition-all"
+                                    className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-gray-800 outline-none"
                                     value={allowedClub} onChange={(e) => setAllowedClub(e.target.value)}
                                 >
-                                    <option value="all">✅ Válido para todos los clubes</option>
-                                    {clubs.map(c => <option key={c.id} value={c.id}>Solo para: {c.name}</option>)}
+                                    <option value="all">✅ Válido para todos</option>
+                                    {clubs.map(c => <option key={c.id} value={c.id}>Solo: {c.name}</option>)}
                                 </select>
                             </div>
 
                             <button 
-                                onClick={handleGenerateManualCode}
-                                disabled={isGenerating}
-                                className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md flex items-center justify-center gap-2 transition-all active:scale-95 text-sm disabled:opacity-50 mt-2"
+                                onClick={handleGenerateManualCode} disabled={isGenerating}
+                                className="w-full bg-pink-600 hover:bg-pink-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md flex justify-center gap-2 mt-2"
                             >
-                                <Plus className="w-4 h-4"/> {isGenerating ? 'Generando...' : 'Crear Código Ahora'}
+                                <Plus className="w-4 h-4"/> Crear Código
                             </button>
                         </div>
                     </div>
 
-                    {/* Lista de Códigos Generados */}
+                    {/* Historial de Códigos */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[500px]">
                         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                             <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2">
                                 <Tag className="w-5 h-5 text-pink-600"/> Historial de Códigos
                             </h4>
-                            <div className="flex gap-1 bg-white border rounded-lg p-1 shadow-sm">
-                                <button onClick={() => setFilterStatus('pending')} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${filterStatus === 'pending' ? 'bg-pink-100 text-pink-700' : 'text-gray-500 hover:bg-gray-100'}`}>Pendientes</button>
-                                <button onClick={() => setFilterStatus('redeemed')} className={`px-3 py-1 text-xs font-bold rounded-md transition-colors ${filterStatus === 'redeemed' ? 'bg-gray-200 text-gray-700' : 'text-gray-500 hover:bg-gray-100'}`}>Canjeados</button>
+                            <div className="flex gap-1 bg-white border rounded-lg p-1">
+                                <button onClick={() => setFilterStatus('pending')} className={`px-3 py-1 text-xs font-bold rounded-md ${filterStatus === 'pending' ? 'bg-pink-100 text-pink-700' : 'text-gray-500'}`}>Pendientes</button>
+                                <button onClick={() => setFilterStatus('redeemed')} className={`px-3 py-1 text-xs font-bold rounded-md ${filterStatus === 'redeemed' ? 'bg-gray-200 text-gray-700' : 'text-gray-500'}`}>Canjeados</button>
                             </div>
                         </div>
 
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {giftCodes.filter(c => c.status === filterStatus).length === 0 ? (
-                                <p className="text-center text-gray-400 py-10">No hay códigos en esta categoría.</p>
-                            ) : (
-                                giftCodes.filter(c => c.status === filterStatus).map(code => (
-                                    <div key={code.id} className="bg-white border rounded-lg p-4 shadow-sm hover:shadow-md transition-shadow">
-                                        <div className="flex justify-between items-start mb-2">
-                                            <div>
-                                                <div className="flex items-center gap-2 mb-1">
-                                                    <span className="font-mono text-lg font-bold text-pink-700 bg-pink-50 px-2 py-0.5 rounded tracking-wide border border-pink-100">
-                                                        {code.code}
-                                                    </span>
-                                                    {filterStatus === 'pending' && (
-                                                        <button onClick={() => copyToClipboard(code.code)} className="text-gray-400 hover:text-pink-600 p-1" title="Copiar código">
-                                                            <Copy className="w-4 h-4" />
-                                                        </button>
-                                                    )}
-                                                </div>
-                                                <div className="mt-1">
-                                                    <p className="text-sm font-extrabold text-gray-800">
-                                                        {code.codeType === 'percent' ? `Descuento del ${code.discountValue}%` : 
-                                                         code.codeType === 'fixed' ? `Descuento de ${code.discountValue}€` : 
-                                                         'Regalo Directo'}
-                                                    </p>
-                                                    <p className="text-xs text-gray-500 font-medium leading-tight mt-0.5">
-                                                        {code.applyTo === 'all' 
-                                                            ? 'Aplicable a toda la cesta' 
-                                                            : `En: ${code.productName} ${code.maxUnits === 0 ? '(Sin límite de uds)' : `(Máx. ${code.maxUnits} uds)`}`
-                                                        }
-                                                    </p>
-                                                    {code.allowedClub && code.allowedClub !== 'all' && (
-                                                        <p className="text-[10px] text-indigo-600 font-bold mt-1 bg-indigo-50 px-2 py-0.5 rounded border border-indigo-100 inline-block">
-                                                            Exclusivo: {clubs.find(c => c.id === code.allowedClub)?.name || 'Club'}
-                                                        </p>
-                                                    )}
-                                                </div>
+                            {giftCodes.filter(c => c.status === filterStatus).map(code => (
+                                <div key={code.id} className="bg-white border rounded-lg p-4 shadow-sm">
+                                    <div className="flex justify-between items-start mb-2">
+                                        <div>
+                                            <div className="flex items-center gap-2 mb-1">
+                                                <span className="font-mono text-lg font-bold text-pink-700 bg-pink-50 px-2 rounded border border-pink-100">{code.code}</span>
+                                                {filterStatus === 'pending' && (
+                                                    <button onClick={() => { navigator.clipboard.writeText(code.code); showNotification("Copiado"); }} className="text-gray-400 hover:text-pink-600"><Copy className="w-4 h-4" /></button>
+                                                )}
                                             </div>
-                                            {filterStatus === 'pending' && (
-                                                <button onClick={() => handleDeleteCode(code.id)} className="text-gray-300 hover:text-red-500 transition-colors" title="Borrar código">
-                                                    <Trash2 className="w-4 h-4"/>
-                                                </button>
-                                            )}
+                                            <p className="text-sm font-extrabold text-gray-800">
+                                                {code.codeType === 'percent' ? `Descuento ${code.discountValue}%` : code.codeType === 'fixed' ? `Descuento ${code.discountValue}€` : 'Regalo Directo'}
+                                            </p>
                                         </div>
-                                        
-                                        <div className="flex flex-col gap-1 text-[11px] text-gray-500 mt-2 bg-gray-50 p-2 rounded">
-                                            <p><strong className="text-gray-600">Email/Ref:</strong> {code.userEmail}</p>
-                                            <div className="flex justify-between">
-                                                <p><strong className="text-gray-600">Origen:</strong> {code.type === 'incident' ? `Incidencia #${code.incidentId.slice(0,6)}` : 'Manual'}</p>
-                                                <p>{new Date(code.createdAt).toLocaleDateString()}</p>
-                                            </div>
-                                            {code.status === 'redeemed' && code.redeemedAt && (
-                                                <p className="text-emerald-600 font-bold mt-1">✓ Canjeado el {new Date(code.redeemedAt).toLocaleDateString()}</p>
-                                            )}
-                                        </div>
+                                        {filterStatus === 'pending' && (
+                                            <button onClick={() => handleDeleteCode(code.id)} className="text-gray-300 hover:text-red-500"><Trash2 className="w-4 h-4"/></button>
+                                        )}
                                     </div>
-                                ))
-                            )}
+                                    <p className="text-[11px] text-gray-500 mt-2">Ref: {code.userEmail}</p>
+                                </div>
+                            ))}
                         </div>
                     </div>
                 </div>
 
-                {/* --- COLUMNA DERECHA: GESTIÓN DE CLUBES --- */}
+                {/* COLUMNA DERECHA: GESTIÓN DE CLUBES */}
                 <div className="space-y-6">
-                    {/* Alta de Nuevo Club */}
                     <div className="bg-gradient-to-br from-indigo-50 via-purple-50 to-blue-50 rounded-2xl shadow-sm border border-indigo-100 p-6 relative overflow-hidden">
                         <div className="absolute -top-20 -right-20 w-64 h-64 bg-white rounded-full blur-3xl opacity-60 pointer-events-none"></div>
                         <div className="flex items-center gap-4 mb-6 relative z-10">
@@ -432,63 +576,32 @@ export const ManagementTab = ({
 
                         <div className="bg-white/80 backdrop-blur-sm rounded-xl p-5 border border-white shadow-sm relative z-10">
                             <div className="grid grid-cols-1 md:grid-cols-12 gap-4 items-start">
-                                <div className="md:col-span-3 flex flex-col items-center">
-                                    <label className="w-full aspect-square rounded-xl bg-indigo-50/50 border-2 border-dashed border-indigo-200 flex flex-col items-center justify-center cursor-pointer hover:bg-indigo-50 hover:border-indigo-300 transition-all relative overflow-hidden group">
-                                        <Upload className="w-6 h-6 text-indigo-300 mb-1 group-hover:scale-110 transition-transform group-hover:text-indigo-500"/>
-                                        <span id="fileNameDisplay" className="text-[9px] text-indigo-400 font-bold uppercase text-center leading-tight px-1 group-hover:text-indigo-600">Subir<br/>Escudo</span>
-                                        <input 
-                                            type="file" id="newClubLogo" className="hidden" accept="image/*"
-                                            onChange={(e) => {
-                                                const file = e.target.files[0];
-                                                if(file) {
-                                                    const reader = new FileReader();
-                                                    reader.onload = (ev) => {
-                                                        const img = document.createElement('img');
-                                                        img.src = ev.target.result;
-                                                        img.className = "absolute inset-0 w-full h-full object-contain bg-white p-1 rounded-lg";
-                                                        e.target.parentElement.appendChild(img);
-                                                    };
-                                                    reader.readAsDataURL(file);
-                                                }
-                                            }}
-                                        />
+                                <div className="md:col-span-3">
+                                    <label className="w-full aspect-square rounded-xl bg-indigo-50/50 border-2 border-dashed border-indigo-200 flex flex-col items-center justify-center cursor-pointer relative overflow-hidden">
+                                        <Upload className="w-6 h-6 text-indigo-300 mb-1"/>
+                                        <span className="text-[9px] text-indigo-400 font-bold uppercase text-center">Subir<br/>Escudo</span>
+                                        <input type="file" id="newClubLogo" className="hidden" accept="image/*" />
                                     </label>
                                 </div>
                                 <div className="md:col-span-9 space-y-3">
-                                    <div><input id="newClubName" placeholder="Nombre Oficial del Club" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 font-bold focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none transition-all placeholder-gray-400" /></div>
+                                    <input id="newClubName" placeholder="Nombre Oficial" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none" />
                                     <div className="grid grid-cols-2 gap-3">
-                                        <input id="newClubUser" placeholder="Usuario" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none transition-all placeholder-gray-400" />
+                                        <input id="newClubUser" placeholder="Usuario" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm outline-none" />
                                         <div className="relative">
-                                            <input id="newClubPass" type={showNewClubPass ? "text" : "password"} placeholder="Contraseña" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm pr-8 text-gray-800 focus:ring-2 focus:ring-indigo-100 focus:border-indigo-300 outline-none transition-all placeholder-gray-400" />
-                                            <button type="button" onClick={() => setShowNewClubPass(!showNewClubPass)} className="absolute right-2 top-2 text-gray-400 hover:text-indigo-500">
-                                                {showNewClubPass ? <EyeOff className="w-4 h-4"/> : <Eye className="w-4 h-4"/>}
-                                            </button>
+                                            <input id="newClubPass" type={showNewClubPass ? "text" : "password"} placeholder="Contraseña" className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm pr-8 outline-none" />
+                                            <button type="button" onClick={() => setShowNewClubPass(!showNewClubPass)} className="absolute right-2 top-2 text-gray-400"><Eye className="w-4 h-4"/></button>
                                         </div>
-                                    </div>
-                                    <div className="flex items-center gap-3 bg-gray-50 p-2 rounded-lg border border-gray-100">
-                                        <span className="text-[10px] uppercase font-bold text-gray-400 pl-1">Color:</span>
-                                        <ColorPicker selectedColor={newClubColor} onChange={setNewClubColor} />
                                     </div>
                                 </div>
                             </div>
                             <button 
-                                className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md hover:shadow-lg flex items-center justify-center gap-2 transition-all active:scale-95 text-sm"
+                                className="mt-4 w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-2.5 px-6 rounded-lg shadow-md flex justify-center gap-2"
                                 onClick={() => { 
-                                    const nameFn = document.getElementById('newClubName');
-                                    const userFn = document.getElementById('newClubUser');
-                                    const passFn = document.getElementById('newClubPass');
-                                    const fileFn = document.getElementById('newClubLogo');
-                                    
-                                    if(nameFn.value && userFn.value && passFn.value) {
-                                        createClub({
-                                            name: nameFn.value, code: nameFn.value.slice(0,3).toUpperCase(), username: userFn.value, pass: passFn.value, color: newClubColor
-                                        }, fileFn.files[0]);
-                                        nameFn.value = ''; userFn.value = ''; passFn.value = ''; fileFn.value = ''; setNewClubColor('white');
-                                        const preview = fileFn.parentElement.querySelector('img');
-                                        if(preview) preview.remove();
-                                    } else {
-                                        alert("Por favor completa los campos.");
-                                    }
+                                    const n = document.getElementById('newClubName').value;
+                                    const u = document.getElementById('newClubUser').value;
+                                    const p = document.getElementById('newClubPass').value;
+                                    const f = document.getElementById('newClubLogo').files[0];
+                                    if(n && u && p) createClub({ name: n, code: n.slice(0,3).toUpperCase(), username: u, pass: p, color: newClubColor }, f);
                                 }} 
                             >
                                 <Plus className="w-4 h-4"/> Registrar Club
@@ -496,7 +609,6 @@ export const ManagementTab = ({
                         </div>
                     </div>
 
-                    {/* Lista de Clubes */}
                     <div className="bg-white rounded-2xl shadow-sm border border-gray-200 overflow-hidden flex flex-col h-[500px]">
                         <div className="px-6 py-4 border-b border-gray-100 bg-gray-50 flex justify-between items-center">
                             <h4 className="font-bold text-gray-800 text-sm flex items-center gap-2">
@@ -505,13 +617,7 @@ export const ManagementTab = ({
                             <span className="text-xs bg-white border px-2 py-1 rounded-full text-gray-500 font-medium">{clubs.length} clubes</span>
                         </div>
                         <div className="flex-1 overflow-y-auto p-4 space-y-3 custom-scrollbar">
-                            {clubs.length === 0 ? (
-                                <p className="text-center text-gray-400 py-10">No hay clubes registrados.</p>
-                            ) : (
-                                clubs.map(c => (
-                                    <ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />
-                                ))
-                            )}
+                            {clubs.map(c => <ClubEditorRow key={c.id} club={c} updateClub={updateClub} deleteClub={deleteClub} toggleClubBlock={toggleClubBlock} />)}
                         </div>
                     </div>
                 </div>

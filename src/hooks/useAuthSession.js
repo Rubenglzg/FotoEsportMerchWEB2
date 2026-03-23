@@ -20,21 +20,31 @@ export function useAuthSession(clubs, showNotification, setView) {
 
     // Inicializar y escuchar cambios
     useEffect(() => { 
-        const initAuth = async () => { 
-            if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { 
-                try { await signInWithCustomToken(auth, __initial_auth_token); } catch(e){}
-            } else if (!auth.currentUser) { 
-                try { await signInAnonymously(auth); } catch(e){}
-            } 
-        }; 
-        initAuth(); 
-        
-        const unsubscribe = onAuthStateChanged(auth, (u) => {
-            setUser(u);
-            if (!u && role === 'admin') setRole('public');
+        // 1. Si existe un token inicial externo, lo usamos
+        if (typeof __initial_auth_token !== 'undefined' && __initial_auth_token) { 
+            signInWithCustomToken(auth, __initial_auth_token).catch(()=>{});
+        }
+
+        // 2. onAuthStateChanged espera automáticamente a que Firebase revise la memoria
+        const unsubscribe = onAuthStateChanged(auth, async (u) => {
+            if (u) {
+                // Firebase encontró tu sesión (Admin, Club o Anónima) y te deja pasar
+                setUser(u);
+            } else {
+                // SOLO si Firebase confirma al 100% que no hay NADA, creamos la anónima
+                setUser(null);
+                setRole(prev => prev === 'admin' ? 'public' : prev);
+                
+                try { 
+                    await signInAnonymously(auth); 
+                } catch(e) {
+                    console.error("Error al iniciar sesión anónima", e);
+                }
+            }
         }); 
+        
         return () => unsubscribe(); 
-    }, [role]);
+    }, []); // <--- ¡MUY IMPORTANTE! Los corchetes vacíos evitan que se reinicie en bucle
 
     useEffect(() => { 
         if (hasCheckedSession || !clubs || clubs.length === 0) return;

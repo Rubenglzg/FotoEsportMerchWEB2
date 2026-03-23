@@ -63,7 +63,7 @@ export default function App() {
   const { 
     orders, products, clubs, seasons, suppliers, 
     financialConfig, campaignConfig, setCampaignConfig, setFinancialConfig 
-  } = useFirebaseData(null); 
+  } = useFirebaseData(); 
 
   // 3. HOOK DE SESIÓN (Conectamos con los clubes y pasamos las funciones de navegación)
   const { 

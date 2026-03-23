@@ -1,9 +1,10 @@
 import { useState, useEffect } from 'react';
 import { collection, query, onSnapshot, doc } from 'firebase/firestore';
+import { getAuth, onAuthStateChanged } from 'firebase/auth';
 import { db } from '../config/firebase';
 import { appId } from '../config/constants';
 
-export function useFirebaseData(user) {
+export function useFirebaseData() {
     // 1. Estados
     const [orders, setOrders] = useState([]);
     const [products, setProducts] = useState([]);
@@ -18,7 +19,19 @@ export function useFirebaseData(user) {
         active: false, type: 'none', discount: 0, bannerMessage: '' 
     });
 
+    // NUEVO: Estado interno para saber de forma segura si hay un usuario conectado
+    const [authUser, setAuthUser] = useState(null);
+
     // 2. Efectos de escucha en tiempo real
+
+    // Escuchador automático de sesión
+    useEffect(() => {
+        const auth = getAuth();
+        const unsub = onAuthStateChanged(auth, (u) => {
+            setAuthUser(u);
+        });
+        return () => unsub();
+    }, []);
 
     // Configuración de campañas (Público)
     useEffect(() => {
@@ -28,30 +41,48 @@ export function useFirebaseData(user) {
         return () => unsub();
     }, []);
 
-    // PEDIDOS (Privado: requiere usuario)
+    // PEDIDOS (Privado: requiere usuario verificado por Firebase)
     useEffect(() => { 
-        if (!user) { setOrders([]); return; } 
+        if (!authUser) { 
+            setOrders([]); 
+            return; 
+        } 
+        
         const ordersQuery = query(collection(db, 'artifacts', appId, 'public', 'data', 'orders')); 
         const unsubOrders = onSnapshot(ordersQuery, (snapshot) => { 
             const ordersData = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })); 
-            ordersData.sort((a, b) => b.createdAt?.seconds - a.createdAt?.seconds); 
+            
+            // Ordenación segura a prueba de fallos de timestamp
+            ordersData.sort((a, b) => {
+                const timeA = a.createdAt?.seconds || 0;
+                const timeB = b.createdAt?.seconds || 0;
+                return timeB - timeA;
+            });
+            
             setOrders(ordersData); 
-        }, (error) => console.log("Listener de pedidos detenido por cierre de sesión")); // Silenciamos el error
+        }, (error) => console.error("🔥 ERROR EN PEDIDOS:", error)); 
+
         return () => unsubOrders(); 
-    }, [user]);
+    }, [authUser]);
 
     // PROVEEDORES (Privado: requiere usuario)
     useEffect(() => {
-        if (!user) { setSuppliers([]); return; }
+        if (!authUser) { 
+            setSuppliers([]); 
+            return; 
+        }
+        
         const unsub = onSnapshot(query(collection(db, 'suppliers')), (snapshot) => {
             setSuppliers(snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })));
-        }, (error) => console.log("Listener de proveedores detenido"));
+        }, (error) => console.error("🔥 ERROR EN PROVEEDORES:", error));
+        
         return () => unsub();
-    }, [user]);
+    }, [authUser]);
 
-    // Configuración Financiera (Público/Privado: mejor con user)
+    // Configuración Financiera (Privado: requiere usuario)
     useEffect(() => {
-        if (!user) return;
+        if (!authUser) return;
+        
         const unsub = onSnapshot(doc(db, 'settings', 'financial'), (doc) => {
             if (doc.exists()) {
                 const data = doc.data();
@@ -64,7 +95,7 @@ export function useFirebaseData(user) {
             }
         });
         return () => unsub();
-    }, [user]);
+    }, [authUser]);
 
     // PRODUCTOS (Público)
     useEffect(() => {

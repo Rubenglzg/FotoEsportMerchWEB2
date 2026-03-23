@@ -5,7 +5,7 @@ import { db } from '../config/firebase';
 import { Button } from '../components/ui/Button';
 import { Input } from '../components/ui/Input';
 
-export function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig }) {
+export function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig, addToCart, products }) {
   const [formData, setFormData] = useState({ 
       name: '', email: '', phone: '', notification: 'email', rgpd: false, marketingConsent: false, emailUpdates: false
   });
@@ -26,6 +26,128 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
           setPaymentMethod('card');
       }
   }, [isCashEnabled, paymentMethod]);
+
+  // --- LÓGICA DE UPSELL DINÁMICO CON PRODUCTOS REALES ---
+  const [upsellOffer, setUpsellOffer] = useState(null);
+  const [showPlayerSelector, setShowPlayerSelector] = useState(false);
+
+  useEffect(() => {
+      // Si no han cargado los productos de Firebase, no hacemos nada
+      if (!products || products.length === 0) return;
+
+      // Palabras clave para saber si un producto de tu BD real requiere foto
+      const photoKeywords = ['taza', 'llavero', 'foto', 'cromo', 'calendario'];
+      
+      // 1. Crear nuestro catálogo de impulso basado en TUS PRODUCTOS REALES
+      // Excluimos packs, elegimos productos baratos (< 15€) y detectamos si necesitan foto
+      const realImpulseCatalog = products
+          .filter(p => !p.name.toLowerCase().includes('pack') && p.price < 15)
+          .map(p => ({
+              ...p,
+              requiresPhoto: photoKeywords.some(kw => p.name.toLowerCase().includes(kw))
+          }));
+
+      // 2. Agrupar productos por jugador en el carrito
+      const playersMap = {}; 
+      
+      cart.forEach(item => {
+          if (!item.playerName || item.isUpsell) return;
+          
+          if (!playersMap[item.playerName]) {
+              playersMap[item.playerName] = { 
+                  playerName: item.playerName,
+                  triggerItem: item, 
+                  hasPhoto: false, 
+                  existingProducts: new Set() 
+              };
+          }
+
+          const nameLower = item.name.toLowerCase();
+          
+          // Si este producto es de foto, nos sirve de molde perfecto
+          if (photoKeywords.some(p => nameLower.includes(p)) || nameLower.includes('pack')) {
+              playersMap[item.playerName].hasPhoto = true;
+              playersMap[item.playerName].triggerItem = item; 
+          }
+
+          // Registrar lo que ya tiene para no ofrecérselo de nuevo
+          playersMap[item.playerName].existingProducts.add(nameLower);
+          
+          // Intentar adivinar el contenido de los packs
+          if (nameLower.includes('pack')) {
+              if (item.details?.packItems) {
+                  item.details.packItems.forEach(p => playersMap[item.playerName].existingProducts.add(p.name.toLowerCase()));
+              } else {
+                  ['taza', 'llavero', 'foto', 'botella'].forEach(p => playersMap[item.playerName].existingProducts.add(p));
+              }
+          }
+      });
+
+      const playersData = Object.values(playersMap);
+      if (playersData.length === 0 || realImpulseCatalog.length === 0) {
+          setUpsellOffer(null);
+          setShowPlayerSelector(false);
+          return;
+      }
+
+      // 3. Buscar una oferta válida en TU catálogo real
+      const shuffledCatalog = [...realImpulseCatalog].sort(() => 0.5 - Math.random());
+      let selectedOffer = null;
+
+      for (const catalogItem of shuffledCatalog) {
+          // Extraemos la palabra principal (ej: "Llavero" de "Llavero Personalizado") para comparar
+          const keyword = catalogItem.name.split(' ')[0].toLowerCase(); 
+          
+          const eligiblePlayers = playersData.filter(p => {
+              const meetsPhotoReq = catalogItem.requiresPhoto ? p.hasPhoto : true;
+              // Comprobamos si el jugador YA tiene este producto
+              const doesntHaveIt = !Array.from(p.existingProducts).some(existing => existing.includes(keyword));
+              return meetsPhotoReq && doesntHaveIt;
+          });
+
+          if (eligiblePlayers.length > 0) {
+              selectedOffer = { product: catalogItem, eligiblePlayers };
+              break; // Encontramos un producto válido, paramos la búsqueda
+          }
+      }
+
+      setUpsellOffer(selectedOffer);
+      setShowPlayerSelector(false);
+  }, [cart, products]); // Se recalcula si cambia el carrito o los productos
+
+  // 4. Función para añadir el Upsell a los jugadores seleccionados
+  const handleConfirmUpsell = (playersToProcess) => {
+      if (!upsellOffer || !addToCart) return;
+
+      playersToProcess.forEach(playerData => {
+          const { triggerItem } = playerData;
+          
+          const upsellProduct = {
+              id: upsellOffer.product.id,
+              name: upsellOffer.product.name,
+              
+              // 🟢 SOLUCIÓN: Heredamos la categoría del equipo (ej: Alevín A) del producto de referencia
+              category: triggerItem.category || '',
+              
+              image: upsellOffer.product.image || upsellOffer.product.imageUrl || '', 
+              clubId: triggerItem.clubId,
+              clubName: triggerItem.clubName,
+              isUpsell: true
+          };
+
+          const upsellCustomization = {
+              playerName: triggerItem.playerName,
+              playerNumber: triggerItem.playerNumber,
+              quantity: 1,
+              details: triggerItem.details 
+          };
+
+          addToCart(upsellProduct, upsellCustomization, upsellOffer.product.price);
+      });
+      
+      setShowPlayerSelector(false);
+  };
+  // ------------------------------------------
 
   // Cálculos de descuento
   let discountAmount = 0;
@@ -93,6 +215,81 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
       <div className="lg:col-span-2 space-y-4">
           <h2 className="text-2xl font-bold mb-4">Resumen</h2>
+
+          {/* --- BANNER DE UPSELL DINÁMICO MULTIJUGADOR --- */}
+          {upsellOffer && (
+              <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl mb-6 shadow-sm animate-fade-in relative z-10">
+                  <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
+                      <div className="flex items-center gap-3 w-full sm:w-auto">
+                          <div className="bg-emerald-100 p-2 rounded-full shrink-0">
+                              <Gift className="w-6 h-6 text-emerald-600" />
+                          </div>
+                          <div>
+                              <h4 className="font-bold text-emerald-900 text-sm">¡Completa tu pedido!</h4>
+                              <p className="text-emerald-800 text-xs mt-0.5 leading-tight">
+                                  Añade un/a <strong>{upsellOffer.product.name}</strong> 
+                                  {upsellOffer.product.requiresPhoto 
+                                      ? <span className="text-emerald-700"> usando la <strong>misma foto</strong></span> 
+                                      : <span className="text-emerald-700"> con este mismo <strong>nombre y dorsal</strong></span>
+                                  } por solo <strong className="text-emerald-600 text-sm">{upsellOffer.product.price.toFixed(2)}€/ud</strong>.
+                              </p>
+                          </div>
+                      </div>
+                      
+                      <div className="w-full sm:w-auto shrink-0 relative">
+                          <button 
+                              type="button"
+                              onClick={(e) => {
+                                  e.preventDefault();
+                                  // Si solo hay 1 jugador, lo añadimos directo. Si hay varios, abrimos el menú.
+                                  if (upsellOffer.eligiblePlayers.length === 1) {
+                                      handleConfirmUpsell(upsellOffer.eligiblePlayers);
+                                  } else {
+                                      setShowPlayerSelector(!showPlayerSelector);
+                                  }
+                              }} 
+                              className="w-full text-sm py-2 px-4 bg-emerald-600 hover:bg-emerald-700 text-white rounded-lg font-bold transition-all shadow-md active:scale-95 flex items-center justify-center gap-2"
+                          >
+                              {upsellOffer.eligiblePlayers.length === 1 
+                                  ? `+ Añadir para ${upsellOffer.eligiblePlayers[0].playerName.split(' ')[0]}`
+                                  : '+ Elegir Jugador...'
+                              }
+                          </button>
+
+                          {/* Menú Desplegable si hay varios niños en el carrito */}
+                          {showPlayerSelector && upsellOffer.eligiblePlayers.length > 1 && (
+                              <div className="absolute top-full right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-xl p-2 z-50 w-56 animate-fade-in flex flex-col gap-1">
+                                  <div className="text-[10px] uppercase font-bold text-gray-400 px-2 pb-1 border-b mb-1">¿Para quién lo añadimos?</div>
+                                  
+                                  {upsellOffer.eligiblePlayers.map((player, idx) => (
+                                      <button 
+                                          key={idx}
+                                          type="button"
+                                          onClick={() => handleConfirmUpsell([player])}
+                                          className="text-left text-xs font-bold text-gray-700 hover:bg-emerald-50 hover:text-emerald-700 py-2 px-2 rounded transition-colors"
+                                      >
+                                          Solo para {player.playerName}
+                                      </button>
+                                  ))}
+                                  
+                                  <button 
+                                      type="button"
+                                      onClick={() => handleConfirmUpsell(upsellOffer.eligiblePlayers)}
+                                      className="text-left text-xs font-bold text-white bg-emerald-600 hover:bg-emerald-700 py-2 px-2 rounded mt-1 transition-colors flex justify-between items-center"
+                                  >
+                                      <span>¡Añadir para todos!</span>
+                                      <span className="text-[10px] bg-emerald-800 px-1.5 py-0.5 rounded opacity-80">
+                                          {(upsellOffer.product.price * upsellOffer.eligiblePlayers.length).toFixed(2)}€
+                                      </span>
+                                  </button>
+                              </div>
+                          )}
+                      </div>
+                  </div>
+              </div>
+          )}
+          {/* ------------------------ */}
+
             {cart.map((item, index) => (
                 <div key={item.cartId || index} className="flex gap-4 mb-4 border-b border-gray-100 pb-4 last:border-0 last:pb-0">
                     <div className="w-16 h-16 bg-gray-100 rounded-lg overflow-hidden border border-gray-200 shrink-0 relative">

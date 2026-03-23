@@ -862,11 +862,24 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
               {product.name}
           </h2>
           
-          <div className="flex items-baseline gap-2 mb-6">
-              <p className={`font-black text-4xl ${isGift ? 'text-gray-800' : 'text-emerald-600'}`}>
-                  {isGift ? 'GRATIS' : `${unitPrice.toFixed(2)}€`}
-              </p>
-              {!isGift && <span className="text-gray-400 font-bold text-base">/ unidad</span>}
+            <div className="flex items-start gap-4 mb-6">
+              <div className="flex items-baseline gap-2">
+                  <p className={`font-black text-4xl ${isGift ? 'text-gray-800' : 'text-emerald-600'}`}>
+                      {isGift ? 'GRATIS' : `${unitPrice.toFixed(2)}€`}
+                  </p>
+                  {!isGift && <span className="text-gray-400 font-bold text-base">/ unidad</span>}
+              </div>
+              
+              {/* ETIQUETA DINÁMICA DE MODIFICACIÓN (Solo aparece si cambian el estado por defecto) */}
+              {!isGift && modificationCount > 0 && (
+                  <div className="animate-fade-in-up mt-1.5">
+                      <span className={`text-xs px-2.5 py-1.5 rounded-lg font-black border shadow-sm flex items-center gap-1 ${currentModFee === 0 ? 'bg-emerald-100 text-emerald-700 border-emerald-300' : 'bg-red-50 text-red-600 border-red-200'}`}>
+                          {currentModFee === 0 
+                              ? 'Modificación Gratis' 
+                              : `+${(modificationCount * currentModFee).toFixed(2)}€ por extra`}
+                      </span>
+                  </div>
+              )}
           </div>
 
             {/* 🟢 ETIQUETAS DE CARACTERÍSTICAS MÁS GRANDES Y VISIBLES */}
@@ -1132,9 +1145,26 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
                         <div className="space-y-4 border-t pt-4 border-gray-100">
                             <h4 className="font-bold text-gray-600 text-xs uppercase">Datos Personalización</h4>
                             <div className="flex gap-4 flex-wrap">
-                                {features.name && modifiable.name && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})}/><span className="text-sm">Incluir Nombre</span></label> )}
-                                {features.number && modifiable.number && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})}/><span className="text-sm">Incluir Dorsal</span></label> )}
-                                {features.photo && modifiable.photo && ( <label className="flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg hover:bg-gray-50"><input type="checkbox" className="accent-emerald-600" checked={customization.includePhoto} onChange={e => setCustomization({...customization, includePhoto: e.target.checked})}/><span className="text-sm">Incluir Foto</span></label> )}
+                                {features.name && modifiable.name && ( 
+                                    <label className={`flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg transition-colors ${customization.includeName ? 'bg-emerald-50 border-emerald-200 shadow-sm text-emerald-800' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                        <input type="checkbox" className="accent-emerald-600 w-4 h-4" checked={customization.includeName} onChange={e => setCustomization({...customization, includeName: e.target.checked})}/>
+                                        <span className="text-sm font-medium">Incluir Nombre</span>
+                                    </label> 
+                                )}
+                                
+                                {features.number && modifiable.number && ( 
+                                    <label className={`flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg transition-colors ${customization.includeNumber ? 'bg-emerald-50 border-emerald-200 shadow-sm text-emerald-800' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                        <input type="checkbox" className="accent-emerald-600 w-4 h-4" checked={customization.includeNumber} onChange={e => setCustomization({...customization, includeNumber: e.target.checked})}/>
+                                        <span className="text-sm font-medium">Incluir Dorsal</span>
+                                    </label> 
+                                )}
+                                
+                                {features.photo && modifiable.photo && ( 
+                                    <label className={`flex items-center gap-2 cursor-pointer border px-3 py-2 rounded-lg transition-colors ${customization.includePhoto ? 'bg-emerald-50 border-emerald-200 shadow-sm text-emerald-800' : 'bg-white border-gray-200 hover:bg-gray-50 text-gray-700'}`}>
+                                        <input type="checkbox" className="accent-emerald-600 w-4 h-4" checked={customization.includePhoto} onChange={e => setCustomization({...customization, includePhoto: e.target.checked})}/>
+                                        <span className="text-sm font-medium">Incluir Foto</span>
+                                    </label> 
+                                )}
                             </div>
                             
                             {/* CAMPOS JUGADOR 1 */}

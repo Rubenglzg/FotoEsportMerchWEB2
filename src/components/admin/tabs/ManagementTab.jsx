@@ -34,6 +34,12 @@ export const ManagementTab = ({
     const [productQuantity, setProductQuantity] = useState(1);
     const [allowedClub, setAllowedClub] = useState('all');
 
+    // --- NUEVOS ESTADOS PARA CADUCIDAD ---
+    const [expirationType, setExpirationType] = useState('none'); // 'none', 'hours', 'days', 'months', 'date_range'
+    const [expirationValue, setExpirationValue] = useState(1);
+    const [expirationDateStart, setExpirationDateStart] = useState('');
+    const [expirationDateEnd, setExpirationDateEnd] = useState('');
+
     // Estados para Seguridad y Acceso Admin
     const [adminAlias, setAdminAlias] = useState('');
     const [adminEmail, setAdminEmail] = useState('');
@@ -161,8 +167,31 @@ export const ManagementTab = ({
         const prefix = codeType === 'percent' ? 'PCT' : (codeType === 'fixed' ? 'FIX' : 'REG');
         const codeStr = `${prefix}-${Math.random().toString(36).substring(2, 8).toUpperCase()}`;
 
+        // --- NUEVO CÁLCULO DE FECHA DE CADUCIDAD ---
+        let expiresAt = null;
+        let validFrom = null;
+
+        if (expirationType === 'date_range') {
+            if (!expirationDateStart || !expirationDateEnd) {
+                return showNotification("Debes seleccionar una fecha de inicio y una de fin", "error");
+            }
+            if (new Date(expirationDateStart) >= new Date(expirationDateEnd)) {
+                return showNotification("La fecha de fin debe ser posterior a la de inicio", "error");
+            }
+            validFrom = new Date(expirationDateStart).toISOString();
+            expiresAt = new Date(expirationDateEnd).toISOString();
+        } else if (expirationType !== 'none' && expirationValue > 0) {
+            const date = new Date();
+            validFrom = date.toISOString(); // Empieza a ser válido ahora mismo
+            if (expirationType === 'hours') date.setHours(date.getHours() + parseInt(expirationValue));
+            if (expirationType === 'days') date.setDate(date.getDate() + parseInt(expirationValue));
+            if (expirationType === 'months') date.setMonth(date.getMonth() + parseInt(expirationValue));
+            expiresAt = date.toISOString();
+        }
+
         try {
             await addDoc(collection(db, 'giftCodes'), {
+                // ... (el resto de campos se queda igual)
                 code: codeStr,
                 type: 'manual',
                 codeType: codeType,
@@ -174,12 +203,23 @@ export const ManagementTab = ({
                 userEmail: newManualEmail || 'Generado Manualmente',
                 allowedClub: allowedClub,
                 status: 'pending',
-                createdAt: new Date().toISOString()
+                createdAt: new Date().toISOString(),
+                
+                // --- AÑADIMOS LOS CAMPOS DE TIEMPO ACTUALIZADOS ---
+                validFrom: validFrom,
+                expiresAt: expiresAt,
+                isTimeLimited: expirationType !== 'none'
             });
             
             showNotification("Código promocional generado con éxito");
-            setNewManualProduct(''); setNewManualEmail(''); setDiscountValue('');
-            setProductQuantity(1); setAllowedClub('all');
+            // ... reseteo de estados previos
+            
+            // --- LIMPIAMOS LOS NUEVOS ESTADOS ---
+            setExpirationType('none'); 
+            setExpirationValue(1);
+            setExpirationDateStart('');
+            setExpirationDateEnd('');
+
             fetchGiftCodes();
         } catch (e) {
             showNotification("Hubo un error al generar el código", "error");
@@ -511,6 +551,55 @@ export const ManagementTab = ({
                                     <option value="all">✅ Válido para todos</option>
                                     {clubs.map(c => <option key={c.id} value={c.id}>Solo: {c.name}</option>)}
                                 </select>
+                            </div>
+
+                            {/* NUEVO BLOQUE DE VALIDEZ TEMPORAL (CON RANGO DE FECHAS) */}
+                            <div>
+                                <label className="text-[10px] uppercase font-bold text-gray-500 block mb-1">Duración del Cupón</label>
+                                <div className="flex flex-col gap-2">
+                                    <select 
+                                        className="w-full bg-gray-50 border border-gray-200 rounded-lg px-3 py-2 text-sm font-bold text-gray-800 outline-none"
+                                        value={expirationType} onChange={(e) => setExpirationType(e.target.value)}
+                                    >
+                                        <option value="none">Un solo uso (Clásico)</option>
+                                        <option value="hours">Por Horas (Multiuso)</option>
+                                        <option value="days">Por Días (Multiuso)</option>
+                                        <option value="months">Por Meses (Multiuso)</option>
+                                        <option value="date_range">Rango de Fechas Exacto (Multiuso)</option>
+                                    </select>
+
+                                    {/* Muestra input de cantidad si es horas/días/meses */}
+                                    {(expirationType === 'hours' || expirationType === 'days' || expirationType === 'months') && (
+                                        <input 
+                                            type="number" min="1"
+                                            className="w-full bg-white border border-gray-200 rounded-lg px-3 py-2 text-sm text-gray-800 outline-none"
+                                            value={expirationValue} onChange={(e) => setExpirationValue(e.target.value)}
+                                            placeholder={`¿Cuántos ${expirationType === 'hours' ? 'horas' : expirationType === 'days' ? 'días' : 'meses'}?`}
+                                        />
+                                    )}
+
+                                    {/* Muestra inputs de calendario si es Rango de Fechas */}
+                                    {expirationType === 'date_range' && (
+                                        <div className="flex gap-2 bg-purple-50 p-2 rounded-lg border border-purple-100">
+                                            <div className="w-1/2">
+                                                <label className="text-[9px] font-bold text-purple-700 uppercase block mb-0.5">Válido Desde:</label>
+                                                <input 
+                                                    type="datetime-local" 
+                                                    className="w-full bg-white border border-purple-200 rounded px-2 py-1.5 text-xs text-gray-800 outline-none"
+                                                    value={expirationDateStart} onChange={(e) => setExpirationDateStart(e.target.value)}
+                                                />
+                                            </div>
+                                            <div className="w-1/2">
+                                                <label className="text-[9px] font-bold text-purple-700 uppercase block mb-0.5">Válido Hasta:</label>
+                                                <input 
+                                                    type="datetime-local" 
+                                                    className="w-full bg-white border border-purple-200 rounded px-2 py-1.5 text-xs text-gray-800 outline-none"
+                                                    value={expirationDateEnd} onChange={(e) => setExpirationDateEnd(e.target.value)}
+                                                />
+                                            </div>
+                                        </div>
+                                    )}
+                                </div>
                             </div>
 
                             <button 

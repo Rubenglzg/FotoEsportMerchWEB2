@@ -171,6 +171,7 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
           } else {
               const codeData = snap.docs[0].data();
 
+              // 1. Validar el club si tiene restricción
               const currentCartClubId = cart[0]?.clubId;
               if (codeData.allowedClub && codeData.allowedClub !== 'all' && codeData.allowedClub !== currentCartClubId) {
                   setDiscountError("Este cupón es exclusivo para otro club y no puede aplicarse a esta compra.");
@@ -178,9 +179,34 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   return;
               }
 
-              if(codeData.status === 'redeemed') {
-                  setDiscountError("Este código ya ha sido canjeado.");
-              } else if (codeData.applyTo !== 'all') {
+              // 2. LÓGICA DE TIEMPO (Fechas y uso único)
+              if (codeData.isTimeLimited) {
+                  const now = new Date().toISOString();
+                  
+                  // Comprueba si aún no ha empezado
+                  if (codeData.validFrom && now < codeData.validFrom) {
+                      setDiscountError("Este cupón aún no está activo. Revisa la fecha de validez.");
+                      setDiscountLoading(false);
+                      return;
+                  }
+                  
+                  // Comprueba si ya caducó
+                  if (codeData.expiresAt && now > codeData.expiresAt) {
+                      setDiscountError("Este cupón ha caducado por tiempo limitado.");
+                      setDiscountLoading(false);
+                      return;
+                  }
+              } else {
+                  // Si no es por tiempo, es clásico: Comprobamos si ya fue canjeado (1 solo uso)
+                  if (codeData.status === 'redeemed') {
+                      setDiscountError("Este código ya ha sido canjeado.");
+                      setDiscountLoading(false);
+                      return;
+                  }
+              }
+
+              // 3. Comprobar a qué aplica
+              if (codeData.applyTo !== 'all') {
                   setDiscountError("Este código es para un producto específico. Vuelve a la Tienda y ponlo en el buscador superior.");
               } else {
                   setActiveCartCode({ ...codeData, docId: snap.docs[0].id });

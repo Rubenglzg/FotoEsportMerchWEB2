@@ -65,9 +65,10 @@ export function useFirebaseData() {
         return () => unsubOrders(); 
     }, [authUser]);
 
-    // PROVEEDORES (Privado: requiere usuario)
+    // PROVEEDORES (Privado: Solo Admin)
     useEffect(() => {
-        if (!authUser) { 
+        // Si no hay usuario, o si el usuario NO tiene email (es un Club/Anónimo), no intentes descargar
+        if (!authUser || !authUser.email) { 
             setSuppliers([]); 
             return; 
         }

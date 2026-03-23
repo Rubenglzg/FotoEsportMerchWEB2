@@ -8,6 +8,7 @@ import {
 } from 'firebase/auth';
 import { doc, getDoc, setDoc, collection, addDoc } from 'firebase/firestore';
 import { auth, db } from '../config/firebase';
+import { clearIndexedDbPersistence } from 'firebase/firestore';
 
 export function useAuthSession(clubs, showNotification, setView) {
     const [user, setUser] = useState(null);
@@ -155,19 +156,40 @@ export function useAuthSession(clubs, showNotification, setView) {
     };
 
     const logout = async () => {
+        // 1. Redirigimos al usuario inmediatamente a la página principal para ocultar la vista
         setView('home');
+
         setTimeout(async () => {
+            // 2. Limpiamos las variables locales
             localStorage.removeItem('auth_role');
             localStorage.removeItem('auth_user_id');
             setRole('public');
             setCurrentClub(null);
             setIsPersistent(false);
+
             try {
+                // 3. Cerramos la sesión actual de Firebase
                 await signOut(auth);
+                
+                // 4. EL TRUCO PARA EVITAR EL ERROR: 
+                // Limpiamos la caché de la base de datos de Firebase antes de cambiar a un nuevo usuario
+                try {
+                    await clearIndexedDbPersistence(db);
+                } catch (dbError) {
+                    console.log("Limpieza de caché de Firestore:", dbError.message);
+                }
+
+                // 5. Ahora sí, iniciamos sesión como visitante anónimo de forma segura
                 await signInAnonymously(auth);
-            } catch (e) {}
-            showNotification('Sesión cerrada');
-        }, 300);
+
+            } catch (e) {
+                console.error("Error durante el cierre de sesión:", e);
+            }
+            
+            // 6. Avisamos al usuario
+            showNotification('Sesión cerrada correctamente');
+            
+        }, 300); // Pequeño retraso para que dé tiempo a la transición de página
     };
 
     return { 

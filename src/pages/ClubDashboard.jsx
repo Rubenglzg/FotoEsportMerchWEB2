@@ -220,6 +220,62 @@ export function ClubDashboard({ club, orders, updateOrderStatus, config, seasons
                 </div>
             )}
 
+            {/* ==========================================
+                3.5. MÓDULO DE SINERGIA B2B: SOONER (PREPARADO PARA EL FUTURO)
+                Para activarlo, solo tienes que quitar el "{ /*" de la línea de abajo 
+                y el "* / }" de la última línea de este bloque.
+                ========================================== */}
+            
+            {/* <div className="bg-gradient-to-r from-gray-900 to-gray-800 rounded-2xl p-6 md:p-8 shadow-xl border border-gray-700 flex flex-col md:flex-row items-center justify-between gap-6 relative overflow-hidden group">
+                <div className="absolute -top-24 -right-24 w-64 h-64 bg-emerald-500 rounded-full blur-3xl opacity-10 group-hover:opacity-20 transition-opacity duration-500"></div>
+                
+                <div className="flex flex-col md:flex-row items-center md:items-start gap-6 z-10 w-full">
+                    
+                    <div className="bg-white px-2 py-2 md:px-4 md:py-2 rounded-2xl shadow-inner w-48 h-24 md:w-64 md:h-28 flex-shrink-0 flex items-center justify-center overflow-hidden">
+                        <img 
+                            src="/sooner-logo.png" 
+                            alt="Sooner Logo" 
+                            className="w-full h-full object-contain scale-[1.15] md:scale-[1.25] transition-transform duration-300 group-hover:scale-[1.20] md:group-hover:scale-[1.30]"
+                            onError={(e) => {
+                                e.target.style.display = 'none';
+                                e.target.nextSibling.style.display = 'block';
+                            }}
+                        />
+                        <Layers className="w-12 h-12 text-emerald-600 hidden" />
+                    </div>
+                    
+                    <div className="text-center md:text-left flex-1 flex flex-col justify-center h-full pt-1 md:pt-2">
+                        <div className="flex flex-col md:flex-row items-center gap-3 mb-3 justify-center md:justify-start">
+                            <span className="text-emerald-400 font-bold text-xs md:text-sm tracking-wider uppercase">Grupo Avantia</span>
+                            <span className="hidden md:inline text-gray-500">•</span>
+                            <span className="bg-emerald-500/20 text-emerald-300 text-xs md:text-sm font-medium px-3 py-1 rounded-full border border-emerald-500/30">
+                                Ventaja exclusiva para clientes
+                            </span>
+                        </div>
+                        <h3 className="text-2xl md:text-3xl font-bold text-white mb-3">
+                            Revoluciona la gestión con <span className="text-emerald-400">Sooner</span>
+                        </h3>
+                        <p className="text-gray-300 text-sm md:text-base max-w-2xl leading-relaxed">
+                            El software definitivo para automatizar la gestión de fichas, cuotas y la administración general de tu club deportivo. 
+                            Por confiar en nuestro servicio de merchandising, accede a una <strong>prueba gratuita y condiciones especiales</strong> en tu suscripción.
+                        </p>
+                    </div>
+                </div>
+                
+                <div className="z-10 w-full md:w-auto flex-shrink-0 mt-4 md:mt-0">
+                    <a 
+                        href="https://sooner.es" 
+                        target="_blank" 
+                        rel="noopener noreferrer" 
+                        className="flex items-center justify-center gap-2 w-full md:w-auto bg-emerald-500 hover:bg-emerald-400 text-white font-bold py-3 px-6 md:px-8 md:py-4 rounded-xl transition-all shadow-lg shadow-emerald-500/20 hover:shadow-emerald-500/40 hover:-translate-y-0.5 text-base md:text-lg"
+                    >
+                        Solicitar Demo Gratuita
+                        <ChevronRight className="w-5 h-5" />
+                    </a>
+                </div>
+            </div>
+            */}
+
             {/* 4. LISTADO DE LOTES Y PEDIDOS */}
             <div className="space-y-6">
                 <h3 className="font-bold text-xl text-gray-800 flex items-center gap-2 border-b pb-2">

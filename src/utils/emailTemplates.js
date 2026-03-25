@@ -148,7 +148,17 @@ export const generateInvoiceEmailHTML = (order, clubName) => {
                             <tr>
                                 <td>
                                     <strong>${item.name}</strong>
+                                    ${item.isDigital ? '<span style="background:#8b5cf6; color:white; padding:2px 6px; border-radius:4px; font-size:10px; margin-left:8px; vertical-align:middle;">DIGITAL</span>' : ''}
+                                    
                                     <div style="margin-top: 4px; font-size: 12px; color: #555;">
+                                        ${item.isDigital ? `
+                                            <div style="background-color: #f3e8ff; border-left: 3px solid #8b5cf6; padding: 8px; margin-top: 5px; margin-bottom: 8px;">
+                                                <strong style="color: #6d28d9;">Formato Digital</strong><br>
+                                                ${item.downloadUrl 
+                                                    ? `<a href="${item.downloadUrl}" style="display:inline-block; margin-top:5px; background:#8b5cf6; color:white; text-decoration:none; padding:5px 10px; border-radius:4px; font-weight:bold;">⬇️ Descargar Archivos</a>`
+                                                    : `Tus archivos personalizados están en proceso de diseño. Recibirás un correo cuando estén listos.`}
+                                            </div>
+                                        ` : ''}
                                         ${isValid(item.size) ? `• Talla: <strong>${item.size}</strong><br>` : ''}
                                         ${isValid(p1Name) ? `• Nombre: <strong>${p1Name}</strong><br>` : ''}
                                         ${isValid(p1Num) ? `• Número: <strong>${p1Num}</strong><br>` : ''}

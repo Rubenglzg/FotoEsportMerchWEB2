@@ -167,6 +167,21 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
     financeSeasonId, statsClubFilter, filterClubId
   });
 
+  // 🟢 NUEVO: Calcular total de envíos digitales pendientes para el globo rojo
+  let pendingDigitalCount = 0;
+  if (accountingData) {
+      accountingData.forEach(({ batches }) => {
+          batches.forEach(batch => {
+              batch.orders.forEach(order => {
+                  const isDigital = order.items?.some(item => item.isDigital || products.find(p => p.id === item.productId)?.isDigital);
+                  if (isDigital && !order.digitalDelivery) {
+                      pendingDigitalCount++;
+                  }
+              });
+          });
+      });
+  }
+
   const {
       sendSupplierEmails,
       processBatchStatusUpdate,
@@ -202,7 +217,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
             {id: 'management', label: 'Gestión', icon: LayoutDashboard},
             {id: 'products', label: 'Productos', icon: Tag},
             {id: 'marketing', label: 'Marketing', icon: Mail},
-            {id: 'accounting', label: 'Pedidos', icon: Package},
+            {id: 'accounting', label: 'Pedidos', icon: Package, badge: pendingDigitalCount},
             {id: 'special-orders', label: 'Pedidos Especiales', icon: Briefcase},
             {id: 'accounting-control', label: 'Contabilidad', icon: Banknote},
             {id: 'suppliers', label: 'Proveedores', icon: Factory},

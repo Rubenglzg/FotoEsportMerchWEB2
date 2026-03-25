@@ -13,6 +13,7 @@ import { initializeApp } from 'firebase/app';
 import { getAuth } from 'firebase/auth';
 import { getFirestore } from 'firebase/firestore';
 import { getStorage } from 'firebase/storage';
+import { getFunctions } from 'firebase/functions'; // 🟢 NUEVO: Importamos las Funciones
 
 // 1. LAS CLAVES SECRETAS: Aquí le decimos a la web a qué base de datos conectarse.
 // Usamos "import.meta.env" para que las contraseñas reales estén escondidas en un archivo .env y no sean públicas.
@@ -26,7 +27,7 @@ const firebaseConfig = {
 };
 
 // 2. CREAMOS LAS HERRAMIENTAS: Preparamos las variables vacías.
-let app, auth, db, storage;
+let app, auth, db, storage, functions; // 🟢 NUEVO: Añadimos 'functions' a la lista
 
 try {
     // 3. ENCENDEMOS LOS MOTORES:
@@ -34,6 +35,7 @@ try {
     auth = getAuth(app);                     // Arranca el sistema de Usuarios y Contraseñas
     db = getFirestore(app);                  // Arranca la Base de Datos (textos, pedidos, clubs)
     storage = getStorage(app);               // Arranca el Disco Duro (imágenes, escudos, excel)
+    functions = getFunctions(app); // 🟢 NUEVO: Arranca el motor de Funciones (pon la región de tu Firebase, por defecto suele ir bien europe-west1 o quítalo si usas us-central1)
 } catch (error) {
     // Si algo falla al conectar (ej. sin internet), avisamos en la consola oculta del navegador.
     console.error("Error inicializando Firebase:", error);
@@ -41,4 +43,4 @@ try {
 
 // 4. EXPORTAMOS: Hacemos que estas herramientas estén disponibles para que 
 // cualquier otro archivo de nuestra web pueda usarlas importándolas.
-export { app, auth, db, storage };
+export { app, auth, db, storage, functions }; // 🟢 NUEVO: Exportamos 'functions'

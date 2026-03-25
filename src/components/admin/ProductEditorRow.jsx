@@ -189,6 +189,28 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                     </div>
                                 </div>
 
+                                {/* 🟢 NUEVO: SELECTOR DE PRODUCTO FÍSICO / DIGITAL */}
+                                <div className="flex items-center gap-4 pb-4 border-b border-gray-100 mt-4">
+                                    <label className="text-xs font-bold text-gray-700">Formato del Producto:</label>
+                                    <div className={`flex bg-gray-100 p-1 rounded-lg transition-opacity ${product.isPack ? 'opacity-50 pointer-events-none' : ''}`}>
+                                        <button 
+                                            onClick={(e) => { e.preventDefault(); updateProduct({...product, isDigital: false}); }} 
+                                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all ${!product.isDigital ? 'bg-white text-emerald-700 shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                            📦 Físico
+                                        </button>
+                                        <button 
+                                            onClick={(e) => { e.preventDefault(); updateProduct({...product, isDigital: true, cost: 0, supplierId: 'digital'}); }} 
+                                            className={`px-4 py-1.5 rounded-md text-xs font-bold transition-all flex items-center gap-1 ${product.isDigital ? 'bg-purple-600 text-white shadow-sm' : 'text-gray-500 hover:text-gray-700'}`}>
+                                            💻 Digital
+                                        </button>
+                                    </div>
+                                    {product.isPack && (
+                                        <span className="text-[10px] text-orange-600 bg-orange-50 px-2 py-1 rounded font-bold">
+                                            ⚠️ Deshabilitado en Packs (el formato depende de cada artículo incluido)
+                                        </span>
+                                    )}
+                                </div>
+
                                 {/* 🟢 NUEVO: CONSTRUCTOR DE PACKS (Solo visible si es pack - Color Verde) */}
                                 {product.isPack && (
                                     <div className="bg-emerald-50 p-4 rounded-xl border border-emerald-200 animate-fade-in mb-4">

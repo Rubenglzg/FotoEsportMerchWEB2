@@ -180,3 +180,41 @@ exports.onClubRequestCreated = onDocumentCreated("club_requests/{requestId}", as
         console.error("Error al enviar el email de notificación de club:", error);
     }
 });
+
+// 7. ENTREGAR ARCHIVO DIGITAL (Stickers, Redes Sociales, etc.)
+exports.sendDigitalDelivery = onCall(async (request) => {
+    const { orderId, customerEmail, customerName, clubName, files } = request.data;
+
+    // Seguridad: Solo los admins conectados pueden enviar archivos
+    if (!request.auth) {
+        throw new HttpsError("unauthenticated", "Debes estar autenticado para enviar archivos digitales.");
+    }
+
+    try {
+        await db.collection("mail").add({
+            to: [customerEmail],
+            message: {
+                subject: `¡Tus diseños digitales de ${clubName} están listos!`,
+                html: `
+                    <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; padding: 20px; border: 1px solid #e0e0e0; border-radius: 10px;">
+                        <h2 style="color: #8b5cf6; text-align: center;">¡Tus archivos digitales han llegado!</h2>
+                        <p style="font-size: 16px; color: #333;">Hola <strong>${customerName}</strong>,</p>
+                        <p style="font-size: 16px; color: #333;">Adjunto a este correo encontrarás los diseños digitales (stickers, imágenes, etc.) correspondientes a tu pedido <strong>#${orderId}</strong> para el club <strong>${clubName}</strong>.</p>
+                        <p style="font-size: 16px; color: #333;">¡Esperamos que te gusten!</p>
+                        <div style="text-align: center; margin-top: 30px;">
+                            <p style="font-size: 12px; color: #999;">© ${new Date().getFullYear()} FotoEsport Merch</p>
+                        </div>
+                    </div>
+                `,
+                // El array de archivos adjuntos va directo a la extensión de Nodemailer
+                attachments: files 
+            }
+        });
+
+        console.log(`Archivos digitales enviados a ${customerEmail} para el pedido ${orderId}.`);
+        return { success: true };
+    } catch (error) {
+        console.error("Error enviando archivos digitales:", error);
+        throw new HttpsError("internal", "Error al enviar el correo con los archivos.");
+    }
+});

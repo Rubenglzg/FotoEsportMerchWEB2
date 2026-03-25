@@ -1,8 +1,9 @@
 import React, { useState, useEffect } from 'react';
 import { Layers, ChevronRight, Plus, Package, Briefcase, AlertTriangle, Calendar, Check, X, Lock, FileDown, Printer, Factory, NotebookText, Trash2, Edit3, Mail, ArrowRight, ShoppingCart } from 'lucide-react';
 import { doc, updateDoc, collection, addDoc, serverTimestamp } from 'firebase/firestore';
-import { ref, listAll } from 'firebase/storage';
-import { db, storage } from '../../../config/firebase';
+import { ref, listAll, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { httpsCallable } from 'firebase/functions';
+import { db, storage, functions } from '../../../config/firebase';
 import { appId, AVAILABLE_COLORS } from '../../../config/constants';
 import { Badge } from '../../ui/Badge';
 import { Button } from '../../ui/Button';
@@ -51,6 +52,53 @@ export const AccountingTab = ({
     const [manualOrderModal, setManualOrderModal] = useState(false);
     const [manualOrderForm, setManualOrderForm] = useState(INITIAL_MANUAL_FORM_STATE);
     const [manualOrderCategories, setManualOrderCategories] = useState([]);
+
+    // Estados para el envío digital
+    const [digitalFiles, setDigitalFiles] = useState([]);
+    const [isSendingDigital, setIsSendingDigital] = useState(false);
+
+    // Lógica para enviar el pedido digital
+    const handleSendDigitalFiles = async (order) => {
+        if (!digitalFiles || digitalFiles.length === 0) return alert("Selecciona al menos un archivo.");
+        setIsSendingDigital(true);
+        
+        try {
+            // 1. Subir cada archivo a Firebase Storage
+            const uploadedFiles = await Promise.all(digitalFiles.map(async (file) => {
+                const fileRef = ref(storage, `digital_deliveries/${order.id}/${file.name}`);
+                await uploadBytes(fileRef, file);
+                const url = await getDownloadURL(fileRef);
+                return { filename: file.name, path: url };
+            }));
+
+            // 2. Llamar a la función de Firebase para enviar el email
+            const sendDigitalDelivery = httpsCallable(functions, 'sendDigitalDelivery');
+            await sendDigitalDelivery({
+                orderId: order.id,
+                customerEmail: order.customer.email,
+                customerName: order.customer.name,
+                clubName: order.clubName || 'Tu Club', 
+                files: uploadedFiles
+            });
+
+            // 3. Actualizar el pedido en Firestore para guardar el historial
+            // Nota: Aquí se asume que tus pedidos están en "artifacts/appId/public/data/orders"
+            await updateDoc(doc(db, 'artifacts', appId, 'public', 'data', 'orders', order.id), {
+                digitalDelivery: {
+                    sentAt: new Date().toISOString(),
+                    files: uploadedFiles
+                }
+            });
+
+            showNotification("¡Archivos enviados y guardados en el historial correctamente!");
+            setDigitalFiles([]); 
+        } catch (error) {
+            console.error("Error al enviar el archivo digital:", error);
+            showNotification("Hubo un error al enviar los archivos.", "error");
+        } finally {
+            setIsSendingDigital(false);
+        }
+    };
 
     const toggleBatch = (batchId) => {
         if (collapsedBatches.includes(batchId)) {
@@ -121,7 +169,8 @@ export const AccountingTab = ({
             productId, name: productDef.name, size: activeSize ? (size || 'Única') : '',
             playerName: activeName ? (name || '') : '', playerNumber: activeNumber ? (number || '') : '',
             color: clubColor, includeName: activeName, includeNumber: activeNumber, includeShield: activeShield,
-            price: finalPrice, quantity: parseInt(quantity), cost: finalCost, image: productDef.image, cartId: Date.now() + Math.random()
+            price: finalPrice, quantity: parseInt(quantity), cost: finalCost, image: productDef.image, cartId: Date.now() + Math.random(),
+            isDigital: productDef.isDigital || false // 🟢 ESTO ES LO QUE FALTABA
         };
 
         setManualOrderForm({
@@ -197,6 +246,24 @@ export const AccountingTab = ({
         return parts.join(', ');
     };
 
+    // 🟢 NUEVO: Calcular pedidos digitales pendientes en todos los lotes
+    const pendingDigitalOrders = [];
+    accountingData.forEach(({ club, batches }) => {
+        batches.forEach(batch => {
+            batch.orders.forEach(order => {
+                const isDigital = order.items?.some(item => item.isDigital || products.find(p => p.id === item.productId)?.isDigital);
+                if (isDigital && !order.digitalDelivery) {
+                    pendingDigitalOrders.push({
+                        clubName: club.name,
+                        orderId: order.id,
+                        customerName: order.customer.name,
+                        batchId: batch.id
+                    });
+                }
+            });
+        });
+    });
+
     return (
         <div className="animate-fade-in space-y-8 relative">
             {/* A. BARRA DE HERRAMIENTAS */}
@@ -248,6 +315,30 @@ export const AccountingTab = ({
                     </button>
                 </div>
             </div>
+
+            {/* 🟢 NUEVO: CUADRO DE ENVÍOS DIGITALES PENDIENTES */}
+            {pendingDigitalOrders.length > 0 && (
+                <div className="bg-gradient-to-r from-purple-50 to-indigo-50 border border-purple-200 rounded-xl p-4 shadow-sm animate-fade-in-down">
+                    <div className="flex items-center gap-2 mb-3">
+                        <span className="relative flex h-3 w-3">
+                          <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-purple-400 opacity-75"></span>
+                          <span className="relative inline-flex rounded-full h-3 w-3 bg-purple-500"></span>
+                        </span>
+                        <h4 className="font-bold text-sm text-purple-900 uppercase tracking-wide">
+                            Envíos Digitales Pendientes ({pendingDigitalOrders.length})
+                        </h4>
+                    </div>
+                    <div className="flex gap-3 overflow-x-auto pb-2 custom-scrollbar">
+                        {pendingDigitalOrders.map((pending, idx) => (
+                            <div key={idx} className="bg-white border border-purple-100 rounded-lg p-3 min-w-[220px] max-w-[250px] flex flex-col shadow-sm shrink-0 hover:border-purple-300 transition-colors">
+                                <span className="text-[10px] font-extrabold text-purple-600 uppercase truncate mb-1">{pending.clubName}</span>
+                                <span className="text-sm font-bold text-gray-800 truncate" title={pending.customerName}>{pending.customerName}</span>
+                                <span className="text-xs text-gray-500 mt-1 font-mono bg-gray-50 px-2 py-1 rounded inline-block w-fit border border-gray-100">Lote {pending.batchId}</span>
+                            </div>
+                        ))}
+                    </div>
+                </div>
+            )}
 
             {/* B. LISTADO DE LOTES */}
             <div className="space-y-12">
@@ -388,6 +479,11 @@ export const AccountingTab = ({
                                                                         ) : <span className="font-mono text-xs font-bold bg-gray-100 border px-1 rounded text-gray-600">#{order.id.slice(0,6)}</span>}
                                                                         
                                                                         <span className="font-bold text-sm text-gray-800">{order.customer.name}</span>
+                                                                        {order.items?.some(item => item.isDigital || products.find(p => p.id === item.productId)?.isDigital) && !order.digitalDelivery && (
+                                                                            <span className="ml-2 bg-red-100 text-red-600 text-[10px] font-bold px-2 py-0.5 rounded border border-red-200 animate-pulse flex items-center gap-1">
+                                                                                ⚠️ Envío Digital Pendiente
+                                                                            </span>
+                                                                        )}
                                                                         
                                                                         {batch.id === 'INDIVIDUAL' ? (
                                                                             <div onClick={(e) => e.stopPropagation()}> 
@@ -435,7 +531,12 @@ export const AccountingTab = ({
                                                                                         <div className="flex gap-3 items-center flex-1">
                                                                                             {item.image ? <img src={item.image} className="w-10 h-10 object-cover rounded bg-gray-200 border" /> : <div className="w-10 h-10 bg-gray-100 rounded flex items-center justify-center text-gray-300"><Package className="w-5 h-5"/></div>}
                                                                                             <div>
-                                                                                                <p className="font-bold text-gray-800 text-sm">{item.name}</p>
+                                                                                                <p className="font-bold text-gray-800 text-sm flex items-center gap-2">
+                                                                                                    {item.name}
+                                                                                                    {(item.isDigital || products.find(p => p.id === item.productId)?.isDigital) && (
+                                                                                                        <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded uppercase tracking-wide">Digital</span>
+                                                                                                    )}
+                                                                                                </p>
                                                                                                 <p className="text-xs text-gray-500">{renderProductDetails(item)}</p>
                                                                                             </div>
                                                                                         </div>
@@ -454,6 +555,55 @@ export const AccountingTab = ({
                                                                                 );
                                                                             })}
                                                                         </div>
+
+                                                                        {/* 🟢 MÓDULO DE ENTREGAS DIGITALES */}
+                                                                        {order.items?.some(item => item.isDigital || products.find(p => p.id === item.productId)?.isDigital) && (
+                                                                            <div className="mt-4 mb-4 border border-purple-200 bg-purple-50 rounded-xl p-4 shadow-sm">
+                                                                                <div className="flex justify-between items-center mb-3">
+                                                                                    <h4 className="text-sm font-bold text-purple-800 flex items-center gap-2">
+                                                                                        💻 Archivos Digitales
+                                                                                        {!order.digitalDelivery ? (
+                                                                                            <span className="bg-red-500 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide">Pendiente</span>
+                                                                                        ) : (
+                                                                                            <span className="bg-emerald-500 text-white text-[10px] px-2 py-0.5 rounded-full uppercase tracking-wide">
+                                                                                                ✅ Enviado el {new Date(order.digitalDelivery.sentAt).toLocaleDateString()}
+                                                                                            </span>
+                                                                                        )}
+                                                                                    </h4>
+                                                                                </div>
+
+                                                                                {!order.digitalDelivery ? (
+                                                                                    <div className="flex flex-col sm:flex-row gap-3 items-center bg-white p-3 rounded-lg border border-purple-100">
+                                                                                        <input 
+                                                                                            type="file" 
+                                                                                            multiple 
+                                                                                            className="text-xs w-full text-gray-500 file:mr-4 file:py-2 file:px-4 file:rounded-full file:border-0 file:text-xs file:font-bold file:bg-purple-50 file:text-purple-700 hover:file:bg-purple-100 cursor-pointer outline-none"
+                                                                                            onChange={(e) => setDigitalFiles(Array.from(e.target.files))}
+                                                                                        />
+                                                                                        <button 
+                                                                                            onClick={(e) => { e.stopPropagation(); handleSendDigitalFiles(order); }}
+                                                                                            disabled={digitalFiles.length === 0 || isSendingDigital}
+                                                                                            className="shrink-0 w-full sm:w-auto bg-purple-600 hover:bg-purple-700 text-white font-bold py-2 px-6 rounded-full text-xs transition-colors disabled:opacity-50 disabled:cursor-not-allowed shadow-md"
+                                                                                        >
+                                                                                            {isSendingDigital ? 'Enviando...' : 'Subir y Enviar Email'}
+                                                                                        </button>
+                                                                                    </div>
+                                                                                ) : (
+                                                                                    <div className="bg-white p-3 rounded-lg border border-emerald-100 text-xs">
+                                                                                        <p className="text-emerald-800 font-bold mb-2">Archivos entregados al cliente:</p>
+                                                                                        <ul className="list-disc pl-5 text-gray-600 space-y-1">
+                                                                                            {order.digitalDelivery.files.map((file, i) => (
+                                                                                                <li key={i}>
+                                                                                                    <a href={file.path} target="_blank" rel="noopener noreferrer" className="text-purple-600 hover:underline">
+                                                                                                        {file.filename}
+                                                                                                    </a>
+                                                                                                </li>
+                                                                                            ))}
+                                                                                        </ul>
+                                                                                    </div>
+                                                                                )}
+                                                                            </div>
+                                                                        )}
 
                                                                         <div className="mt-4 bg-white border border-gray-200 rounded-lg overflow-hidden">
                                                                             <div className="bg-gray-100 px-3 py-2 border-b border-gray-200 flex justify-between items-center">

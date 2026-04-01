@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useMemo } from 'react';
-import { ShoppingCart, Search, Camera, Award, Package, CreditCard, Edit3, ArrowRight, AlertCircle, Send, Mail, Phone, Users, Instagram } from 'lucide-react';
+import { ShoppingCart, Search, Camera, Award, Package, CreditCard, Edit3, ArrowRight, AlertCircle, Send, Mail, Phone, Users, Instagram, ChevronDown } from 'lucide-react';
 import { Button } from '../components/ui/Button';
 import { collection, addDoc } from 'firebase/firestore';
 import { db } from '../config/firebase';
@@ -66,6 +66,33 @@ export function HomeView({ setView, products = [], orders = [] }) {
 
     fetchInstagramPosts();
   }, []);
+
+  // --- ESTADOS PARA PREGUNTAS FRECUENTES (FAQ) ---
+  const [openFaq, setOpenFaq] = useState(null);
+
+  const faqs = [
+    { 
+        q: "¿Cómo encuentro la foto de mi jugador/a?", 
+        a: "Accede al apartado 'Buscar mis Fotos', selecciona tu club, elige la categoría correspondiente e introduce el nombre o el dorsal. Nuestro sistema buscará la foto de forma rápida y segura." 
+    },
+    { 
+        q: "¿Cuánto tarda en llegar mi pedido?", 
+        a: "Trabajamos bajo demanda y por lotes para garantizar la mejor calidad. Una vez que el club cierra el lote actual, los productos se fabrican y se entregan directamente en las instalaciones del club en un plazo aproximado de 10 a 15 días hábiles." 
+    },
+    { 
+        q: "¿Cuáles son los métodos de pago?", 
+        a: "Aceptamos pagos totalmente seguros con tarjeta a través de nuestra pasarela. Además, si tu club lo ha habilitado, también tendrás la opción de realizar el pago en efectivo al recoger el pedido." 
+    },
+    { 
+        q: "¿Qué hago si hay un problema con mi producto?", 
+        a: "¡No te preocupes! Tenemos un apartado de 'Gestión de Incidencias' (el botón naranja más arriba). Solo necesitas el ID de tu pedido para abrir un ticket y nuestro equipo lo solucionará lo antes posible." 
+    }
+  ];
+
+  const toggleFaq = (index) => {
+      setOpenFaq(openFaq === index ? null : index);
+  };
+  // -----------------------------------------------
 
   // 🌟 PRODUCTOS ESTRELLA (Tus productos reales de la Base de Datos)
   const topProducts = useMemo(() => {
@@ -330,7 +357,71 @@ export function HomeView({ setView, products = [], orders = [] }) {
           </div>
       </div>
 
-      {/* 7. PANEL DE CONTACTO PARA CLUBES */}
+      {/* 7. PREGUNTAS FRECUENTES (FAQ) MEJORADO */}
+      <div className="bg-white rounded-[2.5rem] p-8 md:p-12 lg:p-16 border border-gray-100 shadow-xl mx-4 lg:mx-12 relative overflow-hidden mt-16">
+          {/* Decoración de fondo difuminada */}
+          <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-100 rounded-full blur-3xl opacity-50 -mr-20 -mt-20 pointer-events-none"></div>
+          <div className="absolute bottom-0 left-0 w-64 h-64 bg-blue-50 rounded-full blur-3xl opacity-50 -ml-20 -mb-20 pointer-events-none"></div>
+
+          <div className="relative z-10 grid grid-cols-1 lg:grid-cols-12 gap-12 items-start">
+              
+              {/* Columna Izquierda: Textos y botón de soporte */}
+              <div className="lg:col-span-5 space-y-6">
+                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold uppercase tracking-wider border border-emerald-100 shadow-sm">
+                      <AlertCircle className="w-4 h-4" /> Soporte
+                  </div>
+                  
+                  <h2 className="text-4xl md:text-5xl font-black text-gray-900 leading-tight tracking-tight">
+                      Preguntas <br className="hidden lg:block"/> Frecuentes
+                  </h2>
+                  
+                  <p className="text-gray-500 text-lg leading-relaxed max-w-md">
+                      Encuentra rápidamente respuestas a las dudas más comunes sobre pedidos, pagos y entregas. ¿No está tu pregunta aquí?
+                  </p>
+                  
+                  <button 
+                      onClick={() => setView('incident-report')}
+                      className="inline-flex items-center gap-2 font-bold text-emerald-600 hover:text-emerald-700 transition-colors group mt-2 bg-emerald-50/50 hover:bg-emerald-50 px-5 py-3 rounded-xl border border-emerald-100"
+                  >
+                      Contactar con soporte 
+                      <ArrowRight className="w-5 h-5 transform group-hover:translate-x-1 transition-transform" />
+                  </button>
+              </div>
+
+              {/* Columna Derecha: Acordeón interactivo */}
+              <div className="lg:col-span-7 space-y-4">
+                  {faqs.map((faq, index) => (
+                      <div 
+                          key={index} 
+                          className={`bg-white border-2 rounded-2xl overflow-hidden transition-all duration-300 ${openFaq === index ? 'border-emerald-500 shadow-md ring-4 ring-emerald-50' : 'border-gray-100 hover:border-emerald-200 hover:shadow-sm'}`}
+                      >
+                          <button
+                              onClick={() => toggleFaq(index)}
+                              className="w-full px-6 md:px-8 py-5 md:py-6 flex justify-between items-center focus:outline-none group text-left"
+                          >
+                              <span className={`font-bold text-lg md:text-xl pr-6 transition-colors duration-300 ${openFaq === index ? 'text-emerald-700' : 'text-gray-800 group-hover:text-emerald-600'}`}>
+                                  {faq.q}
+                              </span>
+                              <div className={`shrink-0 p-2.5 rounded-xl transition-all duration-300 ${openFaq === index ? 'bg-emerald-500 text-white shadow-md' : 'bg-gray-50 text-gray-400 group-hover:bg-emerald-50 group-hover:text-emerald-500'}`}>
+                                  <ChevronDown className={`w-6 h-6 transition-transform duration-300 ${openFaq === index ? 'rotate-180' : ''}`} />
+                              </div>
+                          </button>
+                          
+                          <div 
+                              className={`px-6 md:px-8 overflow-hidden transition-all duration-300 ease-in-out ${openFaq === index ? 'max-h-96 pb-6 md:pb-8 opacity-100' : 'max-h-0 opacity-0'}`}
+                          >
+                              <div className="w-full h-px bg-gradient-to-r from-emerald-100 to-transparent mb-5"></div>
+                              <p className="text-gray-600 text-base md:text-lg leading-relaxed font-medium">
+                                  {faq.a}
+                              </p>
+                          </div>
+                      </div>
+                  ))}
+              </div>
+          </div>
+      </div>
+
+      {/* 8. PANEL DE CONTACTO PARA CLUBES */}
       <div className="bg-gray-900 rounded-3xl p-8 md:p-12 relative overflow-hidden mt-16 shadow-2xl border border-gray-800 mx-4 lg:mx-12">
           <div className="absolute top-0 right-0 w-64 h-64 bg-emerald-600 rounded-full blur-3xl opacity-20 -mr-20 -mt-20 pointer-events-none"></div>
 

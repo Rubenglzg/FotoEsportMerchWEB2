@@ -1,6 +1,10 @@
 import React, { useState, useMemo, useEffect } from 'react';
 // Importamos los iconos necesarios para el panel de estadísticas y listas
-import { Calendar, Package, Euro, Banknote, Ban, AlertTriangle, Layers, User, ChevronRight } from 'lucide-react';
+import { Calendar, Package, Euro, Banknote, Ban, AlertTriangle, Layers, User, ChevronRight, Folder, Image, Download, RefreshCw, X } from 'lucide-react';
+
+// Añade las importaciones de Firebase Storage
+import { ref, listAll, getDownloadURL } from 'firebase/storage';
+import { storage } from '../config/firebase';
 
 // Importamos los componentes genéricos
 import { Button } from '../components/ui/Button';
@@ -18,6 +22,48 @@ export function ClubDashboard({ club, orders, updateOrderStatus, config, seasons
     const [selectedSeasonId, setSelectedSeasonId] = useState(seasons[seasons.length - 1]?.id || 'all');
     // Estado para controlar qué lotes están desplegados (vacío = todos plegados)
     const [expandedBatchIds, setExpandedBatchIds] = useState([]);
+
+    // --- NUEVOS ESTADOS PARA LA GALERÍA DE FOTOS ---
+    const [folders, setFolders] = useState([]);
+    const [selectedFolder, setSelectedFolder] = useState(null);
+    const [photos, setPhotos] = useState([]);
+    const [loadingPhotos, setLoadingPhotos] = useState(false);
+    const [fullscreenPhoto, setFullscreenPhoto] = useState(null);
+
+    // Efecto para cargar las carpetas (categorías) del club desde Storage
+    useEffect(() => {
+        const fetchFolders = async () => {
+            try {
+                const clubRef = ref(storage, club.name);
+                const res = await listAll(clubRef);
+                setFolders(res.prefixes.map(p => p.name));
+            } catch (error) {
+                console.error("Error al cargar carpetas del club:", error);
+            }
+        };
+        fetchFolders();
+    }, [club.name]);
+
+    // Función para cargar las fotos cuando hacen clic en una carpeta
+    const handleSelectFolder = async (folderName) => {
+        setSelectedFolder(folderName);
+        setLoadingPhotos(true);
+        try {
+            const folderRef = ref(storage, `${club.name}/${folderName}`);
+            const res = await listAll(folderRef);
+            
+            const loadedPhotos = [];
+            for (const item of res.items) {
+                const url = await getDownloadURL(item);
+                loadedPhotos.push({ name: item.name, url });
+            }
+            setPhotos(loadedPhotos);
+        } catch (error) {
+            console.error("Error al cargar fotos:", error);
+        }
+        setLoadingPhotos(false);
+    };
+    // -----------------------------------------------
 
     // 1. Filtrado por Temporada
     const filteredHistory = useMemo(() => { 
@@ -425,6 +471,133 @@ export function ClubDashboard({ club, orders, updateOrderStatus, config, seasons
                     })
                 )}
             </div>
+            {/* 5. SECCIÓN NUEVA: GALERÍA DE FOTOS */}
+            <div className="space-y-6 mt-8">
+                <div className="flex flex-col md:flex-row justify-between items-start md:items-center border-b pb-2 gap-4">
+                    <h3 className="font-bold text-xl text-gray-800 flex items-center gap-2">
+                        <Image className="w-6 h-6 text-indigo-600"/> 
+                        Galería Fotográfica Oficial
+                    </h3>
+                    
+                    {/* BOTÓN DE DESCARGA DROPBOX */}
+                    {club.dropboxLink ? (
+                        <a 
+                            href={club.dropboxLink} 
+                            target="_blank" 
+                            rel="noopener noreferrer" 
+                            className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white px-4 py-2.5 rounded-xl font-bold text-sm transition-colors shadow-md hover:shadow-lg"
+                        >
+                            <Download className="w-4 h-4"/> Descargar Todas las Fotos
+                        </a>
+                    ) : (
+                        <button disabled className="flex items-center gap-2 bg-gray-50 text-gray-400 px-4 py-2.5 rounded-xl font-bold text-sm border border-gray-200 cursor-not-allowed">
+                            <Download className="w-4 h-4"/> Enlace de descarga pendiente de generar
+                        </button>
+                    )}
+                </div>
+                
+                <div className="bg-white p-6 rounded-2xl shadow-sm border border-gray-100">
+                    {/* Botones de Categorías */}
+                    <div className="flex gap-3 overflow-x-auto pb-4 custom-scrollbar">
+                        {folders.length === 0 && <p className="text-gray-500 text-sm">No hay carpetas de fotos disponibles en el servidor.</p>}
+                        {folders.map(folder => (
+                            <button
+                                key={folder}
+                                onClick={() => handleSelectFolder(folder)}
+                                className={`flex items-center gap-2 px-5 py-2.5 rounded-xl border text-sm font-bold whitespace-nowrap transition-all shadow-sm ${selectedFolder === folder ? 'bg-indigo-50 border-indigo-200 text-indigo-700 scale-105' : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50 hover:border-gray-300'}`}
+                            >
+                                <Folder className={`w-4 h-4 ${selectedFolder === folder ? 'text-indigo-500 fill-indigo-100' : 'text-gray-400 fill-gray-50'}`}/>
+                                {folder}
+                            </button>
+                        ))}
+                    </div>
+
+                    {/* Visor de Fotos de la Categoría Seleccionada */}
+                    {selectedFolder && (
+                    <div className="mt-6 pt-6 border-t border-gray-100 animate-fade-in">
+                        
+                        {/* NUEVO ENCABEZADO CON BOTÓN DE CERRAR */}
+                        <div className="flex justify-between items-center mb-4">
+                            <h4 className="font-bold text-gray-700 flex items-center gap-2">
+                                Fotografías de {selectedFolder}
+                                <span className="bg-gray-100 border border-gray-200 text-gray-600 px-2.5 py-0.5 rounded-full text-xs shadow-sm">{photos.length} imágenes</span>
+                            </h4>
+                            
+                            <button 
+                                onClick={() => { 
+                                    setSelectedFolder(null); // Quita la selección de carpeta
+                                    setPhotos([]); // Limpia las fotos
+                                }}
+                                className="flex items-center justify-center p-2 bg-gray-50 hover:bg-red-50 text-gray-400 hover:text-red-500 border border-gray-200 hover:border-red-200 rounded-full transition-all shadow-sm"
+                                title="Cerrar carpeta"
+                            >
+                                <X className="w-5 h-5" />
+                            </button>
+                        </div>
+                        {/* FIN NUEVO ENCABEZADO */}
+
+                            {loadingPhotos ? (
+                                <div className="flex flex-col justify-center items-center py-16 gap-3">
+                                    <RefreshCw className="w-8 h-8 text-indigo-400 animate-spin"/>
+                                    <p className="text-gray-500 font-medium text-sm">Cargando fotografías seguras...</p>
+                                </div>
+                            ) : (
+                                <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-5 gap-4">
+                                    {photos.length === 0 && <p className="text-gray-500 text-sm col-span-full text-center py-8">No hay fotos en esta carpeta.</p>}
+                                    {photos.map(photo => (
+                                        // AÑADIDO: onClick, cursor-pointer
+                                        <div 
+                                            key={photo.name} 
+                                            onClick={() => setFullscreenPhoto(photo)}
+                                            className="group relative aspect-[3/4] bg-gray-50 rounded-xl overflow-hidden border border-gray-200 shadow-sm hover:shadow-md transition-all cursor-pointer"
+                                        >
+                                            <img 
+                                                src={photo.url} 
+                                                alt={photo.name} 
+                                                // MANTENEMOS EL DISEÑO ORIGINAL: object-cover
+                                                className="w-full h-full object-cover group-hover:scale-105 transition-transform duration-500" 
+                                                loading="lazy" 
+                                            />
+                                            {/* Capa oscura on-hover con nombre - AÑADIDO: pointer-events-none */}
+                                            <div className="absolute inset-0 bg-gradient-to-t from-black/80 via-black/20 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300 flex items-end p-3 pointer-events-none">
+                                                <p className="text-white text-xs font-medium truncate w-full shadow-sm">{photo.name}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
+                    )}
+                </div>
+            </div>
+            {/* FIN SECCIÓN GALERÍA DE FOTOS */}
+
+            {/* 6. NUEVA SECCIÓN: VISOR DE FOTO A PANTALLA COMPLETA */}
+            {fullscreenPhoto && (
+                <div 
+                    className="fixed inset-0 z-50 bg-black/95 backdrop-blur-sm flex flex-col items-center justify-center p-4 sm:p-8 animate-fade-in"
+                    onClick={() => setFullscreenPhoto(null)} // Cierra al hacer clic en el fondo
+                >
+                    <button 
+                        className="absolute top-4 right-4 sm:top-6 sm:right-6 bg-white/10 hover:bg-white/20 text-white rounded-full p-2 transition-colors"
+                        onClick={() => setFullscreenPhoto(null)} // Cierra al hacer clic en el botón
+                    >
+                        {/* Botón X simple con SVG para no tener que importar iconos nuevos */}
+                        <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                        </svg>
+                    </button>
+                    
+                    <img 
+                        src={fullscreenPhoto.url} 
+                        alt={fullscreenPhoto.name} 
+                        className="max-w-full max-h-[85vh] object-contain rounded-lg shadow-2xl" 
+                        onClick={(e) => e.stopPropagation()} // Evita que al hacer clic en la foto se cierre
+                    />
+                    
+                    <p className="text-white mt-4 font-bold text-lg tracking-wide shadow-sm">{fullscreenPhoto.name}</p>
+                </div>
+            )}
         </div>
     );
 }

@@ -12,7 +12,8 @@ export const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock })
         username: club.username || '', 
         color: club.color || 'white',
         commission: club.commission || 0.12,
-        cashPaymentEnabled: club.cashPaymentEnabled !== false // true por defecto
+        cashPaymentEnabled: club.cashPaymentEnabled !== false, // true por defecto
+        dropboxLink: club.dropboxLink || '' // <-- NUEVO CAMPO AÑADIDO
     });
     const [showPass, setShowPass] = useState(false);
     const [newLogo, setNewLogo] = useState(null); 
@@ -67,6 +68,17 @@ export const ClubEditorRow = ({ club, updateClub, deleteClub, toggleClubBlock })
                                 <span className="text-sm text-gray-600 truncate flex-1">{newLogo ? newLogo.name : 'Subir nueva imagen...'}</span>
                                 <input type="file" className="hidden" accept="image/*" onChange={(e) => setNewLogo(e.target.files[0])} />
                              </label>
+                        </div>
+
+                        {/* NUEVO CAMPO: ENLACE DE DROPBOX */}
+                        <div>
+                            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Enlace Descarga Fotos (Dropbox)</label>
+                            <input 
+                                className="w-full border rounded-lg px-3 py-2 text-sm focus:ring-2 focus:ring-emerald-200 outline-none" 
+                                placeholder="Ej: https://dropbox.com/sh/..." 
+                                value={editData.dropboxLink} 
+                                onChange={e => setEditData({...editData, dropboxLink: e.target.value})} 
+                            />
                         </div>
                     </div>
                 </div>

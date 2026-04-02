@@ -393,6 +393,9 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         financialConfig={financialConfig}
         handlePaymentChange={handlePaymentChange}
         updateBatchValue={updateBatchValue}
+        // 👇 AÑADE ESTAS DOS LÍNEAS 👇
+        orders={orders}
+        showNotification={showNotification}
     />
 )}
 

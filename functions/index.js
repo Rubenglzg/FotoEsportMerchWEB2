@@ -2,6 +2,7 @@ const { onSchedule } = require("firebase-functions/v2/scheduler");
 const { onDocumentUpdated, onDocumentCreated } = require("firebase-functions/v2/firestore");
 const { onCall, HttpsError } = require("firebase-functions/v2/https");
 const admin = require("firebase-admin");
+const ExcelJS = require('exceljs');
 
 admin.initializeApp();
 const db = admin.firestore();
@@ -216,5 +217,174 @@ exports.sendDigitalDelivery = onCall(async (request) => {
     } catch (error) {
         console.error("Error enviando archivos digitales:", error);
         throw new HttpsError("internal", "Error al enviar el correo con los archivos.");
+    }
+});
+
+// 8. ENVÍO MANUAL A LA GESTORÍA
+exports.sendAgencyReportManual = onCall(async (request) => {
+    const { emails, csvContent, startDate, endDate, isIndefinite } = request.data;
+
+    if (!request.auth) throw new HttpsError("unauthenticated", "Debes estar autenticado.");
+    
+    // Lógica dinámica para textos y nombres de archivo
+    const periodText = isIndefinite ? "COMPLETO" : `entre ${startDate} y ${endDate}`;
+    const finalFileName = isIndefinite ? "Facturacion_COMPLETO.xlsx" : `Facturacion_${startDate}_a_${endDate}.xlsx`;
+
+    try {
+        await db.collection("mail").add({
+            to: emails,
+            message: {
+                subject: `Informe de Facturación FotoEsport (${periodText})`,
+                html: `
+                    <p>Hola,</p>
+                    <p>Adjuntamos el informe de facturación de FotoEsport correspondiente al periodo <strong>${periodText}</strong>.</p>
+                    <p>El archivo adjunto está en formato oficial de Excel (.xlsx).</p>
+                    <br><p>Un saludo,</p><p>Equipo de FotoEsport Merch</p>
+                `,
+                attachments: [{
+                    filename: finalFileName,
+                    content: csvContent,
+                    encoding: 'base64',
+                    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' 
+                }]
+            }
+        });
+
+        await db.collection('settings').doc('agencyLogs').set({
+            lastSendDate: new Date().toISOString(),
+            status: `Success (Manual - ${periodText})`,
+            lastCsvBase64: csvContent
+        }, { merge: true });
+
+        return { success: true };
+    } catch (error) {
+        console.error("Error enviando a gestoría:", error);
+        throw new HttpsError("internal", "Error procesando el envío.");
+    }
+});
+
+// 9. CRON: ENVÍO AUTOMÁTICO A GESTORÍA (Se ejecuta cada hora y verifica si coincide el día y la hora)
+exports.autoSendAgencyReport = onSchedule({ schedule: "0 * * * *", timeZone: "Europe/Madrid" }, async (event) => {
+    try {
+        const now = new Date();
+        const formatter = new Intl.DateTimeFormat('es-ES', { 
+            timeZone: 'Europe/Madrid', 
+            day: 'numeric', 
+            hour: 'numeric',
+            hour12: false
+        });
+        const parts = formatter.formatToParts(now);
+        const currentDay = parseInt(parts.find(p => p.type === 'day').value);
+        let currentHour = parseInt(parts.find(p => p.type === 'hour').value);
+        if (currentHour === 24) currentHour = 0;
+
+        const settingsDoc = await db.collection('settings').doc('agency').get();
+        const settings = settingsDoc.exists ? settingsDoc.data() : {};
+        
+        const configuredDay = parseInt(settings.autoDay) || 1;
+        const configuredTimeStr = settings.autoTime || "08:00";
+        const configuredHour = parseInt(configuredTimeStr.split(':')[0]);
+        const agencyEmails = settings.emails || ["gestoria@ejemplo.com"];
+
+        if (currentDay !== configuredDay || currentHour !== configuredHour) {
+            console.log(`Ahora es día ${currentDay} a las ${currentHour}h. Programado para el día ${configuredDay} a las ${configuredHour}h. Cancelando envío.`);
+            return; 
+        }
+
+        console.log("¡Coincide la fecha y la hora! Iniciando envío a gestoría...");
+
+        const today = new Date();
+        const startOfLastMonth = new Date(today.getFullYear(), today.getMonth() - 1, 1);
+        const endOfLastMonth = new Date(today.getFullYear(), today.getMonth(), 0);
+
+        const startIso = startOfLastMonth.toISOString();
+        const endIso = endOfLastMonth.toISOString();
+
+        const ordersSnapshot = await db.collectionGroup('orders') 
+            .where('createdAt', '>=', admin.firestore.Timestamp.fromDate(startOfLastMonth))
+            .where('createdAt', '<=', admin.firestore.Timestamp.fromDate(endOfLastMonth))
+            .get();
+
+        if (ordersSnapshot.empty) {
+            console.log("No hay pedidos para facturar el mes anterior.");
+            return;
+        }
+
+        // --- CREACIÓN DEL EXCEL OFICIAL ---
+        const workbook = new ExcelJS.Workbook();
+        const worksheet = workbook.addWorksheet('Para poder contabilizar');
+
+        const header1 = worksheet.addRow(['Autoliquidación', '', 'Concepto de Ingreso', 'Ingreso Computable', 'Fecha Expedición', 'Fecha Operacion', 'Identificación de la Factura', '', '', 'NIF Destinatario', '', '', 'Nombre Destinatario', 'Total Factura', 'Base Imponible', 'Tipo de IVA', 'Cuota IVA Repercutida']);
+        const header2 = worksheet.addRow(['Ejercicio', 'Periodo', '', '', '', '', 'Serie', 'Número', 'Número-Final', 'Tipo', 'Código País', 'Identificación', '', '', '', '', '']);
+
+        [header1, header2].forEach(row => {
+            row.eachCell((cell) => {
+                cell.font = { bold: true };
+                cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+                cell.border = { top: {style:'thin'}, left: {style:'thin'}, bottom: {style:'thin'}, right: {style:'thin'} };
+                cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } };
+            });
+        });
+
+        let index = 1;
+        ordersSnapshot.forEach(doc => {
+            const o = doc.data();
+            if (['replacement', 'incident'].includes(o.paymentMethod)) return;
+
+            const date = o.createdAt.toDate();
+            const total = o.total || 0;
+            const baseImponible = total / 1.21;
+            const iva = total - baseImponible;
+
+            const row = worksheet.addRow([
+                date.getFullYear(), Math.ceil((date.getMonth() + 1) / 3) + "T", "I07", 100, 
+                date.toISOString().split('T')[0], "", "F1", index++, "", "", "",
+                (o.customer?.dni || ""), (o.customer?.name || 'Cliente Final'),
+                total, baseImponible, 21, iva
+            ]);
+            
+            row.eachCell((c, colNumber) => {
+                c.alignment = { horizontal: 'center', vertical: 'middle' };
+                if (colNumber >= 14) c.numFmt = '#,##0.00 €';
+            });
+        });
+
+        worksheet.columns.forEach(column => { column.width = 18; });
+        worksheet.getColumn(13).width = 35;
+
+        const buffer = await workbook.xlsx.writeBuffer();
+        const base64Content = buffer.toString('base64');
+        // --- FIN CREACIÓN EXCEL ---
+
+        // Envío del email con el .xlsx
+        await db.collection("mail").add({
+            to: agencyEmails,
+            message: {
+                subject: `Informe de Facturación Automático FotoEsport (${startIso.split('T')[0]} a ${endIso.split('T')[0]})`,
+                html: `<p>Adjuntamos el informe de facturación mensual en Excel generado automáticamente el día ${configuredDay} a las ${configuredTimeStr}.</p>`,
+                attachments: [{
+                    filename: `Facturacion_${startIso.split('T')[0]}_a_${endIso.split('T')[0]}.xlsx`, // .xlsx
+                    content: base64Content,
+                    encoding: 'base64',
+                    contentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' // Etiqueta Excel
+                }]
+            }
+        });
+
+        await db.collection('settings').doc('agencyLogs').set({
+            lastSendDate: new Date().toISOString(),
+            status: 'Correcto (Automático)',
+            lastCsvBase64: base64Content
+        }, { merge: true });
+
+        console.log("Envío automático a gestoría completado.");
+
+    } catch (error) {
+        console.error("Error en envío automático a gestoría:", error);
+        await db.collection('settings').doc('agencyLogs').set({
+            lastSendDate: new Date().toISOString(),
+            status: 'Error: ' + error.message,
+            lastCsvBase64: null
+        }, { merge: true });
     }
 });

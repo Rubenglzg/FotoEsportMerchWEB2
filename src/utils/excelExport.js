@@ -630,3 +630,118 @@ export const generateCustomersExcel = async (orders, clubs) => {
         alert("Hubo un error al generar la base de datos. Por favor revisa la consola.");
     }
 };
+
+// --- NUEVO: Generador de xlsx para la Gestoría ---
+export const generateAgencyExcelData = async (orders, startDate, endDate) => {
+    const start = new Date(startDate).getTime();
+    const end = new Date(endDate).getTime();
+    
+    const validOrders = orders.filter(o => {
+        const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
+        return d >= start && d <= end && !['replacement', 'incident'].includes(o.paymentMethod);
+    });
+
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('Para poder contabilizar');
+
+    // 1. Añadimos las dos filas de encabezados
+    const header1 = worksheet.addRow([
+        'Autoliquidación', '', 'Concepto de Ingreso', 'Ingreso Computable', 'Fecha Expedición', 'Fecha Operacion', 
+        'Identificación de la Factura', '', '', 'NIF Destinatario', '', '', 'Nombre Destinatario', 'Total Factura', 
+        'Base Imponible', 'Tipo de IVA', 'Cuota IVA Repercutida'
+    ]);
+    
+    const header2 = worksheet.addRow([
+        'Ejercicio', 'Periodo', '', '', '', '', 'Serie', 'Número', 'Número-Final', 'Tipo', 'Código País', 
+        'Identificación', '', '', '', '', ''
+    ]);
+
+    // 2. APLICAMOS LOS ESTILOS A LOS ENCABEZADOS
+    [header1, header2].forEach(row => {
+        row.eachCell((cell) => {
+            cell.font = { bold: true };
+            cell.alignment = { horizontal: 'center', vertical: 'middle', wrapText: true };
+            cell.border = {
+                top: { style: 'thin' }, left: { style: 'thin' },
+                bottom: { style: 'thin' }, right: { style: 'thin' }
+            };
+            cell.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FFF2F2F2' } }; 
+        });
+    });
+
+    // 3. Añadimos los datos de los pedidos
+    validOrders.forEach((order, index) => {
+        const date = new Date(order.createdAt?.seconds ? order.createdAt.seconds * 1000 : Date.now());
+        const total = order.total || 0;
+        const baseImponible = total / 1.21;
+        const iva = total - baseImponible;
+
+        const row = worksheet.addRow([
+            date.getFullYear(),                               // Ejercicio
+            Math.ceil((date.getMonth() + 1) / 3) + "T",       // Periodo
+            "I07",                                            // Concepto
+            100,                                              // Ingreso
+            date.toISOString().split('T')[0],                 // Fecha exp
+            "",                                               // Fecha op
+            "F1",                                             // Serie
+            index + 1,                                        // Número
+            "", "", "",                                       // Vacíos
+            order.customer?.dni || "",                        // NIF
+            order.customer?.name || 'Cliente Final',          // Nombre
+            total,                                            // Total
+            baseImponible,                                    // Base
+            21,                                               // % IVA
+            iva                                               // Cuota IVA
+        ]);
+
+        row.eachCell((cell, colNumber) => {
+            cell.alignment = { horizontal: 'center', vertical: 'middle' };
+            if (colNumber >= 14) cell.numFmt = '#,##0.00 €';
+        });
+    });
+
+    // Ajustar el ancho de las columnas
+    worksheet.columns.forEach(column => { column.width = 18; });
+    worksheet.getColumn(13).width = 35;
+
+    // --- EL CAMBIO ESTÁ AQUÍ (Convertir a Base64 usando métodos del navegador) ---
+    const arrayBuffer = await workbook.xlsx.writeBuffer();
+    const uint8Array = new Uint8Array(arrayBuffer);
+    
+    // Convertir Uint8Array a un string binario
+    let binaryString = '';
+    for (let i = 0; i < uint8Array.length; i++) {
+        binaryString += String.fromCharCode(uint8Array[i]);
+    }
+    
+    // Convertir el string binario a Base64 con btoa()
+    const base64Content = window.btoa(binaryString);
+
+    return { content: base64Content, count: validOrders.length };
+};
+
+export const downloadAgencyExcel = async (orders, startDate, endDate) => {
+    const { content, count } = await generateAgencyExcelData(orders, startDate, endDate);
+    if (count === 0) {
+        alert("No hay pedidos en este rango de fechas para exportar.");
+        return;
+    }
+    
+    // Decodificar Base64 a Blob para descargar en el navegador
+    const byteCharacters = atob(content);
+    const byteNumbers = new Array(byteCharacters.length);
+    for (let i = 0; i < byteCharacters.length; i++) {
+        byteNumbers[i] = byteCharacters.charCodeAt(i);
+    }
+    const byteArray = new Uint8Array(byteNumbers);
+    const blob = new Blob([byteArray], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement("a");
+    link.href = url;
+    link.download = `Contabilidad_Gestoria_${startDate}_a_${endDate}.xlsx`; // ¡Ahora es .xlsx!
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+};

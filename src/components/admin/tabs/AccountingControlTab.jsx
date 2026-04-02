@@ -1,19 +1,156 @@
-import React, { useState } from 'react';
-import { Banknote, Store, Calendar, BarChart3, X } from 'lucide-react';
+import React, { useState, useEffect } from 'react';
+import { Banknote, Store, Calendar, BarChart3, X, FileDown, Mail, Save, AlertCircle } from 'lucide-react';
 import { Button } from '../../ui/Button';
-import { DelayedInput } from '../ui/DelayedInput'; // Importamos el componente que creamos en el paso 1
+import { DelayedInput } from '../ui/DelayedInput';
+
+import { doc, getDoc, setDoc } from 'firebase/firestore';
+import { httpsCallable } from 'firebase/functions';
+import { db, functions } from '../../../config/firebase'; 
+import { generateAgencyExcelData, downloadAgencyExcel } from '../../../utils/excelExport';
 
 export const AccountingControlTab = ({
     clubs, seasons, filterClubId, setFilterClubId, financeSeasonId, setFinanceSeasonId,
     globalAccountingStats, accountingData, financialConfig,
-    handlePaymentChange, updateBatchValue
+    handlePaymentChange, updateBatchValue,
+    orders, showNotification
 }) => {
-    // Este estado solo pertenece a esta vista, así que lo movemos aquí
     const [accDetailsModal, setAccDetailsModal] = useState({ active: false, title: '', items: [], type: '' });
+
+    // --- ESTADOS Y LÓGICA DE GESTORÍA ---
+    // Variables guardadas realmente en base de datos
+    const [savedConfig, setSavedConfig] = useState({ emails: "", autoDay: 1, autoTime: "08:00" });
+    // Variables en edición (Borrador)
+    const [draftConfig, setDraftConfig] = useState({ emails: "", autoDay: 1, autoTime: "08:00" });
+    
+    // Identificador visual de si hay cambios sin guardar
+    const hasUnsavedChanges = JSON.stringify(savedConfig) !== JSON.stringify(draftConfig);
+
+    const [isIndefiniteDates, setIsIndefiniteDates] = useState(false);
+    const [agencyDates, setAgencyDates] = useState({ 
+        start: new Date(new Date().getFullYear(), new Date().getMonth() - 1, 1).toISOString().split('T')[0],
+        end: new Date(new Date().getFullYear(), new Date().getMonth(), 0).toISOString().split('T')[0] 
+    });
+    
+    // Ahora los clubes se manejan como un array para el selector múltiple
+    const [agencyClub, setAgencyClub] = useState(['all']);
+    
+    const [isSendingAgency, setIsSendingAgency] = useState(false);
+    const [isSavingEmails, setIsSavingEmails] = useState(false);
+    const [lastAgencySend, setLastAgencySend] = useState(null);
+
+    useEffect(() => {
+        const fetchAgencyData = async () => {
+            try {
+                const settingsDoc = await getDoc(doc(db, 'settings', 'agency'));
+                if (settingsDoc.exists()) {
+                    const data = settingsDoc.data();
+                    const config = {
+                        emails: data.emails ? data.emails.join(', ') : "",
+                        autoDay: data.autoDay || 1,
+                        autoTime: data.autoTime || "08:00"
+                    };
+                    setSavedConfig(config);
+                    setDraftConfig(config);
+                }
+                
+                const logsDoc = await getDoc(doc(db, 'settings', 'agencyLogs'));
+                if (logsDoc.exists()) {
+                    const data = logsDoc.data();
+                    setLastAgencySend({
+                        date: data.lastSendDate,
+                        status: data.status,
+                        csvContent: data.lastCsvBase64 ? atob(data.lastCsvBase64) : null 
+                    });
+                }
+            } catch (error) {
+                console.error("Error cargando datos de gestoría:", error);
+            }
+        };
+        fetchAgencyData();
+    }, []);
+
+    const handleSaveEmails = async () => {
+        setIsSavingEmails(true);
+        try {
+            const emailArray = draftConfig.emails.split(',').map(e => e.trim()).filter(e => e);
+            await setDoc(doc(db, 'settings', 'agency'), { 
+                emails: emailArray,
+                autoDay: parseInt(draftConfig.autoDay),
+                autoTime: draftConfig.autoTime
+            }, { merge: true });
+            
+            setSavedConfig(draftConfig); // Sincronizamos el estado de guardado
+            if(showNotification) showNotification(`Guardado: Se enviará el día ${draftConfig.autoDay} a las ${draftConfig.autoTime}`);
+        } catch (error) {
+            if(showNotification) showNotification("Error al guardar la configuración", "error");
+        } finally {
+            setIsSavingEmails(false);
+        }
+    };
+
+    const handleSendToAgency = async () => {
+        setIsSendingAgency(true);
+        try {
+            if (!orders) throw new Error("Aún no se han cargado los pedidos.");
+            
+            // Definimos el rango real para el filtro de datos
+            const actualStart = isIndefiniteDates ? "2000-01-01" : agencyDates.start;
+            const actualEnd = isIndefiniteDates ? "2100-12-31" : agencyDates.end;
+            
+            const filteredOrders = agencyClub.includes('all') ? orders : orders.filter(o => agencyClub.includes(o.clubId));
+            const { content, count } = await generateAgencyExcelData(filteredOrders, actualStart, actualEnd);
+            
+            if (count === 0) throw new Error("No hay pedidos para este rango.");
+
+            const sendEmailFn = httpsCallable(functions, 'sendAgencyReportManual');
+            await sendEmailFn({
+                emails: savedConfig.emails.split(',').map(e => e.trim()),
+                csvContent: content,
+                // Enviamos una bandera clara si es indefinido
+                isIndefinite: isIndefiniteDates, 
+                startDate: agencyDates.start,
+                endDate: agencyDates.end
+            });
+
+            if(showNotification) showNotification("¡Informe enviado a la gestoría correctamente!");
+            setLastAgencySend({ date: new Date().toISOString(), status: 'Correcto (Manual)', csvContent: content });
+            
+        } catch (error) {
+            if(showNotification) showNotification(error.message || "Error enviando informe", "error");
+            console.error(error);
+        } finally {
+            setIsSendingAgency(false);
+        }
+    };
+    
+    const handleDownloadLocal = () => {
+        if (!orders) return alert("Faltan los pedidos");
+        const actualStart = isIndefiniteDates ? "2000-01-01" : agencyDates.start;
+        const actualEnd = isIndefiniteDates ? "2100-12-31" : agencyDates.end;
+        const filteredOrders = agencyClub.includes('all') ? orders : orders.filter(o => agencyClub.includes(o.clubId));
+        downloadAgencyExcel(filteredOrders, actualStart, actualEnd);
+    };
+
+    // Función para manejar el checkbox de los clubes
+    const toggleClubSelection = (clubId) => {
+        if (clubId === 'all') {
+            setAgencyClub(['all']);
+            return;
+        }
+        let next = [...agencyClub].filter(id => id !== 'all');
+        if (next.includes(clubId)) {
+            next = next.filter(id => id !== clubId);
+        } else {
+            next.push(clubId);
+        }
+        setAgencyClub(next.length === 0 ? ['all'] : next);
+    };
+
+    // --- FIN LÓGICA DE GESTORÍA ---
 
     return (
         <div className="bg-white p-6 rounded-xl shadow space-y-8 animate-fade-in-up">
-            {/* CABECERA Y FILTROS */}
+            {/* CABECERA Y FILTROS GENERALES */}
             <div className="flex justify-between items-center border-b pb-4">
                 <div>
                     <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-800">
@@ -24,30 +161,128 @@ export const AccountingControlTab = ({
                 </div>
                 
                 <div className="flex gap-3">
-                    {/* Selector Club */}
                     <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
                         <Store className="w-4 h-4 text-gray-500"/>
-                        <select 
-                            className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
-                            value={filterClubId} 
-                            onChange={(e) => setFilterClubId(e.target.value)}
-                        >
+                        <select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" value={filterClubId} onChange={(e) => setFilterClubId(e.target.value)}>
                             <option value="all">Todos los Clubes</option>
                             {clubs.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
                         </select>
                     </div>
-
-                    {/* Selector Temporada */}
                     <div className="flex items-center gap-2 bg-gray-100 px-4 py-2 rounded-lg">
                         <Calendar className="w-4 h-4 text-gray-500"/>
-                        <select 
-                            className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" 
-                            value={financeSeasonId} 
-                            onChange={(e) => setFinanceSeasonId(e.target.value)}
-                        >
+                        <select className="bg-transparent border-none font-medium focus:ring-0 cursor-pointer text-sm outline-none" value={financeSeasonId} onChange={(e) => setFinanceSeasonId(e.target.value)}>
                             <option value="all">Todas las Temporadas</option>
                             {seasons.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
                         </select>
+                    </div>
+                </div>
+            </div>
+
+            {/* --- PANEL DE GESTORÍA --- */}
+            <div className={`bg-white rounded-xl border p-5 shadow-sm transition-colors duration-300 ${hasUnsavedChanges ? 'border-orange-400 bg-orange-50/20' : 'border-blue-200'}`}>
+                <div className="flex items-center gap-3 mb-4">
+                    <div className="bg-blue-100 p-2 rounded-lg text-blue-600"><FileDown className="w-5 h-5"/></div>
+                    <div>
+                        <h4 className="font-bold text-sm text-slate-800 uppercase tracking-wide">Exportación para Gestoría</h4>
+                        <p className="text-xs text-slate-500">Envío manual de facturación y configuración de automatización mensual</p>
+                    </div>
+                </div>
+
+                <div className="bg-slate-50 p-4 rounded-lg border border-slate-200 mb-4 space-y-4">
+                    {/* Fila 1: Filtros de Exportación (Múltiples Clubes y Fechas) */}
+                    <div className="flex flex-col md:flex-row gap-4">
+                        <div className="flex-1">
+                            <div className="flex justify-between items-center mb-1">
+                                <label className="text-xs font-bold text-gray-500 uppercase">Rango de Fechas (Manual)</label>
+                                <div className="flex items-center gap-1.5">
+                                    <input type="checkbox" id="indefiniteDates" checked={isIndefiniteDates} onChange={e => setIsIndefiniteDates(e.target.checked)} className="rounded text-blue-600 cursor-pointer"/>
+                                    <label htmlFor="indefiniteDates" className="text-[10px] font-bold text-gray-600 cursor-pointer uppercase">Indefinido (Todo)</label>
+                                </div>
+                            </div>
+                            <div className="flex gap-2">
+                                <input type="date" disabled={isIndefiniteDates} value={agencyDates.start} onChange={e => setAgencyDates({...agencyDates, start: e.target.value})} className="w-full text-sm border rounded-lg p-2 outline-none focus:border-blue-500 disabled:bg-gray-200 disabled:text-gray-400"/>
+                                <input type="date" disabled={isIndefiniteDates} value={agencyDates.end} onChange={e => setAgencyDates({...agencyDates, end: e.target.value})} className="w-full text-sm border rounded-lg p-2 outline-none focus:border-blue-500 disabled:bg-gray-200 disabled:text-gray-400"/>
+                            </div>
+                        </div>
+
+                        {/* SELECTOR MÚLTIPLE DE CLUBES (Checkbox List) */}
+                        <div className="md:w-1/3">
+                            <label className="text-xs font-bold text-gray-500 uppercase block mb-1">Clubes a Exportar</label>
+                            <div className="w-full border rounded-lg p-2 bg-white max-h-24 overflow-y-auto outline-none focus-within:border-blue-500 shadow-inner">
+                                <label className="flex items-center gap-2 mb-1 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                    <input type="checkbox" checked={agencyClub.includes('all')} onChange={() => toggleClubSelection('all')} className="rounded text-blue-600"/>
+                                    <span className="text-xs font-bold text-gray-700">Todos los Clubes</span>
+                                </label>
+                                {clubs && clubs.map(c => (
+                                    <label key={c.id} className="flex items-center gap-2 mb-1 cursor-pointer hover:bg-gray-50 p-1 rounded">
+                                        <input type="checkbox" checked={agencyClub.includes(c.id)} onChange={() => toggleClubSelection(c.id)} className="rounded text-blue-600"/>
+                                        <span className="text-xs text-gray-600">{c.name}</span>
+                                    </label>
+                                ))}
+                            </div>
+                        </div>
+                    </div>
+
+                    {/* Fila 2: Configuración Automática */}
+                    <div className="pt-3 border-t border-slate-200">
+                        <div className="flex justify-between items-end mb-1">
+                            <label className="text-xs font-bold text-gray-500 uppercase">Configuración de Envío Automático Mensual</label>
+                            {hasUnsavedChanges && <span className="text-[10px] text-red-600 font-bold flex items-center gap-1 animate-pulse"><AlertCircle className="w-3 h-3"/> CAMBIOS SIN GUARDAR</span>}
+                        </div>
+                        <div className="flex gap-2">
+                            {/* Selector de Día */}
+                            <div className="w-24 relative" title="Día del mes">
+                                <span className="absolute left-2.5 top-2 text-[10px] text-gray-400 font-bold uppercase">Día</span>
+                                <input type="number" min="1" max="31" value={draftConfig.autoDay} onChange={e => setDraftConfig({...draftConfig, autoDay: e.target.value})} className={`w-full text-sm border rounded-lg p-2 pl-9 outline-none focus:border-blue-500 font-bold ${hasUnsavedChanges && draftConfig.autoDay !== savedConfig.autoDay ? 'bg-orange-50' : ''}`}/>
+                            </div>
+                            {/* Selector de Hora */}
+                            <div className="w-32 relative" title="Hora de envío (España)">
+                                <span className="absolute left-2.5 top-2 text-[10px] text-gray-400 font-bold uppercase">Hora</span>
+                                <input type="time" value={draftConfig.autoTime} onChange={e => setDraftConfig({...draftConfig, autoTime: e.target.value})} className={`w-full text-sm border rounded-lg p-2 pl-12 outline-none focus:border-blue-500 font-bold ${hasUnsavedChanges && draftConfig.autoTime !== savedConfig.autoTime ? 'bg-orange-50' : ''}`}/>
+                            </div>
+                            {/* Correos */}
+                            <input type="text" value={draftConfig.emails} onChange={e => setDraftConfig({...draftConfig, emails: e.target.value})} placeholder="Emails separados por comas..." className={`w-full text-sm border rounded-lg p-2 outline-none focus:border-blue-500 ${hasUnsavedChanges && draftConfig.emails !== savedConfig.emails ? 'bg-orange-50' : ''}`}/>
+                            
+                            {/* Botón de Guardar Dinámico */}
+                            <button onClick={handleSaveEmails} disabled={!hasUnsavedChanges || isSavingEmails} title="Guardar configuración automática" className={`px-4 text-white rounded-lg transition-colors flex items-center gap-2 flex-shrink-0 text-xs font-bold ${hasUnsavedChanges ? 'bg-orange-500 hover:bg-orange-600 shadow-md' : 'bg-slate-300 cursor-not-allowed'}`}>
+                                <Save className="w-4 h-4"/> <span className="hidden sm:inline">Guardar</span>
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <div className="flex flex-col xl:flex-row justify-between items-center gap-4 border-t pt-4 border-slate-100">
+                    <div className="flex gap-2 w-full xl:w-auto">
+                        <button onClick={handleDownloadLocal} className="px-4 py-2 bg-slate-200 hover:bg-slate-300 text-slate-700 text-xs font-bold rounded-lg transition-colors flex items-center justify-center gap-2 flex-1 xl:flex-none">
+                            <FileDown className="w-4 h-4"/> Descargar Local
+                        </button>
+                        <button onClick={handleSendToAgency} disabled={isSendingAgency} className="px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold rounded-lg shadow-sm transition-colors disabled:opacity-50 flex items-center justify-center gap-2 flex-1 xl:flex-none">
+                            <Mail className="w-4 h-4"/> {isSendingAgency ? 'Enviando...' : 'Enviar Manual Ahora'}
+                        </button>
+                    </div>
+
+                    <div className="bg-emerald-50 border border-emerald-100 px-4 py-2 rounded-lg flex items-center gap-3 w-full xl:w-auto">
+                        <div className="text-right flex-1 min-w-max">
+                            <p className="text-[10px] uppercase font-bold text-emerald-600">Último envío</p>
+                            <p className="text-xs font-medium text-emerald-800">
+                                {lastAgencySend ? `${new Date(lastAgencySend.date).toLocaleString()} - ${lastAgencySend.status}` : 'No hay registros'}
+                            </p>
+                        </div>
+                        {lastAgencySend?.csvContent && (
+                            <button onClick={() => {
+                                const blob = new Blob([lastAgencySend.csvContent], { type: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+                                const url = URL.createObjectURL(blob);
+                                const a = document.createElement('a');
+                                a.href = url; 
+                                // Usamos el estado para saber si fue automático o manual
+                                a.download = `Ultima_Exportacion_Gestoria_${new Date(lastAgencySend.date).toLocaleDateString().replace(/\//g, '-')}.xlsx`; 
+                                a.click();
+                            }} className="bg-white p-1.5 rounded text-emerald-600 hover:bg-emerald-100 shadow-sm border border-emerald-200" title="Descargar último CSV enviado"><FileDown className="w-4 h-4"/></button>
+                        )}
+                        <div className="text-[10px] text-gray-500 ml-2 pl-3 border-l border-emerald-200 leading-tight hidden md:block">
+                            ⚡ El sistema enviará a los correos indicados el <strong className="text-emerald-700">día {savedConfig.autoDay} a las {savedConfig.autoTime}</strong>.
+                            {hasUnsavedChanges && <div className="text-orange-600 mt-0.5 font-bold">Tienes configuraciones sin guardar.</div>}
+                        </div>
                     </div>
                 </div>
             </div>

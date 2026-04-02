@@ -35,7 +35,7 @@ export function useOrderActions(showNotification, setCart, setView, clubs, seaso
               manualSeasonId: seasons.length > 0 ? seasons[seasons.length - 1].id : 'default' 
           });
 
-          // Lógica de cupones de regalo... (la mantienes igual)
+          // Lógica de cupones de regalo...
           const itemsConRegalo = orderData.items.filter(item => item.isGift && item.giftCodeId);
           for (const item of itemsConRegalo) {
               await updateDoc(doc(db, 'giftCodes', item.giftCodeId), {
@@ -51,33 +51,37 @@ export function useOrderActions(showNotification, setCart, setView, clubs, seaso
                     const mailRef = doc(collection(db, 'mail'));
                     const orderWithId = { ...orderData, id: docRef.id };
 
-                    // 1. Generamos el PDF
-                    const rawPdf = await generateInvoicePDF(docRef.id, orderWithId);
-
-                    // 2. Generamos el HTML del email
+                    // 1. Generamos el HTML del email
                     const emailHtml = String(generateInvoiceEmailHTML(orderWithId, orderData.clubName || 'Tu Club'));
 
-                    // 3. Validamos que el base64 es limpio
-                    const pdfBase64 = (typeof rawPdf === 'string' && rawPdf.length > 0) ? rawPdf : null;
-
-                    if (!pdfBase64) {
-                        console.error("❌ PDF base64 inválido, no se enviará email");
-                    } else {
-                        const mailPayload = {
-                            to: [safeCustomerData.email],
-                            message: {
-                                subject: `✅ Recibo de Pedido: ${orderData.clubName || 'FotoEsport'}`,
-                                html: emailHtml,
-                                text: `Tu pedido ha sido confirmado. Importe: ${orderData.total}€`,
-                                attachments: [{
-                                    filename: `Factura_${docRef.id.substring(0, 8).toUpperCase()}.pdf`,
-                                    content: pdfBase64,
-                                    encoding: 'base64'
-                                }]
-                            }
-                        };
-                        await setDoc(mailRef, mailPayload);
+                    // 2. Preparamos los adjuntos (SOLO SI PIDIÓ FACTURA)
+                    let attachments = [];
+                    if (orderData.customer?.requestInvoice) {
+                        const rawPdf = await generateInvoicePDF(docRef.id, orderWithId);
+                        const pdfBase64 = (typeof rawPdf === 'string' && rawPdf.length > 0) ? rawPdf : null;
+                        
+                        if (pdfBase64) {
+                            attachments = [{
+                                filename: `Factura_${docRef.id.substring(0, 8).toUpperCase()}.pdf`,
+                                content: pdfBase64,
+                                encoding: 'base64'
+                            }];
+                        } else {
+                            console.error("❌ PDF base64 inválido, se enviará el email sin adjunto");
+                        }
                     }
+
+                    // 3. Enviamos el correo
+                    const mailPayload = {
+                        to: [safeCustomerData.email],
+                        message: {
+                            subject: `✅ Confirmación de Pedido: ${orderData.clubName || 'FotoEsport'}`,
+                            html: emailHtml,
+                            text: `Tu pedido ha sido confirmado. Importe: ${orderData.total}€`,
+                            attachments: attachments // Pasamos el array (estará vacío si no pidió factura)
+                        }
+                    };
+                    await setDoc(mailRef, mailPayload);
 
                 } catch (emailError) {
                     console.error("❌ Error en bloque email:", emailError);
@@ -123,25 +127,33 @@ export function useOrderActions(showNotification, setCart, setView, clubs, seaso
               if (customerEmail) {
                   const mailRef = doc(collection(db, 'mail'));
                   
-                  // Generamos PDF y forzamos conversión a String
-                  const rawPdf = await generateInvoicePDF(orderId, orderData);
-                  const pdfBase64 = typeof rawPdf === 'string' ? rawPdf : '';
+                  // Generamos HTML del correo
                   const emailHtml = String(generateInvoiceEmailHTML(orderData, orderData.clubName || 'Tu Club'));
+
+                  // Preparamos adjuntos SOLO SI PIDIÓ FACTURA
+                  let attachments = [];
+                  if (orderData.customer?.requestInvoice) {
+                      const rawPdf = await generateInvoicePDF(orderId, orderData);
+                      const pdfBase64 = typeof rawPdf === 'string' ? rawPdf : '';
+                      if (pdfBase64) {
+                          attachments = [{
+                              filename: `Factura_${orderId.substring(0, 8).toUpperCase()}.pdf`,
+                              content: pdfBase64,
+                              encoding: 'base64'
+                          }];
+                      }
+                  }
 
                   await setDoc(mailRef, {
                       to: [customerEmail],
                       message: {
-                          subject: `✅ Pago Recibido - Factura Pedido ${orderData.clubName || 'Club'}`,
+                          subject: `✅ Pago Recibido - Pedido ${orderData.clubName || 'Club'}`,
                           html: emailHtml,
                           text: `El club ha validado tu pago.`,
-                          attachments: pdfBase64 ? [{
-                              filename: `Factura_${orderId.substring(0, 8).toUpperCase()}.pdf`,
-                              content: pdfBase64,
-                              encoding: 'base64'
-                          }] : []
+                          attachments: attachments // Pasamos el array condicional
                       }
                   });
-                  showNotification(`Pedido validado y factura enviada.`);
+                  showNotification(orderData.customer?.requestInvoice ? `Pedido validado y factura enviada.` : `Pedido validado.`);
               }
           }
           showNotification('Estado actualizado');
@@ -157,14 +169,11 @@ export function useOrderActions(showNotification, setCart, setView, clubs, seaso
           // 🔒 1. Sanitizar campos de texto libres que puedan contener inyecciones HTML/JS
           const cleanIncidentData = {
               ...incidentData,
-              // Asumimos que los detalles vienen en campos como "description" o "reason"
-              // Ajusta la clave a cómo la llames en tu formulario de incidencias
               description: incidentData.description ? DOMPurify.sanitize(incidentData.description).trim() : '',
               title: incidentData.title ? DOMPurify.sanitize(incidentData.title).trim() : ''
           };
 
           const orderRef = doc(db, 'artifacts', appId, 'public', 'data', 'orders', orderId); 
-          // 🔒 2. Enviamos el dato LIMPIO (cleanIncidentData) en lugar del original
           await updateDoc(orderRef, { incidents: arrayUnion(cleanIncidentData) }); 
           
           showNotification('Incidencia/Reimpresión registrada'); 

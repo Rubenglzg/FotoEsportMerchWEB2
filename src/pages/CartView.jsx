@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { ShoppingCart, Trash2, CreditCard, Banknote, Gift, Check, AlertTriangle } from 'lucide-react';
+import { ShoppingCart, Trash2, CreditCard, Banknote, Gift, Check, AlertTriangle, FileText } from 'lucide-react';
 import { collection, query, where, getDocs } from 'firebase/firestore';
 import { db } from '../config/firebase';
 import { Button } from '../components/ui/Button';
@@ -7,11 +7,11 @@ import { Input } from '../components/ui/Input';
 
 export function CartView({ cart, removeFromCart, createOrder, total, clubs, storeConfig, addToCart, products }) {
   const [formData, setFormData] = useState({ 
-      name: '', email: '', phone: '', notification: 'email', rgpd: false, marketingConsent: false, emailUpdates: false
+      name: '', email: '', phone: '', notification: 'email', rgpd: false, marketingConsent: false, emailUpdates: false,
+      requestInvoice: false, invoiceName: '', invoiceDni: '', invoiceAddress: '' // <-- Nuevos campos
   });
   const [paymentMethod, setPaymentMethod] = useState('card');
 
-  // --- NUEVOS ESTADOS DEL CARRITO ---
   const [cartDiscountInput, setCartDiscountInput] = useState('');
   const [activeCartCode, setActiveCartCode] = useState(null);
   const [discountLoading, setDiscountLoading] = useState(false);
@@ -27,19 +27,14 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
       }
   }, [isCashEnabled, paymentMethod]);
 
-  // --- LÓGICA DE UPSELL DINÁMICO CON PRODUCTOS REALES ---
   const [upsellOffer, setUpsellOffer] = useState(null);
   const [showPlayerSelector, setShowPlayerSelector] = useState(false);
 
   useEffect(() => {
-      // Si no han cargado los productos de Firebase, no hacemos nada
       if (!products || products.length === 0) return;
 
-      // Palabras clave para saber si un producto de tu BD real requiere foto
       const photoKeywords = ['taza', 'llavero', 'foto', 'cromo', 'calendario'];
       
-      // 1. Crear nuestro catálogo de impulso basado en TUS PRODUCTOS REALES
-      // Excluimos packs, elegimos productos baratos (< 15€) y detectamos si necesitan foto
       const realImpulseCatalog = products
           .filter(p => !p.name.toLowerCase().includes('pack') && p.price < 15)
           .map(p => ({
@@ -47,7 +42,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
               requiresPhoto: photoKeywords.some(kw => p.name.toLowerCase().includes(kw))
           }));
 
-      // 2. Agrupar productos por jugador en el carrito
       const playersMap = {}; 
       
       cart.forEach(item => {
@@ -64,16 +58,13 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
 
           const nameLower = item.name.toLowerCase();
           
-          // Si este producto es de foto, nos sirve de molde perfecto
           if (photoKeywords.some(p => nameLower.includes(p)) || nameLower.includes('pack')) {
               playersMap[item.playerName].hasPhoto = true;
               playersMap[item.playerName].triggerItem = item; 
           }
 
-          // Registrar lo que ya tiene para no ofrecérselo de nuevo
           playersMap[item.playerName].existingProducts.add(nameLower);
           
-          // Intentar adivinar el contenido de los packs
           if (nameLower.includes('pack')) {
               if (item.details?.packItems) {
                   item.details.packItems.forEach(p => playersMap[item.playerName].existingProducts.add(p.name.toLowerCase()));
@@ -90,32 +81,28 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
           return;
       }
 
-      // 3. Buscar una oferta válida en TU catálogo real
       const shuffledCatalog = [...realImpulseCatalog].sort(() => 0.5 - Math.random());
       let selectedOffer = null;
 
       for (const catalogItem of shuffledCatalog) {
-          // Extraemos la palabra principal (ej: "Llavero" de "Llavero Personalizado") para comparar
           const keyword = catalogItem.name.split(' ')[0].toLowerCase(); 
           
           const eligiblePlayers = playersData.filter(p => {
               const meetsPhotoReq = catalogItem.requiresPhoto ? p.hasPhoto : true;
-              // Comprobamos si el jugador YA tiene este producto
               const doesntHaveIt = !Array.from(p.existingProducts).some(existing => existing.includes(keyword));
               return meetsPhotoReq && doesntHaveIt;
           });
 
           if (eligiblePlayers.length > 0) {
               selectedOffer = { product: catalogItem, eligiblePlayers };
-              break; // Encontramos un producto válido, paramos la búsqueda
+              break; 
           }
       }
 
       setUpsellOffer(selectedOffer);
       setShowPlayerSelector(false);
-  }, [cart, products]); // Se recalcula si cambia el carrito o los productos
+  }, [cart, products]); 
 
-  // 4. Función para añadir el Upsell a los jugadores seleccionados
   const handleConfirmUpsell = (playersToProcess) => {
       if (!upsellOffer || !addToCart) return;
 
@@ -125,10 +112,7 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
           const upsellProduct = {
               id: upsellOffer.product.id,
               name: upsellOffer.product.name,
-              
-              // 🟢 SOLUCIÓN: Heredamos la categoría del equipo (ej: Alevín A) del producto de referencia
               category: triggerItem.category || '',
-              
               image: upsellOffer.product.image || upsellOffer.product.imageUrl || '', 
               clubId: triggerItem.clubId,
               clubName: triggerItem.clubName,
@@ -147,9 +131,7 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
       
       setShowPlayerSelector(false);
   };
-  // ------------------------------------------
 
-  // Cálculos de descuento
   let discountAmount = 0;
   if (activeCartCode) {
       if (activeCartCode.codeType === 'percent') discountAmount = total * (activeCartCode.discountValue / 100);
@@ -157,11 +139,10 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
   }
   const finalTotal = Math.max(0, total - discountAmount);
 
-  // Validar código
   const handleApplyCartCode = async () => {
       if(!cartDiscountInput.trim()) return;
       setDiscountLoading(true);
-      setDiscountError(''); // Limpiamos errores anteriores
+      setDiscountError(''); 
       
       try {
           const q = query(collection(db, 'giftCodes'), where('code', '==', cartDiscountInput.trim().toUpperCase()));
@@ -171,7 +152,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
           } else {
               const codeData = snap.docs[0].data();
 
-              // 1. Validar el club si tiene restricción
               const currentCartClubId = cart[0]?.clubId;
               if (codeData.allowedClub && codeData.allowedClub !== 'all' && codeData.allowedClub !== currentCartClubId) {
                   setDiscountError("Este cupón es exclusivo para otro club y no puede aplicarse a esta compra.");
@@ -179,25 +159,19 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   return;
               }
 
-              // 2. LÓGICA DE TIEMPO (Fechas y uso único)
               if (codeData.isTimeLimited) {
                   const now = new Date().toISOString();
-                  
-                  // Comprueba si aún no ha empezado
                   if (codeData.validFrom && now < codeData.validFrom) {
                       setDiscountError("Este cupón aún no está activo. Revisa la fecha de validez.");
                       setDiscountLoading(false);
                       return;
                   }
-                  
-                  // Comprueba si ya caducó
                   if (codeData.expiresAt && now > codeData.expiresAt) {
                       setDiscountError("Este cupón ha caducado por tiempo limitado.");
                       setDiscountLoading(false);
                       return;
                   }
               } else {
-                  // Si no es por tiempo, es clásico: Comprobamos si ya fue canjeado (1 solo uso)
                   if (codeData.status === 'redeemed') {
                       setDiscountError("Este código ya ha sido canjeado.");
                       setDiscountLoading(false);
@@ -205,7 +179,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   }
               }
 
-              // 3. Comprobar a qué aplica
               if (codeData.applyTo !== 'all') {
                   setDiscountError("Este código es para un producto específico. Vuelve a la Tienda y ponlo en el buscador superior.");
               } else {
@@ -225,9 +198,9 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
       createOrder({ 
           items: cart, 
           customer: formData, 
-          total: finalTotal, // Usamos el precio final rebajado
-          subtotal: total, // Guardamos el precio original por si acaso
-          cartDiscountCode: activeCartCode ? activeCartCode.code : null, // Enviamos el cupón
+          total: finalTotal, 
+          subtotal: total, 
+          cartDiscountCode: activeCartCode ? activeCartCode.code : null, 
           cartDiscountId: activeCartCode ? activeCartCode.docId : null,
           paymentMethod, 
           clubId: cart[0]?.clubId || 'generic', 
@@ -242,7 +215,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
       <div className="lg:col-span-2 space-y-4">
           <h2 className="text-2xl font-bold mb-4">Resumen</h2>
 
-          {/* --- BANNER DE UPSELL DINÁMICO MULTIJUGADOR --- */}
           {upsellOffer && (
               <div className="bg-emerald-50 border border-emerald-300 p-4 rounded-xl mb-6 shadow-sm animate-fade-in relative z-10">
                   <div className="flex flex-col sm:flex-row items-center justify-between gap-4">
@@ -267,7 +239,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                               type="button"
                               onClick={(e) => {
                                   e.preventDefault();
-                                  // Si solo hay 1 jugador, lo añadimos directo. Si hay varios, abrimos el menú.
                                   if (upsellOffer.eligiblePlayers.length === 1) {
                                       handleConfirmUpsell(upsellOffer.eligiblePlayers);
                                   } else {
@@ -282,7 +253,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                               }
                           </button>
 
-                          {/* Menú Desplegable si hay varios niños en el carrito */}
                           {showPlayerSelector && upsellOffer.eligiblePlayers.length > 1 && (
                               <div className="absolute top-full right-0 mt-2 bg-white border border-gray-200 rounded-lg shadow-xl p-2 z-50 w-56 animate-fade-in flex flex-col gap-1">
                                   <div className="text-[10px] uppercase font-bold text-gray-400 px-2 pb-1 border-b mb-1">¿Para quién lo añadimos?</div>
@@ -314,7 +284,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   </div>
               </div>
           )}
-          {/* ------------------------ */}
 
             {cart.map((item, index) => (
                 <div key={item.cartId || index} className="flex gap-4 mb-4 border-b border-gray-100 pb-4 last:border-0 last:pb-0">
@@ -331,7 +300,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                         <div className="flex justify-between items-start mb-1">
                             <h4 className="font-bold text-gray-800 text-sm truncate pr-2" title={item.name}>
                                 {item.name}
-                                {/* NUEVO: Etiqueta de REGALO en el título */}
                                 {item.isGift && (
                                     <span className="ml-2 bg-pink-100 text-pink-700 text-[10px] px-2 py-0.5 rounded font-bold border border-pink-200 align-middle">
                                         🎁 CÓDIGO: {item.giftCode}
@@ -339,7 +307,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                                 )}
                             </h4>
                             
-                            {/* NUEVO: Mostrar GRATIS si es un regalo */}
                             <p className={`font-bold text-sm whitespace-nowrap ${item.isGift ? 'text-pink-600' : 'text-emerald-600'}`}>
                                 {item.isGift ? 'GRATIS' : `${(item.price * (item.quantity || 1)).toFixed(2)}€`}
                             </p>
@@ -389,7 +356,7 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
           <h3 className="text-xl font-bold mb-4">Finalizar Compra</h3>
           <form onSubmit={handleSubmit} className="space-y-4">
               <Input label="Nombre y Apellidos" required value={formData.name} onChange={e => setFormData({...formData, name: e.target.value})} />
-              <Input label="Email (Obligatorio para factura)" type="email" required={true} placeholder="ejemplo@correo.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
+              <Input label="Email" type="email" required={true} placeholder="ejemplo@correo.com" value={formData.email} onChange={e => setFormData({...formData, email: e.target.value})} />
               <Input label="Teléfono Contacto (Opcional)" type="tel" required={false} placeholder="Opcional" value={formData.phone} onChange={e => setFormData({...formData, phone: e.target.value})} />
               
               <div className="mb-3 bg-blue-50 p-3 rounded-lg border border-blue-100">             
@@ -402,6 +369,26 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   </div>
               </div>
 
+              {/* --- CHECKBOX DE FACTURA --- */}
+              <div className="mb-4">
+                  <div className="flex items-center gap-2 mb-2 p-3 bg-gray-50 border border-gray-200 rounded-lg cursor-pointer hover:bg-gray-100 transition-colors" onClick={() => setFormData({...formData, requestInvoice: !formData.requestInvoice})}>
+                      <input type="checkbox" id="requestInvoice" checked={formData.requestInvoice} onChange={e => setFormData({...formData, requestInvoice: e.target.checked})} className="w-4 h-4 accent-emerald-600 pointer-events-none" />
+                      <label htmlFor="requestInvoice" className="text-sm font-bold text-gray-700 flex items-center gap-2 pointer-events-none">
+                          <FileText className="w-4 h-4 text-emerald-600"/> Solicitar Factura
+                      </label>
+                  </div>
+
+                  {formData.requestInvoice && (
+                      <div className="space-y-3 p-4 border border-emerald-200 bg-emerald-50 rounded-lg animate-fade-in mt-2">
+                          <p className="text-xs text-emerald-800 mb-2 font-medium">Por favor, rellena los datos fiscales. La factura se enviará adjunta a tu correo.</p>
+                          <Input label="Nombre o Razón Social" required={formData.requestInvoice} placeholder="Nombre completo o Empresa" value={formData.invoiceName} onChange={e => setFormData({...formData, invoiceName: e.target.value})} />
+                          <Input label="DNI / NIF / CIF" required={formData.requestInvoice} placeholder="12345678A" value={formData.invoiceDni} onChange={e => setFormData({...formData, invoiceDni: e.target.value})} />
+                          <Input label="Dirección Completa" required={formData.requestInvoice} placeholder="Calle, Número, Piso, CP, Ciudad..." value={formData.invoiceAddress} onChange={e => setFormData({...formData, invoiceAddress: e.target.value})} />
+                      </div>
+                  )}
+              </div>
+              {/* ------------------------- */}
+
               <div className="flex items-start gap-2 mb-4 bg-gray-50 p-3 rounded-lg border border-gray-100">
                   <input type="checkbox" id="marketing" checked={formData.marketingConsent} onChange={e => setFormData({...formData, marketingConsent: e.target.checked})} className="mt-1 accent-emerald-600" />
                   <label htmlFor="marketing" className="text-xs text-gray-600 cursor-pointer">
@@ -409,7 +396,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   </label>
               </div>
 
-              {/* --- NUEVO: CAJÓN DE CÓDIGOS PARA EL CARRITO --- */}
               <div className="border-t pt-4 mb-4">
                   <label className="block text-sm font-medium mb-2 flex items-center gap-2 text-gray-700">
                       <Gift className="w-4 h-4 text-emerald-600"/> ¿Tienes un cupón para toda la cesta?
@@ -456,7 +442,6 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   )}
               </div>
 
-              {/* Si todo el pedido es a coste 0€ (ej: solo hay regalos), no forzamos pago */}
               {total > 0 && (
                   <div className="border-t pt-4">
                       <label className="block text-sm font-medium mb-2">Pago</label>

@@ -218,7 +218,19 @@ export const generateInvoiceEmailHTML = (order, clubName) => {
                                 <td style="text-align:right">${item.price.toFixed(2)}€</td>
                             </tr>`;
                         }).join('')}
-                        <tr class="total-row"><td colspan="2" style="text-align:right">TOTAL</td><td style="text-align:right">${order.total.toFixed(2)}€</td></tr>
+                        
+                        <tr style="border-top: 2px solid #333;">
+                            <td colspan="2" style="text-align:right; font-size: 12px; color: #666; padding-top: 15px;">Subtotal (sin IVA)</td>
+                            <td style="text-align:right; font-size: 12px; color: #666; padding-top: 15px;">${(order.total / 1.21).toFixed(2)}€</td>
+                        </tr>
+                        <tr>
+                            <td colspan="2" style="text-align:right; font-size: 12px; color: #666;">IVA (21%)</td>
+                            <td style="text-align:right; font-size: 12px; color: #666;">${(order.total - (order.total / 1.21)).toFixed(2)}€</td>
+                        </tr>
+                        <tr class="total-row">
+                            <td colspan="2" style="text-align:right; font-size: 16px;">TOTAL (IVA inc.)</td>
+                            <td style="text-align:right; font-size: 16px;">${order.total.toFixed(2)}€</td>
+                        </tr>
                     </tbody>
                 </table>
             </div>

@@ -187,17 +187,30 @@ export const SupplierManager = ({ suppliers, products, createSupplier, updateSup
                                         </div>
                                         
                                         {isLinked && (
-                                            <div className="flex items-center gap-2 animate-fade-in">
-                                                <label className="text-xs font-bold text-gray-500 uppercase">Coste:</label>
-                                                <div className="relative w-24">
-                                                    <input 
-                                                        type="number" 
-                                                        step="0.01" 
-                                                        className="w-full border border-gray-300 rounded p-1 text-right font-bold text-gray-800 pr-5 focus:ring-2 focus:ring-emerald-500 outline-none"
-                                                        value={cost}
-                                                        onChange={(e) => updateProductCost(prod.id, e.target.value)}
-                                                    />
-                                                    <span className="absolute right-1 top-1 text-gray-400 text-xs">€</span>
+                                            <div className="flex items-center gap-3 animate-fade-in">
+                                                <div className="flex flex-col">
+                                                    <label className="text-[9px] font-bold text-gray-500 uppercase mb-0.5">Coste (Sin IVA)</label>
+                                                    <div className="relative w-20">
+                                                        <input 
+                                                            type="number" step="0.01" 
+                                                            className="w-full border border-gray-300 rounded p-1 text-xs text-right text-gray-600 pr-4 outline-none focus:border-indigo-500"
+                                                            value={(cost / 1.21).toFixed(2)}
+                                                            onChange={(e) => updateProductCost(prod.id, parseFloat(e.target.value) * 1.21)}
+                                                        />
+                                                        <span className="absolute right-1 top-1 text-gray-400 text-[10px]">€</span>
+                                                    </div>
+                                                </div>
+                                                <div className="flex flex-col">
+                                                    <label className="text-[9px] font-bold text-indigo-700 uppercase mb-0.5">Coste (Con IVA)</label>
+                                                    <div className="relative w-24">
+                                                        <input 
+                                                            type="number" step="0.01" 
+                                                            className="w-full border border-indigo-300 bg-indigo-50 rounded p-1 text-sm text-right font-bold text-indigo-900 pr-5 focus:ring-2 focus:ring-indigo-500 outline-none"
+                                                            value={cost}
+                                                            onChange={(e) => updateProductCost(prod.id, e.target.value)}
+                                                        />
+                                                        <span className="absolute right-1 top-1 text-indigo-600 text-[10px]">€</span>
+                                                    </div>
                                                 </div>
                                             </div>
                                         )}

@@ -412,6 +412,8 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                                 <span className={`text-2xl font-black ${hasDiscount ? 'text-red-600' : 'text-gray-900'}`}>
                                     {finalPrice.toFixed(2)}<span className="text-sm align-top">€</span>
                                 </span>
+                                {/* NUEVO: Aviso de IVA debajo del precio en el grid */}
+                                <span className="text-[10px] text-gray-500 font-bold block mt-[-4px] mb-1">IVA incluido</span>
                                 {remainingDiscountUnits !== null && remainingDiscountUnits > 0 && (
                                     <span className="text-[10px] text-red-500 font-bold leading-tight mt-0.5 bg-red-50 px-1 py-0.5 rounded border border-red-100 inline-block w-fit">
                                         ¡Solo {remainingDiscountUnits} uds. con dto!
@@ -867,7 +869,8 @@ export function ProductCustomizer({ product, allProducts, activeClub, activeGift
                   <p className={`font-black text-4xl ${isGift ? 'text-gray-800' : 'text-emerald-600'}`}>
                       {isGift ? 'GRATIS' : `${unitPrice.toFixed(2)}€`}
                   </p>
-                  {!isGift && <span className="text-gray-400 font-bold text-base">/ unidad</span>}
+                  {/* MODIFICADO: Se añade (IVA inc.) al texto */}
+                  {!isGift && <span className="text-gray-400 font-bold text-base">/ unidad (IVA inc.)</span>}
               </div>
               
               {/* ETIQUETA DINÁMICA DE MODIFICACIÓN (Solo aparece si cambian el estado por defecto) */}

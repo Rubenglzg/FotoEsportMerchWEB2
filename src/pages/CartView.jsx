@@ -308,7 +308,8 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                             </h4>
                             
                             <p className={`font-bold text-sm whitespace-nowrap ${item.isGift ? 'text-pink-600' : 'text-emerald-600'}`}>
-                                {item.isGift ? 'GRATIS' : `${(item.price * (item.quantity || 1)).toFixed(2)}€`}
+                                {item.isGift ? 'GRATIS' : `${(item.price * (item.quantity || 1)).toFixed(2)}€`} 
+                                <span className="text-[10px] text-gray-400 font-normal ml-1">IVA inc.</span>
                             </p>
                         </div>
 
@@ -469,8 +470,27 @@ export function CartView({ cart, removeFromCart, createOrder, total, clubs, stor
                   <span className="text-xs text-gray-500">He leído y acepto la Política de Privacidad y el tratamiento de datos.</span>
               </div>
               
-              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-3 text-lg mt-4">
-                  {storeConfig.isOpen ? `Pagar ${finalTotal.toFixed(2)}€` : 'TIENDA CERRADA'}
+              {/* NUEVO: Desglose del IVA antes de pagar */}
+              {total > 0 && (
+                  <div className="border-t border-gray-200 pt-4 mt-4 bg-gray-50 p-4 rounded-xl">
+                      <div className="flex justify-between text-sm text-gray-600 mb-2">
+                          <span>Subtotal (sin IVA)</span>
+                          <span className="font-medium">{(finalTotal / 1.21).toFixed(2)}€</span>
+                      </div>
+                      <div className="flex justify-between text-sm text-gray-600 mb-3">
+                          <span>IVA (21%)</span>
+                          <span className="font-medium">{(finalTotal - (finalTotal / 1.21)).toFixed(2)}€</span>
+                      </div>
+                      <div className="flex justify-between text-lg font-black text-gray-900 border-t border-gray-200 pt-3">
+                          <span>TOTAL</span>
+                          <span className="text-emerald-600">{finalTotal.toFixed(2)}€</span>
+                      </div>
+                  </div>
+              )}
+
+              {/* MODIFICADO: Texto del botón con IVA incl. */}
+              <Button type="submit" disabled={!storeConfig.isOpen} className="w-full py-4 text-lg mt-4 shadow-xl">
+                  {storeConfig.isOpen ? `Pagar ${finalTotal.toFixed(2)}€ (IVA incl.)` : 'TIENDA CERRADA'}
               </Button>
           </form>
       </div>

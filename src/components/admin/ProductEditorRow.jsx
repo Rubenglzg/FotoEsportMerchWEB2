@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { 
     ChevronRight, Settings, Trash2, Image as ImageIcon, Upload, Plus, Layers, Hash, 
     FileText, ShieldCheck, Lock, Unlock, Truck, Clock, Percent, EyeOff, Users,
-    Eye, CalendarClock, Hourglass, ToggleLeft, ToggleRight, CheckCircle2, Circle, Calendar, Tag, X
+    Eye, CalendarClock, Hourglass, ToggleLeft, ToggleRight, CheckCircle2, Circle, Calendar, Tag, X, Banknote
 } from 'lucide-react';
 
 export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppliers, availableSections, clubs = [], allProducts = [] }) => {
@@ -302,34 +302,81 @@ export const ProductEditorRow = ({ product, updateProduct, deleteProduct, suppli
                                     />
                                 </div>
                                 
-                                <div className="grid grid-cols-2 gap-5 pt-2">
-                                    <div>
-                                        <label className="text-[10px] font-bold text-emerald-600 uppercase mb-1 block">Precio Venta (PVP)</label>
-                                        <div className="relative">
-                                            <input type="number" step="0.5" className="w-full bg-emerald-50/50 border border-emerald-100 rounded-lg py-2 pl-3 pr-8 text-sm font-bold text-emerald-800 focus:ring-2 focus:ring-emerald-200 outline-none" value={product.price} onChange={e => updateProduct({...product, price: parseFloat(e.target.value)})} />
-                                            <span className="absolute right-3 top-2 text-emerald-600 text-xs font-bold">€</span>
-                                        </div>
-                                    </div>
+                                {/* 🟢 NUEVO PANEL DE PRECIOS, COSTES Y MÁRGENES (CON Y SIN IVA) A LA MISMA ALTURA */}
+                                <div className="bg-gray-50 p-4 rounded-xl border border-gray-200 mt-4">
+                                    <h5 className="text-[11px] font-bold text-gray-500 uppercase mb-3 flex items-center gap-2">
+                                        <Banknote className="w-4 h-4"/> Precios, Costes y Márgenes
+                                    </h5>
                                     
-                                    {/* COSTE DE PRODUCCIÓN */}
-                                    <div>
-                                        <label className="text-[10px] font-bold text-gray-400 uppercase mb-1 block">Coste Producción</label>
-                                        <div className="relative">
-                                            <input 
-                                                type="number" 
-                                                step="0.01" 
-                                                className={`w-full border rounded-lg py-2 pl-3 pr-8 text-sm font-bold outline-none ${product.isPack ? 'bg-emerald-50 border-emerald-200 text-emerald-700 cursor-not-allowed' : currentSupplier ? 'bg-indigo-50 border-indigo-200 text-indigo-700 cursor-not-allowed' : 'bg-gray-50 border-gray-200 text-gray-600 focus:ring-2 focus:ring-gray-200'}`}
-                                                value={product.isPack ? displayCost.toFixed(2) : product.cost} 
-                                                onChange={e => !currentSupplier && !product.isPack && updateProduct({...product, cost: parseFloat(e.target.value)})}
-                                                readOnly={!!currentSupplier || product.isPack}
-                                            />
-                                            <span className="absolute right-3 top-2 text-gray-400 text-xs font-bold">€</span>
+                                    <div className="grid grid-cols-1 md:grid-cols-2 gap-6 items-stretch">
+                                        
+                                        {/* COLUMNA SIN IVA */}
+                                        <div className="bg-white p-3 rounded-lg border border-gray-100 shadow-sm flex flex-col h-full">
+                                            <h6 className="text-xs font-black text-gray-700 text-center border-b pb-2 mb-3">SIN IVA (Base Imponible)</h6>
+                                            
+                                            <div className="space-y-3 mb-4">
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Precio Venta (Sin IVA)</label>
+                                                    <div className="relative">
+                                                        <input type="number" step="0.01" className="w-full border border-gray-200 rounded p-2 text-sm text-gray-700 outline-none focus:border-emerald-500" value={(product.price / 1.21).toFixed(2)} onChange={e => updateProduct({...product, price: parseFloat(e.target.value) * 1.21})} />
+                                                        <span className="absolute right-3 top-2 text-gray-400 text-xs">€</span>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-gray-500 uppercase mb-1 block">Coste Producción (Sin IVA)</label>
+                                                    <div className="relative">
+                                                        <input type="number" step="0.01" className={`w-full border rounded p-2 text-sm outline-none ${product.isPack ? 'bg-gray-100 text-gray-500 cursor-not-allowed' : currentSupplier ? 'bg-indigo-50 text-indigo-700 cursor-not-allowed' : 'border-gray-200 focus:border-emerald-500'}`} value={product.isPack ? (displayCost / 1.21).toFixed(2) : ((product.cost || 0) / 1.21).toFixed(2)} onChange={e => !currentSupplier && !product.isPack && updateProduct({...product, cost: parseFloat(e.target.value) * 1.21})} readOnly={!!currentSupplier || product.isPack} />
+                                                        <span className="absolute right-3 top-2 text-gray-400 text-xs">€</span>
+                                                    </div>
+                                                </div>
+                                            </div>
+
+                                            {/* El mt-auto empuja esto hasta abajo del todo */}
+                                            <div className="pt-3 border-t border-gray-100 flex justify-between items-center mt-auto">
+                                                <span className="text-[10px] font-bold text-gray-500 uppercase">Margen Sin IVA:</span>
+                                                <span className={`text-sm font-black ${((product.price / 1.21) - (product.isPack ? displayCost : (product.cost || 0)) / 1.21) > 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                                                    {((product.price / 1.21) - (product.isPack ? displayCost : (product.cost || 0)) / 1.21).toFixed(2)}€
+                                                </span>
+                                            </div>
                                         </div>
-                                        {product.isPack ? (
-                                            <p className="text-[9px] text-emerald-600 mt-1 flex items-center gap-1"><Layers className="w-3 h-3"/> Autocalculado del pack</p>
-                                        ) : currentSupplier && (
-                                            <p className="text-[9px] text-indigo-500 mt-1 flex items-center gap-1"><Lock className="w-3 h-3"/> Gestionado por proveedor</p>
-                                        )}
+
+                                        {/* COLUMNA CON IVA */}
+                                        <div className="bg-emerald-50 p-3 rounded-lg border border-emerald-100 shadow-sm flex flex-col h-full">
+                                            <h6 className="text-xs font-black text-emerald-800 text-center border-b border-emerald-200 pb-2 mb-3">CON IVA (21%)</h6>
+                                            
+                                            <div className="space-y-3 mb-4">
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-emerald-700 uppercase mb-1 block">PVP Público (Con IVA)</label>
+                                                    <div className="relative">
+                                                        <input type="number" step="0.01" className="w-full border border-emerald-200 rounded p-2 text-sm font-bold text-emerald-900 bg-white outline-none focus:ring-2 focus:ring-emerald-400" value={product.price || 0} onChange={e => updateProduct({...product, price: parseFloat(e.target.value)})} />
+                                                        <span className="absolute right-3 top-2 text-emerald-600 text-xs">€</span>
+                                                    </div>
+                                                </div>
+                                                <div>
+                                                    <label className="text-[10px] font-bold text-emerald-700 uppercase mb-1 block">Coste Producción (Con IVA)</label>
+                                                    <div className="relative">
+                                                        <input type="number" step="0.01" className={`w-full border rounded p-2 text-sm font-bold outline-none ${product.isPack ? 'bg-emerald-100/50 border-emerald-200 text-emerald-700 cursor-not-allowed' : currentSupplier ? 'bg-indigo-100 border-indigo-200 text-indigo-800 cursor-not-allowed' : 'bg-white border-emerald-200 focus:ring-2 focus:ring-emerald-400'}`} value={product.isPack ? displayCost.toFixed(2) : (product.cost || 0)} onChange={e => !currentSupplier && !product.isPack && updateProduct({...product, cost: parseFloat(e.target.value)})} readOnly={!!currentSupplier || product.isPack} />
+                                                        <span className="absolute right-3 top-2 text-emerald-600 text-xs">€</span>
+                                                    </div>
+                                                    {product.isPack && <p className="text-[8px] text-emerald-600 mt-1">Autocalculado del pack</p>}
+                                                    {currentSupplier && <p className="text-[8px] text-indigo-600 mt-1">Gestionado por proveedor</p>}
+                                                </div>
+                                            </div>
+
+                                            {/* El mt-auto empuja esto hasta abajo del todo */}
+                                            <div className="pt-3 border-t border-emerald-200 flex justify-between items-center mt-auto">
+                                                <span className="text-[10px] font-bold text-emerald-700 uppercase">Margen Con IVA:</span>
+                                                <div className="text-right flex items-center">
+                                                    <span className={`text-sm font-black ${(product.price || 0) - (product.isPack ? displayCost : (product.cost || 0)) > 0 ? 'text-emerald-700' : 'text-red-600'}`}>
+                                                        {((product.price || 0) - (product.isPack ? displayCost : (product.cost || 0))).toFixed(2)}€
+                                                    </span>
+                                                    <span className="text-[10px] ml-2 bg-white px-1.5 py-0.5 rounded border border-emerald-200 font-bold text-emerald-600 whitespace-nowrap">
+                                                        {product.price > 0 ? ((((product.price || 0) - (product.isPack ? displayCost : (product.cost || 0))) / product.price) * 100).toFixed(1) : 0}%
+                                                    </span>
+                                                </div>
+                                            </div>
+                                        </div>
+                                        
                                     </div>
                                 </div>
 

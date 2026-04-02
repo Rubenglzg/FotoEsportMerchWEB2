@@ -454,6 +454,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         averageTicket={averageTicket}
         statsData={statsData}
         errorStats={errorStats}
+        products={products}
     />
 )}
 

@@ -1,5 +1,5 @@
 import React from 'react';
-import { Calendar, Store, BarChart3, Users, Package, AlertTriangle, Table, CreditCard, Banknote, Landmark } from 'lucide-react';
+import { Calendar, Store, BarChart3, Users, Package, AlertTriangle, Table, CreditCard, Banknote, Landmark, Tag } from 'lucide-react';
 import { StatCard } from '../ui/StatCard'; // Reutilizamos el componente del Paso 1
 
 export const FinancesTab = ({
@@ -7,7 +7,7 @@ export const FinancesTab = ({
     statsClubFilter, setStatsClubFilter,
     seasons, clubs,
     totalRevenue, netProfit, financialOrdersCount, averageTicket,
-    statsData, errorStats
+    statsData, errorStats, products
 }) => {
     
     // Función auxiliar para calcular porcentajes de ancho en gráficas (Movida aquí)
@@ -294,6 +294,67 @@ export const FinancesTab = ({
                 </div>
             </div>
 
+                        {/* 🟢 NUEVO PANEL DE MÁRGENES POR PRODUCTO */}
+            <div className="bg-white rounded-xl shadow-sm border border-gray-200 p-6 mt-8 animate-fade-in-up">
+                <h3 className="text-lg font-bold text-gray-800 flex items-center gap-2 mb-4">
+                    <Tag className="w-5 h-5 text-emerald-600"/> Rentabilidad y Margen del Catálogo
+                </h3>
+                <div className="overflow-x-auto rounded-lg border border-gray-200">
+                    <table className="w-full text-left border-collapse whitespace-nowrap">
+                        <thead>
+                            <tr className="bg-gray-50 border-b border-gray-200">
+                                <th className="p-3 text-xs font-bold text-gray-500 uppercase">Producto</th>
+                                <th className="p-3 text-xs font-bold text-gray-500 uppercase text-right">Coste (Sin IVA)</th>
+                                <th className="p-3 text-xs font-bold text-gray-500 uppercase text-right">PVP (Sin IVA)</th>
+                                <th className="p-3 text-xs font-black text-emerald-700 uppercase text-right border-l border-gray-200 bg-emerald-50/50">Margen (Sin IVA)</th>
+                                <th className="p-3 text-xs font-bold text-gray-500 uppercase text-right border-l border-gray-200">Coste (Con IVA)</th>
+                                <th className="p-3 text-xs font-bold text-gray-500 uppercase text-right">PVP (Con IVA)</th>
+                                <th className="p-3 text-xs font-black text-emerald-700 uppercase text-right border-l border-gray-200 bg-emerald-50/50">Margen (Con IVA)</th>
+                                <th className="p-3 text-xs font-black text-indigo-700 uppercase text-center border-l border-gray-200 bg-indigo-50/50">% Beneficio</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-100">
+                            {products.map(p => {
+                                const pvpConIva = p.price || 0;
+                                const pvpSinIva = pvpConIva / 1.21;
+                                
+                                // AHORA COGE EL COSTE DE TODOS, INCLUIDOS LOS PACKS
+                                const costeConIva = p.cost || 0; 
+                                const costeSinIva = costeConIva / 1.21;
+                                
+                                const margenConIva = pvpConIva - costeConIva;
+                                const margenSinIva = pvpSinIva - costeSinIva;
+                                const margenPorcentaje = pvpConIva > 0 ? (margenConIva / pvpConIva) * 100 : 0;
+
+                                return (
+                                    <tr key={p.id} className="hover:bg-gray-50 transition-colors">
+                                        <td className="p-3 text-sm font-bold text-gray-800 flex items-center gap-2">
+                                            {p.image ? <img src={p.image} className="w-6 h-6 rounded object-cover border" /> : <div className="w-6 h-6 bg-gray-100 rounded border"></div>}
+                                            {p.name}
+                                            {p.isPack && <span className="bg-purple-100 text-purple-700 text-[9px] px-1.5 py-0.5 rounded font-black border border-purple-200">PACK</span>}
+                                        </td>
+                                        
+                                        <td className="p-3 text-sm text-gray-600 text-right">{costeSinIva.toFixed(2)}€</td>
+                                        <td className="p-3 text-sm text-gray-600 text-right">{pvpSinIva.toFixed(2)}€</td>
+                                        <td className="p-3 text-sm font-bold text-emerald-600 text-right bg-emerald-50/30 border-l border-gray-100">{margenSinIva.toFixed(2)}€</td>
+                                        
+                                        <td className="p-3 text-sm text-gray-600 text-right border-l border-gray-100">{costeConIva.toFixed(2)}€</td>
+                                        <td className="p-3 text-sm text-gray-600 text-right">{pvpConIva.toFixed(2)}€</td>
+                                        <td className="p-3 text-sm font-bold text-emerald-600 text-right bg-emerald-50/50 border-l border-gray-100">{margenConIva.toFixed(2)}€</td>
+                                        <td className="p-3 text-sm font-black text-indigo-600 text-center bg-indigo-50/30 border-l border-gray-100">{margenPorcentaje.toFixed(1)}%</td>
+                                    </tr>
+                                );
+                            })}
+                            {products.length === 0 && (
+                                <tr>
+                                    <td colSpan="8" className="p-4 text-center text-gray-400 text-sm">No hay productos en el catálogo.</td>
+                                </tr>
+                            )}
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+
             {/* TABLA FINANCIERA */}
             <div className="bg-white rounded-xl shadow-sm border border-gray-200 overflow-hidden">
                 <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
@@ -342,6 +403,9 @@ export const FinancesTab = ({
                     </table>
                 </div>
             </div>
+
+
+
         </div>
     );
 };

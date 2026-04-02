@@ -407,6 +407,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
 {tab === 'seasons' && (
     <SeasonsTab 
         seasons={seasons}
+        clubs={clubs} 
         addSeason={addSeason}
         toggleSeasonVisibility={toggleSeasonVisibility}
         deleteSeason={deleteSeason}

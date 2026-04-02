@@ -34,7 +34,7 @@ export function useDeleteHandlers(orders, seasons, setConfirmation, showNotifica
         });
     };
 
-    const handleDeleteSeasonData = (seasonId) => {
+    const handleDeleteSeasonData = (seasonId, selectedClubIds = [], deleteConfigFn = null) => {
         const season = seasons.find(s => s.id === seasonId);
         if (!season) return;
 
@@ -42,28 +42,50 @@ export function useDeleteHandlers(orders, seasons, setConfirmation, showNotifica
         const end = new Date(season.endDate).getTime();
         
         const ordersToDelete = orders.filter(o => {
+            // Filtrar por club si se han seleccionado clubes específicos
+            if (selectedClubIds.length > 0 && !selectedClubIds.includes(o.clubId)) {
+                return false;
+            }
+            // Filtrar por temporada
             if (o.manualSeasonId) return o.manualSeasonId === season.id;
             const d = o.createdAt?.seconds ? o.createdAt.seconds * 1000 : Date.now();
             return d >= start && d <= end;
         });
 
-        if (ordersToDelete.length === 0) {
-            showNotification('No hay datos para borrar en esta temporada', 'warning');
+        const isFullDelete = typeof deleteConfigFn === 'function';
+
+        if (ordersToDelete.length === 0 && !isFullDelete) {
+            showNotification('No hay datos para borrar en los clubes seleccionados', 'warning');
             return;
         }
 
+        const msg = isFullDelete 
+            ? `Estás a punto de eliminar DEFINITIVAMENTE la temporada "${season.name}" de la configuración y TODOS sus pedidos asociados (${ordersToDelete.length} pedidos encontrados).\n\nEsta acción NO SE PUEDE DESHACER.`
+            : `Estás a punto de eliminar DEFINITIVAMENTE los pedidos de la temporada "${season.name}" de los ${selectedClubIds.length} clubes seleccionados (${ordersToDelete.length} pedidos encontrados).\n\nEsta acción NO SE PUEDE DESHACER.`;
+
         setConfirmation({
-            title: "⚠️ PELIGRO: BORRADO DE DATOS",
-            msg: `Estás a punto de eliminar DEFINITIVAMENTE todos los datos de la temporada "${season.name}".\n\nEsto borrará ${ordersToDelete.length} pedidos de la base de datos y de la web.\n\nEsta acción NO SE PUEDE DESHACER. ¿Estás seguro?`,
+            title: isFullDelete ? "⚠️ ELIMINAR TEMPORADA Y PEDIDOS" : "⚠️ BORRADO PARCIAL DE PEDIDOS",
+            msg: msg,
             onConfirm: async () => {
                 try {
-                    const batch = writeBatch(db);
-                    ordersToDelete.forEach(o => {
-                        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
-                        batch.delete(ref);
-                    });
-                    await batch.commit();
-                    showNotification(`Se han eliminado ${ordersToDelete.length} pedidos de la temporada ${season.name}.`);
+                    // 1. Borrar pedidos en Firebase
+                    if (ordersToDelete.length > 0) {
+                        const batch = writeBatch(db);
+                        ordersToDelete.forEach(o => {
+                            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
+                            batch.delete(ref);
+                        });
+                        await batch.commit();
+                    }
+                    
+                    // 2. Si es borrado total (papelera roja), borrar la configuración
+                    if (isFullDelete) {
+                        deleteConfigFn();
+                    }
+                    
+                    showNotification(isFullDelete 
+                        ? `Temporada ${season.name} eliminada por completo.` 
+                        : `Se han eliminado ${ordersToDelete.length} pedidos.`);
                 } catch (e) {
                     console.error(e);
                     showNotification('Error al eliminar los datos', 'error');

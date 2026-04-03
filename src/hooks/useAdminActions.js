@@ -1,5 +1,5 @@
 import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, writeBatch, setDoc } from 'firebase/firestore';
-import { ref, uploadBytes, getDownloadURL } from 'firebase/storage';
+import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
 
 export function useAdminActions(showNotification, setConfirmation, clubs) {
@@ -26,6 +26,17 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
       try {
           let finalProduct = { ...updatedProduct };
           if (newImageFile) {
+              // --- NUEVO: Borrar la imagen antigua de Storage si existe ---
+              if (updatedProduct.image && updatedProduct.image.includes('firebasestorage.googleapis.com')) {
+                  try {
+                      const oldImageRef = ref(storage, updatedProduct.image);
+                      await deleteObject(oldImageRef);
+                  } catch (error) {
+                      console.warn("No se pudo borrar la imagen antigua:", error);
+                  }
+              }
+              // -----------------------------------------------------------
+
               const storageRef = ref(storage, `Productos/${Date.now()}_${newImageFile.name}`);
               await uploadBytes(storageRef, newImageFile);
               finalProduct.image = await getDownloadURL(storageRef);
@@ -68,6 +79,17 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
       try {
           let finalClubData = { ...updatedClub };
           if (newLogoFile) {
+              // --- NUEVO: Borrar el logo antiguo de Storage si existe ---
+              if (updatedClub.logoUrl && updatedClub.logoUrl.includes('firebasestorage.googleapis.com')) {
+                  try {
+                      const oldLogoRef = ref(storage, updatedClub.logoUrl);
+                      await deleteObject(oldLogoRef);
+                  } catch (error) {
+                      console.warn("No se pudo borrar el logo antiguo:", error);
+                  }
+              }
+              // ----------------------------------------------------------
+
               const logoRef = ref(storage, `club-logos/${Date.now()}_${newLogoFile.name}`);
               await uploadBytes(logoRef, newLogoFile);
               finalClubData.logoUrl = await getDownloadURL(logoRef);

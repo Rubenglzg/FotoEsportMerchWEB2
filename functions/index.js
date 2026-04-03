@@ -64,6 +64,7 @@ exports.deleteOldIncidents = onSchedule("every 24 hours", async (event) => {
     if (snapshot.empty) return;
 
     const bucket = admin.storage().bucket();
+    const batch = db.batch(); // Creamos el batch
     
     for (const doc of snapshot.docs) {
         const data = doc.data();
@@ -74,8 +75,12 @@ exports.deleteOldIncidents = onSchedule("every 24 hours", async (event) => {
                 console.log("Error borrando archivos:", e.message);
             }
         }
-        await doc.ref.delete();
+        // En lugar de doc.ref.delete(), lo añadimos al batch:
+        batch.delete(doc.ref); 
     }
+    
+    // Ejecutamos todos los borrados de Firestore de golpe
+    await batch.commit(); 
     
     console.log(`Eliminados ${snapshot.size} tickets antiguos.`);
 });

@@ -22,14 +22,26 @@ export function useDeleteHandlers(orders, seasons, setConfirmation, showNotifica
             msg: `⚠️ PELIGRO: Vas a eliminar el LOTE GLOBAL #${batchId} con ${ordersInBatch.length} pedidos.\n\nEsta acción borrará TODOS los pedidos de este lote definitivamente.`,
             onConfirm: async () => {
                 try {
-                    const batch = writeBatch(db);
-                    ordersInBatch.forEach(o => {
-                        const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
-                        batch.delete(ref);
-                    });
-                    await batch.commit();
+                    // --- NUEVO: Borrado en lotes de 500 para evitar el límite de Firestore ---
+                    const CHUNK_SIZE = 500;
+                    for (let i = 0; i < ordersInBatch.length; i += CHUNK_SIZE) {
+                        const chunk = ordersInBatch.slice(i, i + CHUNK_SIZE);
+                        const batch = writeBatch(db);
+                        
+                        chunk.forEach(o => {
+                            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
+                            batch.delete(ref);
+                        });
+                        
+                        await batch.commit();
+                    }
+                    // ----------------------------------------------------------------------
+                    
                     showNotification(`Lote #${batchId} eliminado correctamente`);
-                } catch (e) { showNotification('Error al eliminar el lote', 'error'); }
+                } catch (e) { 
+                    console.error(e);
+                    showNotification('Error al eliminar el lote', 'error'); 
+                }
             }
         });
     };
@@ -68,14 +80,20 @@ export function useDeleteHandlers(orders, seasons, setConfirmation, showNotifica
             msg: msg,
             onConfirm: async () => {
                 try {
-                    // 1. Borrar pedidos en Firebase
+                    // 1. Borrar pedidos en Firebase en grupos de 500
                     if (ordersToDelete.length > 0) {
-                        const batch = writeBatch(db);
-                        ordersToDelete.forEach(o => {
-                            const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
-                            batch.delete(ref);
-                        });
-                        await batch.commit();
+                        const CHUNK_SIZE = 500;
+                        for (let i = 0; i < ordersToDelete.length; i += CHUNK_SIZE) {
+                            const chunk = ordersToDelete.slice(i, i + CHUNK_SIZE);
+                            const batch = writeBatch(db);
+                            
+                            chunk.forEach(o => {
+                                const ref = doc(db, 'artifacts', appId, 'public', 'data', 'orders', o.id);
+                                batch.delete(ref);
+                            });
+                            
+                            await batch.commit();
+                        }
                     }
                     
                     // 2. Si es borrado total (papelera roja), borrar la configuración

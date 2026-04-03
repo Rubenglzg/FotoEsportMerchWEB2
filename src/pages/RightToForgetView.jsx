@@ -48,7 +48,7 @@ export function RightToForgetView({ setView }) {
     return (
         <div className="max-w-lg mx-auto bg-white p-8 rounded-xl shadow mt-8 animate-fade-in">
             <h2 className="text-2xl font-bold mb-4 flex items-center gap-2 text-red-600">
-                <UserX className="w-6 h-6"/> Derecho al Olvido (RGPD)
+                <UserX className="w-6 h-6"/> Derecho al olvido (RGPD)
             </h2>
             <p className="text-gray-600 mb-6 text-sm">
                 De acuerdo con el Reglamento General de Protección de Datos, utiliza este formulario para solicitar la eliminación completa de tus fotografías y datos personales de nuestra base de datos.
@@ -69,7 +69,7 @@ export function RightToForgetView({ setView }) {
                     onChange={(e) => setFormData({...formData, email: e.target.value})}
                 />
                 <Input 
-                    label="DNI / Identificación del Tutor" 
+                    label="DNI / identificación del tutor" 
                     required 
                     value={formData.dni}
                     onChange={(e) => setFormData({...formData, dni: e.target.value})}
@@ -83,13 +83,13 @@ export function RightToForgetView({ setView }) {
                     onChange={(e) => setFormData({...formData, playerName: e.target.value})}
                 />
                 <Input 
-                    label="Motivo (Opcional)" 
+                    label="Motivo (opcional)" 
                     placeholder="Ej: Solicito la baja de mis fotos..." 
                     value={formData.reason}
                     onChange={(e) => setFormData({...formData, reason: e.target.value})}
                 />
                 <Button type="submit" variant="danger" className="w-full" disabled={isSubmitting}>
-                    {isSubmitting ? 'Procesando solicitud...' : 'Solicitar Borrado Definitivo'}
+                    {isSubmitting ? 'Procesando solicitud...' : 'Solicitar borrado definitivo'}
                 </Button>
             </form>
             <button onClick={() => setView('home')} className="mt-4 text-sm text-gray-500 hover:text-gray-800 underline text-center w-full transition-colors">

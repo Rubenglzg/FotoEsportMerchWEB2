@@ -73,15 +73,15 @@ export function HomeView({ setView, products = [], orders = [] }) {
   const faqs = [
     { 
         q: "¿Cómo encuentro la foto de mi jugador/a?", 
-        a: "Accede al apartado 'Buscar mis Fotos', selecciona tu club, elige la categoría correspondiente e introduce el nombre o el dorsal. Nuestro sistema buscará la foto de forma rápida y segura." 
+        a: "Accede al apartado 'Fotos', selecciona tu club, elige la categoría correspondiente e introduce el nombre o el dorsal. Nuestro sistema buscará la foto de forma rápida y segura." 
     },
     { 
         q: "¿Cuánto tarda en llegar mi pedido?", 
-        a: "Trabajamos bajo demanda y por lotes para garantizar la mejor calidad. Una vez que el club cierra el lote actual, los productos se fabrican y se entregan directamente en las instalaciones del club en un plazo aproximado de 10 a 15 días hábiles." 
+        a: "Trabajamos bajo demanda y por lotes para garantizar la mejor calidad. Una vez que se cierra el lote actual, los productos se fabrican y se entregan directamente en las instalaciones del club en un plazo aproximado de 7 a 12 días hábiles." 
     },
     { 
         q: "¿Cuáles son los métodos de pago?", 
-        a: "Aceptamos pagos totalmente seguros con tarjeta a través de nuestra pasarela. Además, si tu club lo ha habilitado, también tendrás la opción de realizar el pago en efectivo al recoger el pedido." 
+        a: "Aceptamos pagos totalmente seguros con tarjeta a través de nuestra pasarela. Además, si tu club lo ha habilitado, también tendrás la opción de realizar el pago en efectivo." 
     },
     { 
         q: "¿Qué hago si hay un problema con mi producto?", 
@@ -177,18 +177,20 @@ export function HomeView({ setView, products = [], orders = [] }) {
         </div>
       </div>
 
-      {/* 2. STATS BAR */}
+{/* 2. STATS BAR */}
       <div className="grid grid-cols-2 md:grid-cols-4 divide-x divide-gray-100 bg-white rounded-2xl shadow-sm border border-gray-100 p-6 -mt-8 relative z-30 mx-4 lg:mx-12">
           {[
               { label: "Fotografía", value: "Profesional", icon: Camera }, 
               { label: "Calidad", value: "Premium", icon: Award },
-              { label: "Productos Únicos", value: "100%", icon: Package },
+              { label: "Productos Únicos", value: "Personalizados", icon: Package },
               { label: "Pago Protegido", value: "100% Seguro", icon: CreditCard },
           ].map((stat, i) => (
               <div key={i} className="flex flex-col items-center justify-center text-center p-2">
                   <stat.icon className="w-6 h-6 text-emerald-600 mb-2 opacity-80"/>
-                  <span className="text-2xl font-black text-gray-800">{stat.value}</span>
+                  {/* Etiqueta arriba */}
                   <span className="text-xs text-gray-500 font-bold uppercase tracking-wide">{stat.label}</span>
+                  {/* Valor abajo */}
+                  <span className="text-2xl font-black text-gray-800">{stat.value}</span>
               </div>
           ))}
       </div>
@@ -205,7 +207,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
                   <div className="w-16 h-16 bg-blue-50 rounded-2xl flex items-center justify-center mx-auto mb-6 text-blue-600 group-hover:scale-110 transition-transform duration-300">
                       <Search className="w-8 h-8"/>
                   </div>
-                  <h3 className="text-xl font-bold text-gray-800 mb-3">1. Busca tu Foto</h3>
+                  <h3 className="text-xl font-bold text-gray-800 mb-3">1. Busca tu foto</h3>
                   <p className="text-gray-500 text-sm leading-relaxed">Entra en el área de tu club, filtra por categoría escribe el nombre o dorsal y encuentra esa foto espectacular para tu Merch.</p>
               </div>
 
@@ -232,7 +234,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
           <div className="py-8 relative">
               <div className="text-center mb-12">
                   <span className="text-emerald-600 font-bold text-sm tracking-wider uppercase mb-2 block">Catálogo Exclusivo</span>
-                  <h2 className="text-3xl md:text-4xl font-black text-gray-900">Nuestros Productos Estrella</h2>
+                  <h2 className="text-3xl md:text-4xl font-black text-gray-900">Nuestros productos estrella</h2>
                   <p className="text-gray-500 mt-3 max-w-2xl mx-auto">Los favoritos de nuestra comunidad. Totalmente personalizados con foto, nombre, dorsal y escudo de tu equipo.</p>
               </div>
 
@@ -273,7 +275,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
               <a href="https://www.instagram.com/fotoesportmerch/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center w-20 h-20 bg-gradient-to-tr from-yellow-400 via-red-500 to-purple-500 rounded-[1.5rem] mb-6 text-white shadow-xl shadow-purple-500/20 transform hover:scale-110 transition-transform cursor-pointer rotate-3 hover:rotate-6">
                   <Instagram className="w-10 h-10" />
               </a>
-              <h2 className="text-3xl md:text-5xl font-black text-gray-900 mb-6 tracking-tight">Únete a la comunidad</h2>
+              <h2 className="text-3xl md:text-5xl font-black text-gray-900 mb-6 tracking-tight">Únete a nuestra comunidad</h2>
               <p className="text-gray-600 text-lg md:text-xl mb-10 leading-relaxed">
                   Sigue nuestro trabajo en <a href="https://www.instagram.com/fotoesportmerch/" target="_blank" rel="noopener noreferrer" className="font-bold text-transparent bg-clip-text bg-gradient-to-r from-purple-600 to-pink-500 hover:opacity-80 transition-opacity">@fotoesportmerch</a> para ver cómo quedan los diseños, participar en sorteos y no perderte ninguna novedad.
               </p>
@@ -310,7 +312,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
           </div>
 
           <a href="https://www.instagram.com/fotoesportmerch/" target="_blank" rel="noopener noreferrer" className="inline-flex items-center justify-center px-8 py-4 bg-gray-900 hover:bg-black text-white rounded-xl font-bold text-lg transition-all transform hover:-translate-y-1 shadow-lg shadow-gray-900/20">
-              <Instagram className="w-5 h-5 mr-2" /> Seguir en Instagram
+              <Instagram className="w-5 h-5 mr-2" /> ¡Síguenos en Instagram!
           </a>
       </div>
 
@@ -327,11 +329,11 @@ export function HomeView({ setView, products = [], orders = [] }) {
                 />
 
               <div className="relative z-20 p-8 h-full flex flex-col justify-end items-start">
-                  <span className="bg-white/20 backdrop-blur-md text-white text-xs font-bold px-3 py-1 rounded-full mb-3 border border-white/30">Catálogo Completo</span>
-                  <h3 className="text-3xl font-bold text-white mb-2">Tienda Oficial</h3>
+                  <span className="bg-white/20 backdrop-blur-md text-white text-xs font-bold px-3 py-1 rounded-full mb-3 border border-white/30">Catálogo de productos</span>
+                  <h3 className="text-3xl font-bold text-white mb-2">Tienda oficial</h3>
                   <p className="text-gray-200 text-sm mb-4 max-w-md">Descubre todos los productos personalizados que hemos preparado para ti esta temporada.</p>
                   <div className="bg-white text-gray-900 px-4 py-2 rounded-lg text-sm font-bold flex items-center gap-2 group-hover:bg-emerald-500 group-hover:text-white transition-colors">
-                      Ver Productos <ArrowRight className="w-4 h-4"/>
+                      Ver productos <ArrowRight className="w-4 h-4"/>
                   </div>
               </div>
           </div>
@@ -342,7 +344,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
                   <h4 className="text-lg font-bold text-orange-900 mb-1">¿Algún problema?</h4>
                   <p className="text-xs text-orange-700 mb-3">Gestionar incidencias o devoluciones</p>
                   <div className="flex items-center gap-2 text-orange-800 font-bold text-xs underline">
-                      Abrir Soporte <ArrowRight className="w-3 h-3"/>
+                      Abrir soporte <ArrowRight className="w-3 h-3"/>
                   </div>
               </div>
 
@@ -367,12 +369,10 @@ export function HomeView({ setView, products = [], orders = [] }) {
               
               {/* Columna Izquierda: Textos y botón de soporte */}
               <div className="lg:col-span-5 space-y-6">
-                  <div className="inline-flex items-center gap-2 px-4 py-2 rounded-full bg-emerald-50 text-emerald-600 text-xs font-bold uppercase tracking-wider border border-emerald-100 shadow-sm">
-                      <AlertCircle className="w-4 h-4" /> Soporte
-                  </div>
+
                   
                   <h2 className="text-4xl md:text-5xl font-black text-gray-900 leading-tight tracking-tight">
-                      Preguntas <br className="hidden lg:block"/> Frecuentes
+                      Preguntas <br className="hidden lg:block"/> frecuentes
                   </h2>
                   
                   <p className="text-gray-500 text-lg leading-relaxed max-w-md">
@@ -431,7 +431,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
                   Trabaja con nosotros
               </div>
               <h2 className="text-3xl md:text-5xl font-black leading-tight drop-shadow-md">
-                  ¿Quieres tener tu propio Merch personalizado?
+                  ¿Quieres tener tu propio merch personalizado?
               </h2>
               <p className="text-gray-300 text-lg leading-relaxed font-light">
                   Ofrecemos un servicio integral y profesional: enviamos a nuestro fotógrafo, montamos vuestra tienda online exclusiva y producimos los artículos bajo demanda. ¡Sin inversión ni riesgo para el club!
@@ -463,11 +463,11 @@ export function HomeView({ setView, products = [], orders = [] }) {
                   </div>
               ) : (
                   <form onSubmit={handleContactSubmit} className="space-y-5">
-                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Solicitar Información</h3>
+                  <h3 className="text-2xl font-bold text-gray-900 mb-2">Solicitar información</h3>
                   
                   <div className="space-y-4">
                       <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del Club</label>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Nombre del club</label>
                         <div className="relative">
                             <Users className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
                             <input required type="text" name="clubName" value={contactForm.clubName} onChange={handleInputChange} className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-medium text-gray-800" placeholder="Ej. CF FotoEsport" />
@@ -476,7 +476,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
 
                       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div>
-                          <label className="block text-sm font-bold text-gray-700 mb-1">Persona de Contacto</label>
+                          <label className="block text-sm font-bold text-gray-700 mb-1">Persona de contacto</label>
                           <input required type="text" name="contactName" value={contactForm.contactName} onChange={handleInputChange} className="w-full px-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-medium text-gray-800" placeholder="Tu nombre" />
                       </div>
                       <div>
@@ -489,7 +489,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">Correo Electrónico</label>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Correo electrónico</label>
                         <div className="relative">
                             <Mail className="w-5 h-5 text-gray-400 absolute left-3 top-1/2 transform -translate-y-1/2" />
                             <input required type="email" name="email" value={contactForm.email} onChange={handleInputChange} className="w-full pl-10 pr-4 py-2.5 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors font-medium text-gray-800" placeholder="correo@club.com" />
@@ -497,7 +497,7 @@ export function HomeView({ setView, products = [], orders = [] }) {
                       </div>
 
                       <div>
-                        <label className="block text-sm font-bold text-gray-700 mb-1">Mensaje (Opcional)</label>
+                        <label className="block text-sm font-bold text-gray-700 mb-1">Mensaje (opcional)</label>
                         <textarea name="message" value={contactForm.message} onChange={handleInputChange} rows="3" className="w-full px-4 py-3 bg-gray-50 border border-gray-200 rounded-xl focus:ring-2 focus:ring-emerald-500 focus:border-emerald-500 transition-colors resize-none font-medium text-gray-800" placeholder="Cuéntanos un poco sobre tu club (nº de jugadores, categorías...)"></textarea>
                       </div>
                   </div>

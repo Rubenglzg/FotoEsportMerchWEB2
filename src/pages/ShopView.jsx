@@ -219,7 +219,7 @@ export function ShopView({ products, addToCart, clubs, modificationFee, storeCon
                 <div className="flex items-center gap-3 mb-3">
                     {activeClub.logoUrl && <img src={activeClub.logoUrl} className="w-8 h-8 object-contain drop-shadow-sm" alt="Logo"/>}
                     <span className="bg-emerald-100 text-emerald-800 text-xs font-black px-2.5 py-1 rounded-md uppercase tracking-wide border border-emerald-200">
-                        Tienda Oficial: {activeClub.name}
+                        Tienda: {activeClub.name}
                     </span>
                     <button onClick={() => { setActiveClub(null); setSelectedProduct(null); }} className="text-xs text-gray-400 hover:text-red-500 underline transition-colors">
                         Cambiar club

@@ -251,13 +251,13 @@ export function PhotoSearchView({ clubs }) {
   return (
     <div className="max-w-2xl mx-auto py-8">
         <div className="text-center mb-8">
-            <h2 className="text-3xl font-bold mb-2">Buscador de Fotos Segura</h2>
+            <h2 className="text-3xl font-bold mb-2">Buscador de fotos</h2>
             <p className="text-gray-500">Área protegida. Solo para jugadores y familiares.</p>
         </div>
         
         <div className="bg-white p-6 rounded-xl shadow-md mb-8">
             <div className={`transition-all duration-300 ${step === 1 ? 'opacity-100' : 'hidden'}`}>
-                <label className="block text-sm font-bold text-gray-700 mb-2">1. Selecciona tu Club</label>
+                <label className="block text-sm font-bold text-gray-700 mb-2">1. Selecciona tu club</label>
                 <div className="relative">
                     <Input placeholder="Escribe el nombre de tu club..." value={clubInput} onChange={e => setClubInput(e.target.value)} autoFocus />
                     {clubSuggestions.length > 0 && (

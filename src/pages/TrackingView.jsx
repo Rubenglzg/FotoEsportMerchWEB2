@@ -27,7 +27,7 @@ export function TrackingView({ orders }) {
   return (
     <div className="max-w-xl mx-auto text-center py-12">
         <Package className="w-16 h-16 text-emerald-600 mx-auto mb-4" />
-        <h2 className="text-3xl font-bold mb-6">Seguimiento de Pedido</h2>
+        <h2 className="text-3xl font-bold mb-6">Seguimiento de pedidos</h2>
         <form onSubmit={handleTrack} className="flex gap-2 mb-12">
             <input type="text" placeholder="ID de Pedido (ej. 7A2B...)" className="flex-1 px-4 py-3 border rounded-lg" value={searchId} onChange={e => setSearchId(e.target.value)} />
             <Button type="submit">Consultar</Button>
@@ -48,11 +48,11 @@ export function TrackingView({ orders }) {
                     </div>
                     <div className={`flex gap-4 ${foundOrder.status === 'en_produccion' ? 'opacity-100' : 'opacity-50'}`}>
                         <div className="bg-purple-100 p-2 rounded-full h-fit"><Settings className="w-5 h-5 text-purple-600"/></div>
-                        <div><h4 className="font-bold">En Producción</h4><p className="text-sm text-gray-500">Fabricando tus productos personalizados.</p></div>
+                        <div><h4 className="font-bold">En producción</h4><p className="text-sm text-gray-500">Fabricando tus productos personalizados.</p></div>
                     </div>
                     <div className={`flex gap-4 ${foundOrder.status === 'entregado_club' ? 'opacity-100' : 'opacity-50'}`}>
                         <div className="bg-green-100 p-2 rounded-full h-fit"><Check className="w-5 h-5 text-green-600"/></div>
-                        <div><h4 className="font-bold">Listo para Recoger</h4><p className="text-sm text-gray-500">Ya está disponible en las oficinas de {foundOrder.clubName || 'tu club'}.</p></div>
+                        <div><h4 className="font-bold">Listo para recoger</h4><p className="text-sm text-gray-500">Ya está disponible en las oficinas de {foundOrder.clubName || 'tu club'}.</p></div>
                     </div>
                 </div>
             </div>

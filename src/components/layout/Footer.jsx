@@ -25,26 +25,26 @@ export function Footer({ setView }) {
               onClick={() => setView('privacy')}
               className="hover:text-emerald-400 cursor-pointer transition-colors"
             >
-              Política de Privacidad
+              Política de privacidad
             </li>
             <li 
               onClick={() => setView('legal')}
               className="hover:text-emerald-400 cursor-pointer transition-colors"
             >
-              Aviso Legal
+              Aviso legal
             </li>
             <li 
               onClick={() => setView('right-to-forget')} 
               className="hover:text-emerald-400 text-emerald-600 font-bold flex items-center gap-2 cursor-pointer transition-colors mt-4"
             >
-              <UserX className="w-4 h-4"/> Derecho al Olvido
+              <UserX className="w-4 h-4"/> Derecho al olvido
             </li>
           </ul>
         </div>
 
         {/* Columna 3: Contacto y Soporte */}
         <div className="md:pt-8">
-          <h3 className="text-lg font-semibold mb-4 text-gray-100">Contacto y Soporte</h3>
+          <h3 className="text-lg font-semibold mb-4 text-gray-100">Contacto y soporte</h3>
           <p className="text-gray-400 text-sm mb-6">info@fotoesportmerch.es</p>
           
           <button 
@@ -52,13 +52,13 @@ export function Footer({ setView }) {
             className="flex items-center gap-2 text-gray-300 hover:text-white transition-colors text-sm font-semibold border border-gray-700 hover:border-red-500/50 px-4 py-2.5 rounded-lg bg-gray-800 hover:bg-red-500/10 shadow-sm"
           >
             <AlertTriangle className="w-4 h-4 text-red-500" />
-            Reportar Incidencia
+            Reportar incidencia
           </button>
         </div>
 
         {/* Columna 4: Sooner Software */}
         <div className="md:pt-8">
-          <h3 className="text-lg font-semibold mb-4 text-gray-100">Software de Gestión</h3>
+          <h3 className="text-lg font-semibold mb-4 text-gray-100">Software de gestión</h3>
           
           {/* Tarjeta Promocional de Sooner */}
           <div className="bg-gray-800/40 p-4 rounded-xl border border-gray-700/50 hover:border-gray-600 transition-colors group">

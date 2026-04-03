@@ -9,17 +9,17 @@ export function PrivacyPolicyView({ setView }) {
       </button>
       
       <div className="bg-white p-8 rounded-2xl shadow-sm border border-gray-100 space-y-6">
-        <h1 className="text-3xl font-black text-gray-900 mb-8 border-b pb-4">Política de Privacidad</h1>
+        <h1 className="text-3xl font-black text-gray-900 mb-8 border-b pb-4">Política de privacidad</h1>
         
         <section>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">1. Responsable del Tratamiento</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">1. Responsable del tratamiento</h2>
           <p className="text-gray-600 text-sm leading-relaxed">
             El responsable del tratamiento de sus datos personales es <strong>FOTOESPORT MERCH</strong> (en adelante, "el Prestador"), comprometido con la protección de la privacidad y el uso correcto de los datos personales.
           </p>
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">2. Finalidad del Tratamiento</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">2. Finalidad del tratamiento</h2>
           <p className="text-gray-600 text-sm leading-relaxed">
             Sus datos personales serán tratados con las siguientes finalidades:
           </p>
@@ -46,13 +46,13 @@ export function PrivacyPolicyView({ setView }) {
         </section>
 
         <section>
-          <h2 className="text-xl font-bold text-gray-800 mb-2">5. Derechos del Usuario</h2>
+          <h2 className="text-xl font-bold text-gray-800 mb-2">5. Derechos del usuario</h2>
           <p className="text-gray-600 text-sm leading-relaxed mb-2">
             Puede ejercer sus derechos de acceso, rectificación, supresión, limitación y oposición enviando una solicitud a través de nuestro formulario de contacto o al email de soporte.
           </p>
           <div className="bg-blue-50 p-4 rounded-lg border border-blue-100">
             <p className="text-xs text-blue-800">
-              <strong>Derecho al Olvido (RGPD):</strong> Disponemos de una herramienta específica para solicitar el borrado de sus imágenes y datos. <button onClick={() => setView('right-to-forget')} className="underline font-bold hover:text-blue-600">Acceder aquí</button>.
+              <strong>Derecho al olvido (RGPD):</strong> Disponemos de una herramienta específica para solicitar el borrado de sus imágenes y datos. <button onClick={() => setView('right-to-forget')} className="underline font-bold hover:text-blue-600">Acceder aquí</button>.
             </p>
           </div>
         </section>

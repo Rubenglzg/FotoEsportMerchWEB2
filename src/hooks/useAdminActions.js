@@ -1,4 +1,5 @@
 import { collection, addDoc, doc, updateDoc, deleteDoc, serverTimestamp, writeBatch, setDoc } from 'firebase/firestore';
+// Importamos deleteObject
 import { ref, uploadBytes, getDownloadURL, deleteObject } from 'firebase/storage';
 import { db, storage } from '../config/firebase';
 
@@ -13,7 +14,7 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
           features: { name: true, number: true, photo: false, shield: true, color: false }, 
           defaults: { name: true, number: true, photo: false, shield: true }, 
           modifiable: { name: true, number: true, photo: false, shield: true },
-          visibility: { status: 'hidden' }, // <--- AÑADIDO: Oculto por defecto
+          visibility: { status: 'hidden' },
           createdAt: serverTimestamp()
       }; 
       try {
@@ -26,16 +27,17 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
       try {
           let finalProduct = { ...updatedProduct };
           if (newImageFile) {
-              // --- NUEVO: Borrar la imagen antigua de Storage si existe ---
+              // Validaciones de seguridad
+              if (newImageFile.size > 5 * 1024 * 1024) { showNotification('Error: La imagen no puede pesar más de 5MB', 'error'); return; }
+              if (!newImageFile.type.startsWith('image/')) { showNotification('Error: Solo se permiten archivos de imagen', 'error'); return; }
+
+              // Borrar imagen antigua si existe en Storage
               if (updatedProduct.image && updatedProduct.image.includes('firebasestorage.googleapis.com')) {
                   try {
                       const oldImageRef = ref(storage, updatedProduct.image);
                       await deleteObject(oldImageRef);
-                  } catch (error) {
-                      console.warn("No se pudo borrar la imagen antigua:", error);
-                  }
+                  } catch (error) { console.warn("No se pudo borrar la imagen antigua:", error); }
               }
-              // -----------------------------------------------------------
 
               const storageRef = ref(storage, `Productos/${Date.now()}_${newImageFile.name}`);
               await uploadBytes(storageRef, newImageFile);
@@ -63,6 +65,9 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
       try {
           let logoUrl = '';
           if (logoFile) {
+              if (logoFile.size > 5 * 1024 * 1024) { showNotification('Error: El logo no puede pesar más de 5MB', 'error'); return; }
+              if (!logoFile.type.startsWith('image/')) { showNotification('Error: Solo se permiten imágenes', 'error'); return; }
+
               const logoRef = ref(storage, `club-logos/${Date.now()}_${logoFile.name}`);
               await uploadBytes(logoRef, logoFile);
               logoUrl = await getDownloadURL(logoRef);
@@ -79,16 +84,17 @@ export function useAdminActions(showNotification, setConfirmation, clubs) {
       try {
           let finalClubData = { ...updatedClub };
           if (newLogoFile) {
-              // --- NUEVO: Borrar el logo antiguo de Storage si existe ---
+              // Validaciones de seguridad
+              if (newLogoFile.size > 5 * 1024 * 1024) { showNotification('Error: El logo no puede pesar más de 5MB', 'error'); return; }
+              if (!newLogoFile.type.startsWith('image/')) { showNotification('Error: Solo se permiten imágenes', 'error'); return; }
+
+              // Borrar logo antiguo si existe en Storage
               if (updatedClub.logoUrl && updatedClub.logoUrl.includes('firebasestorage.googleapis.com')) {
                   try {
                       const oldLogoRef = ref(storage, updatedClub.logoUrl);
                       await deleteObject(oldLogoRef);
-                  } catch (error) {
-                      console.warn("No se pudo borrar el logo antiguo:", error);
-                  }
+                  } catch (error) { console.warn("No se pudo borrar el logo antiguo:", error); }
               }
-              // ----------------------------------------------------------
 
               const logoRef = ref(storage, `club-logos/${Date.now()}_${newLogoFile.name}`);
               await uploadBytes(logoRef, newLogoFile);

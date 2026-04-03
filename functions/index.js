@@ -51,7 +51,7 @@ exports.autoCloseTickets = onSchedule("every 24 hours", async (event) => {
     console.log(`Cerrados ${snapshot.size} tickets automáticamente.`);
 });
 
-// 3. CRON DIARIO: Borrar datos tras 30 días (Versión V2)
+// 3. CRON DIARIO: Borrar datos tras 30 días (Versión V2 - OPTIMIZADA CON BATCH)
 exports.deleteOldIncidents = onSchedule("every 24 hours", async (event) => {
     const thirtyDaysAgo = new Date();
     thirtyDaysAgo.setDate(thirtyDaysAgo.getDate() - 30);
@@ -64,7 +64,7 @@ exports.deleteOldIncidents = onSchedule("every 24 hours", async (event) => {
     if (snapshot.empty) return;
 
     const bucket = admin.storage().bucket();
-    const batch = db.batch(); // Creamos el batch
+    const batch = db.batch(); // Iniciar lote de borrado
     
     for (const doc of snapshot.docs) {
         const data = doc.data();
@@ -75,18 +75,20 @@ exports.deleteOldIncidents = onSchedule("every 24 hours", async (event) => {
                 console.log("Error borrando archivos:", e.message);
             }
         }
-        // En lugar de doc.ref.delete(), lo añadimos al batch:
-        batch.delete(doc.ref); 
+        batch.delete(doc.ref); // Añadir al lote en lugar de borrar uno a uno
     }
     
-    // Ejecutamos todos los borrados de Firestore de golpe
-    await batch.commit(); 
-    
+    await batch.commit(); // Borrar todos de golpe
     console.log(`Eliminados ${snapshot.size} tickets antiguos.`);
 });
 
 // 4. ENVÍO DE EMAIL MASIVO (Marketing)
 exports.sendMassEmail = onCall(async (request) => {
+    // PROTECCIÓN EXTRA: Solo acepta peticiones de la web oficial
+    if (request.app === undefined) {
+        throw new HttpsError("failed-precondition", "La petición no proviene de la App Oficial.");
+    }
+
     const { emails, subject, html } = request.data;
 
     // Verificación de seguridad básica
@@ -103,11 +105,12 @@ exports.sendMassEmail = onCall(async (request) => {
     }
 
     try {
+        // CORREGIDO: En tu código original esto enviaba un email de "RGPD" a userData.email (que no existía).
         await db.collection("mail").add({
-            to: [userData.email], // <-- Se envía DIRECTAMENTE al email del formulario
+            to: emails, 
             message: {
-                subject: "Confirmación de eliminación de datos (RGPD) - FotoEsport",
-                html: `...`
+                subject: subject,
+                html: html
             }
         });
 
@@ -189,6 +192,11 @@ exports.onClubRequestCreated = onDocumentCreated("club_requests/{requestId}", as
 
 // 7. ENTREGAR ARCHIVO DIGITAL (Stickers, Redes Sociales, etc.)
 exports.sendDigitalDelivery = onCall(async (request) => {
+    // PROTECCIÓN EXTRA: Solo acepta peticiones de la web oficial
+    if (request.app === undefined) {
+        throw new HttpsError("failed-precondition", "La petición no proviene de la App Oficial.");
+    }
+
     const { orderId, customerEmail, customerName, clubName, files } = request.data;
 
     // Seguridad: Solo los admins conectados pueden enviar archivos
@@ -227,6 +235,11 @@ exports.sendDigitalDelivery = onCall(async (request) => {
 
 // 8. ENVÍO MANUAL A LA GESTORÍA
 exports.sendAgencyReportManual = onCall(async (request) => {
+    // PROTECCIÓN EXTRA: Solo acepta peticiones de la web oficial
+    if (request.app === undefined) {
+        throw new HttpsError("failed-precondition", "La petición no proviene de la App Oficial.");
+    }
+
     const { emails, csvContent, startDate, endDate, isIndefinite } = request.data;
 
     if (!request.auth) throw new HttpsError("unauthenticated", "Debes estar autenticado.");

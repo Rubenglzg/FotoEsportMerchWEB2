@@ -405,10 +405,18 @@ export const AccountingControlTab = ({
                     const commBase = commRevenue - commCost - commClub - commFees;
                     const commComm = isCommissionExempt ? 0 : (commBase * financialConfig.commercialCommissionPct);
 
-                    totalPendingCash += (!log.cashCollected ? cashRevenue : 0) + (log.cashUnder||0) - (log.cashOver||0);
-                    balanceProvider += (!log.supplierPaid ? totalCost : 0) + (log.supplierUnder||0) - (log.supplierOver||0);
-                    balanceCommercial += (!log.commercialPaid ? commComm : 0) + (log.commercialUnder||0) - (log.commercialOver||0);
-                    balanceClub += (!log.clubPaid ? commClub : 0) + (log.clubUnder||0) - (log.clubOver||0);
+                    // --- INICIO NUEVO CÓDIGO ---
+                    // Calculamos lo pendiente restando lo pagado al total actual
+                    const pendingCash = log.cashCollected ? (cashRevenue - (log.cashCollectedAmount ?? cashRevenue)) : cashRevenue;
+                    const pendingSupplier = log.supplierPaid ? (totalCost - (log.supplierPaidAmount ?? totalCost)) : totalCost;
+                    const pendingCommercial = log.commercialPaid ? (commComm - (log.commercialPaidAmount ?? commComm)) : commComm;
+                    const pendingClub = log.clubPaid ? (commClub - (log.clubPaidAmount ?? commClub)) : commClub;
+
+                    totalPendingCash += pendingCash + (log.cashUnder||0) - (log.cashOver||0);
+                    balanceProvider += pendingSupplier + (log.supplierUnder||0) - (log.supplierOver||0);
+                    balanceCommercial += pendingCommercial + (log.commercialUnder||0) - (log.commercialOver||0);
+                    balanceClub += pendingClub + (log.clubUnder||0) - (log.clubOver||0);
+                    // --- FIN NUEVO CÓDIGO ---
                 });
 
                 const renderBalance = (amount, labelPositive, labelNegative) => {
@@ -521,12 +529,35 @@ export const AccountingControlTab = ({
                                                 <td className="px-4 py-4 bg-orange-50/30">
                                                     {revenueCash > 0 ? (
                                                         <div className="flex flex-col items-center">
-                                                            <button 
-                                                                onClick={() => handlePaymentChange(club, batch.id, 'cashCollected', status.cashCollected)} 
-                                                                className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all ${status.cashCollected ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}
-                                                            >
-                                                                {status.cashCollected ? 'RECOGIDO' : 'PENDIENTE'}
-                                                            </button>
+                                                            {(() => {
+                                                                const savedCash = status.cashCollectedAmount ?? (status.cashCollected ? revenueCash : 0);
+                                                                const pendingCash = status.cashCollected ? (revenueCash - savedCash) : revenueCash;
+                                                                const isPartialCash = status.cashCollected && pendingCash > 0.01;
+
+                                                                if (isPartialCash) {
+                                                                    return (
+                                                                        <div className="flex flex-col gap-1 w-full">
+                                                                            <span className="text-[9px] font-bold text-emerald-700 bg-emerald-100 px-1 py-0.5 rounded w-full text-center">
+                                                                                YA RECOGIDO: {savedCash.toFixed(2)}€
+                                                                            </span>
+                                                                            <button 
+                                                                                onClick={() => handlePaymentChange(club, batch.id, 'cashCollected', status.cashCollected, revenueCash)} 
+                                                                                className="w-full px-1 py-1 rounded text-[9px] font-bold border shadow-sm transition-all bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                                                                            >
+                                                                                NUEVOS: {pendingCash.toFixed(2)}€
+                                                                            </button>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <button 
+                                                                        onClick={() => handlePaymentChange(club, batch.id, 'cashCollected', status.cashCollected, revenueCash)} 
+                                                                        className={`w-full px-2 py-1.5 rounded text-[10px] font-bold border shadow-sm transition-all ${status.cashCollected ? 'bg-emerald-100 text-emerald-700 border-emerald-300 hover:bg-emerald-200' : 'bg-white text-orange-600 border-orange-200 hover:border-orange-400 animate-pulse'}`}
+                                                                    >
+                                                                        {status.cashCollected ? 'RECOGIDO' : 'PENDIENTE'}
+                                                                    </button>
+                                                                );
+                                                            })()}
                                                             {status.cashCollected && status.cashCollectedDate && (
                                                                 <span className="text-[12px] text-emerald-600 mt-1 font-mono font-bold">
                                                                     {new Date(status.cashCollectedDate).toLocaleDateString()}
@@ -551,12 +582,35 @@ export const AccountingControlTab = ({
                                                     <div className="flex flex-col mb-1">
                                                         <div className="flex justify-between items-center mb-1">
                                                             <span className="text-xs text-red-500 font-bold">-{totalCost.toFixed(2)}€</span>
-                                                            <button 
-                                                                onClick={() => handlePaymentChange(club, batch.id, 'supplierPaid', status.supplierPaid)} 
-                                                                className={`text-[10px] px-2 py-0.5 rounded border ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
-                                                            >
-                                                                {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                            </button>
+                                                            {(() => {
+                                                                const savedSupplier = status.supplierPaidAmount ?? (status.supplierPaid ? totalCost : 0);
+                                                                const pendingSupplier = status.supplierPaid ? (totalCost - savedSupplier) : totalCost;
+                                                                const isPartialSupplier = status.supplierPaid && pendingSupplier > 0.01;
+
+                                                                if (isPartialSupplier) {
+                                                                    return (
+                                                                        <div className="flex flex-col items-end gap-1">
+                                                                            <span className="text-[9px] font-bold text-green-700 bg-green-100 px-1 py-0.5 rounded">
+                                                                                YA PAGADO: {savedSupplier.toFixed(2)}€
+                                                                            </span>
+                                                                            <button 
+                                                                                onClick={() => handlePaymentChange(club, batch.id, 'supplierPaid', status.supplierPaid, totalCost)} 
+                                                                                className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                                                                            >
+                                                                                PENDIENTE: {pendingSupplier.toFixed(2)}€
+                                                                            </button>
+                                                                        </div>
+                                                                    );
+                                                                }
+                                                                return (
+                                                                    <button 
+                                                                        onClick={() => handlePaymentChange(club, batch.id, 'supplierPaid', status.supplierPaid, totalCost)} 
+                                                                        className={`text-[10px] px-2 py-0.5 rounded border font-bold ${status.supplierPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                                                    >
+                                                                        {status.supplierPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                    </button>
+                                                                );
+                                                            })()}
                                                         </div>
                                                         {status.supplierPaid && status.supplierPaidDate && (
                                                             <div className="text-right text-[12px] text-green-600 font-mono font-bold -mt-1 mb-1">
@@ -576,12 +630,35 @@ export const AccountingControlTab = ({
                                                             <div className="flex flex-col mb-1">
                                                                 <div className="flex justify-between items-center mb-1">
                                                                     <span className="text-xs text-blue-500 font-bold">+{commComm.toFixed(2)}€</span>
-                                                                    <button 
-                                                                        onClick={() => handlePaymentChange(club, batch.id, 'commercialPaid', status.commercialPaid)} 
-                                                                        className={`text-[10px] px-2 py-0.5 rounded border ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
-                                                                    >
-                                                                        {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                                    </button>
+                                                                    {(() => {
+                                                                        const savedComm = status.commercialPaidAmount ?? (status.commercialPaid ? commComm : 0);
+                                                                        const pendingComm = status.commercialPaid ? (commComm - savedComm) : commComm;
+                                                                        const isPartialComm = status.commercialPaid && pendingComm > 0.01;
+
+                                                                        if (isPartialComm) {
+                                                                            return (
+                                                                                <div className="flex flex-col items-end gap-1">
+                                                                                    <span className="text-[9px] font-bold text-green-700 bg-green-100 px-1 py-0.5 rounded">
+                                                                                        YA PAGADO: {savedComm.toFixed(2)}€
+                                                                                    </span>
+                                                                                    <button 
+                                                                                        onClick={() => handlePaymentChange(club, batch.id, 'commercialPaid', status.commercialPaid, commComm)} 
+                                                                                        className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                                                                                    >
+                                                                                        PENDIENTE: {pendingComm.toFixed(2)}€
+                                                                                    </button>
+                                                                                </div>
+                                                                            );
+                                                                        }
+                                                                        return (
+                                                                            <button 
+                                                                                onClick={() => handlePaymentChange(club, batch.id, 'commercialPaid', status.commercialPaid, commComm)} 
+                                                                                className={`text-[10px] px-2 py-0.5 rounded border font-bold ${status.commercialPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                                                            >
+                                                                                {status.commercialPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                            </button>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                                 {status.commercialPaid && status.commercialPaidDate && (
                                                                     <div className="text-right text-[12px] text-green-600 font-mono font-bold -mt-1 mb-1">
@@ -603,12 +680,35 @@ export const AccountingControlTab = ({
                                                             <div className="flex flex-col mb-1">
                                                                 <div className="flex justify-between items-center mb-1">
                                                                     <span className="text-xs text-purple-500 font-bold">-{commClub.toFixed(2)}€</span>
-                                                                    <button 
-                                                                        onClick={() => handlePaymentChange(club, batch.id, 'clubPaid', status.clubPaid)} 
-                                                                        className={`text-[10px] px-2 py-0.5 rounded border ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
-                                                                    >
-                                                                        {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
-                                                                    </button>
+                                                                    {(() => {
+                                                                        const savedClub = status.clubPaidAmount ?? (status.clubPaid ? commClub : 0);
+                                                                        const pendingClub = status.clubPaid ? (commClub - savedClub) : commClub;
+                                                                        const isPartialClub = status.clubPaid && pendingClub > 0.01;
+
+                                                                        if (isPartialClub) {
+                                                                            return (
+                                                                                <div className="flex flex-col items-end gap-1">
+                                                                                    <span className="text-[9px] font-bold text-green-700 bg-green-100 px-1 py-0.5 rounded">
+                                                                                        YA PAGADO: {savedClub.toFixed(2)}€
+                                                                                    </span>
+                                                                                    <button 
+                                                                                        onClick={() => handlePaymentChange(club, batch.id, 'clubPaid', status.clubPaid, commClub)} 
+                                                                                        className="text-[9px] font-bold px-1.5 py-0.5 rounded border bg-yellow-100 text-yellow-800 border-yellow-300 hover:bg-yellow-200"
+                                                                                    >
+                                                                                        PENDIENTE: {pendingClub.toFixed(2)}€
+                                                                                    </button>
+                                                                                </div>
+                                                                            );
+                                                                        }
+                                                                        return (
+                                                                            <button 
+                                                                                onClick={() => handlePaymentChange(club, batch.id, 'clubPaid', status.clubPaid, commClub)} 
+                                                                                className={`text-[10px] px-2 py-0.5 rounded border font-bold ${status.clubPaid ? 'bg-green-100 text-green-800 border-green-200' : 'bg-gray-50 border-gray-200 hover:bg-gray-100'}`}
+                                                                            >
+                                                                                {status.clubPaid ? 'PAGADO' : 'PENDIENTE'}
+                                                                            </button>
+                                                                        );
+                                                                    })()}
                                                                 </div>
                                                                 {status.clubPaid && status.clubPaidDate && (
                                                                     <div className="text-right text-[12px] text-green-600 font-mono font-bold -mt-1 mb-1">

@@ -327,48 +327,67 @@ export function useDashboardStats({
 
                 const batchNetProfit = totalBatchRevenue - totalCost - commClub - commComm - totalFees;
 
+                // Sumas globales de tarjetas bancarias
                 stats.cardTotal += nonCashRevenue; 
                 stats.cardFees += totalFees;
                 stats.totalNetProfit += batchNetProfit;
 
+                // --- LÓGICA DE DIVISIONES (PAGADO vs PENDIENTE) ---
+
+                // 1. EFECTIVO
                 const cashVal = cashRevenue + (log.cashUnder || 0) - (log.cashOver || 0);
-                if (log.cashCollected) {
-                    stats.cash.collected += cashVal;
-                    if(cashVal > 0) stats.cash.listCollected.push({ club: club.name, batch: batch.id, amount: cashVal });
-                } else {
-                    stats.cash.pending += cashVal;
-                    if(cashVal > 0) stats.cash.listPending.push({ club: club.name, batch: batch.id, amount: cashVal });
+                const savedCash = log.cashCollectedAmount ?? (log.cashCollected ? cashVal : 0);
+                const pendingCash = log.cashCollected ? Math.max(0, cashVal - savedCash) : cashVal;
+
+                if (savedCash > 0.01) {
+                    stats.cash.collected += savedCash;
+                    stats.cash.listCollected.push({ club: club.name, batch: batch.id, amount: savedCash });
+                }
+                if (pendingCash > 0.01) {
+                    stats.cash.pending += pendingCash;
+                    stats.cash.listPending.push({ club: club.name, batch: batch.id, amount: pendingCash });
                 }
 
+                // 2. PROVEEDORES
                 const suppVal = totalCost + (log.supplierUnder || 0) - (log.supplierOver || 0);
-                if (log.supplierPaid) {
-                    stats.supplier.paid += suppVal;
-                    if(suppVal > 0) stats.supplier.listPaid.push({ club: club.name, batch: batch.id, amount: suppVal });
-                } else {
-                    stats.supplier.pending += suppVal;
-                    if(suppVal > 0) stats.supplier.listPending.push({ club: club.name, batch: batch.id, amount: suppVal });
+                const savedSupp = log.supplierPaidAmount ?? (log.supplierPaid ? suppVal : 0);
+                const pendingSupp = log.supplierPaid ? Math.max(0, suppVal - savedSupp) : suppVal;
+
+                if (savedSupp > 0.01) {
+                    stats.supplier.paid += savedSupp;
+                    stats.supplier.listPaid.push({ club: club.name, batch: batch.id, amount: savedSupp });
+                }
+                if (pendingSupp > 0.01) {
+                    stats.supplier.pending += pendingSupp;
+                    stats.supplier.listPending.push({ club: club.name, batch: batch.id, amount: pendingSupp });
                 }
 
-                if (commComm > 0) {
-                    const commVal = commComm + (log.commercialUnder || 0) - (log.commercialOver || 0);
-                    if (log.commercialPaid) {
-                        stats.commercial.paid += commVal;
-                        if(commVal > 0) stats.commercial.listPaid.push({ club: club.name, batch: batch.id, amount: commVal });
-                    } else {
-                        stats.commercial.pending += commVal;
-                        if(commVal > 0) stats.commercial.listPending.push({ club: club.name, batch: batch.id, amount: commVal });
-                    }
+                // 3. COMERCIAL
+                const commVal = commComm + (log.commercialUnder || 0) - (log.commercialOver || 0);
+                const savedComm = log.commercialPaidAmount ?? (log.commercialPaid ? commVal : 0);
+                const pendingComm = log.commercialPaid ? Math.max(0, commVal - savedComm) : commVal;
+
+                if (savedComm > 0.01) {
+                    stats.commercial.paid += savedComm;
+                    stats.commercial.listPaid.push({ club: club.name, batch: batch.id, amount: savedComm });
+                }
+                if (pendingComm > 0.01) {
+                    stats.commercial.pending += pendingComm;
+                    stats.commercial.listPending.push({ club: club.name, batch: batch.id, amount: pendingComm });
                 }
 
-                if (commClub > 0) {
-                    const clubVal = commClub + (log.clubUnder || 0) - (log.clubOver || 0);
-                    if (log.clubPaid) {
-                        stats.club.paid += clubVal;
-                        if(clubVal > 0) stats.club.listPaid.push({ club: club.name, batch: batch.id, amount: clubVal });
-                    } else {
-                        stats.club.pending += clubVal;
-                        if(clubVal > 0) stats.club.listPending.push({ club: club.name, batch: batch.id, amount: clubVal });
-                    }
+                // 4. CLUB
+                const clubVal = commClub + (log.clubUnder || 0) - (log.clubOver || 0);
+                const savedClub = log.clubPaidAmount ?? (log.clubPaid ? clubVal : 0);
+                const pendingClub = log.clubPaid ? Math.max(0, clubVal - savedClub) : clubVal;
+
+                if (savedClub > 0.01) {
+                    stats.club.paid += savedClub;
+                    stats.club.listPaid.push({ club: club.name, batch: batch.id, amount: savedClub });
+                }
+                if (pendingClub > 0.01) {
+                    stats.club.pending += pendingClub;
+                    stats.club.listPending.push({ club: club.name, batch: batch.id, amount: pendingClub });
                 }
             });
         });

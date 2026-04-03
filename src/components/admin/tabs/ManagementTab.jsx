@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye, Gift, Trash2, Copy, Tag, Mail, Download, Shield, Lock, Unlock, Info } from 'lucide-react';
+import { Award, Store, Ban, Banknote, Package, Plus, Users, Upload, EyeOff, Eye, Gift, Trash2, Copy, Tag, Mail, Download, Shield, Lock, Unlock, Info, TrendingUp, CreditCard, Wand2 } from 'lucide-react';
 
 // Firebase Firestore
 import { doc, setDoc, getDoc, getDocs, query, collection, addDoc, deleteDoc } from 'firebase/firestore';
@@ -276,54 +276,107 @@ export const ManagementTab = ({
                         <h4 className="font-bold text-gray-800 text-sm uppercase">Configuración Financiera</h4>
                     </div>
                     
-                    <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
-                        <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Comisión Global</label>
-                            <div className="relative">
-                                <input 
-                                    type="number" 
-                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 outline-none"
-                                    value={(financialConfig.commercialCommissionPct * 100).toFixed(0)}
-                                    onChange={(e) => setFinancialConfig(prev => ({...prev, commercialCommissionPct: parseFloat(e.target.value)/100}))}
-                                    onBlur={() => updateFinancialConfig(financialConfig)}
-                                />
-                                <span className="absolute right-2 top-2 text-gray-400 font-bold text-sm">%</span>
+                    {/* PANEL DE CONFIGURACIÓN FINANCIERA (CORREGIDO: SIN CORTES DE TEXTO) */}
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 items-stretch">
+                        
+                        {/* TARJETA 1: COMERCIAL */}
+                        <div className="bg-white border border-orange-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                            <div className="bg-orange-50 px-4 py-3 border-b border-orange-100 flex items-center gap-3">
+                                <div className="bg-orange-100 p-2 rounded-lg text-orange-600 shrink-0">
+                                    <TrendingUp className="w-5 h-5"/>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <h4 className="font-bold text-gray-800 text-sm">Comercial</h4>
+                                    <p className="text-[10px] text-orange-600 font-bold uppercase tracking-tight">Tramos Dinámicos</p>
+                                </div>
+                            </div>
+                            <div className="p-4 flex-1 flex flex-col justify-center gap-2">
+                                <div className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                    <span className="text-[11px] font-medium text-gray-500">Hasta 5.000€</span>
+                                    <span className="text-xs font-black text-orange-600">20%</span>
+                                </div>
+                                <div className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                    <span className="text-[11px] font-medium text-gray-500">5k a 10.000€</span>
+                                    <span className="text-xs font-black text-orange-600">30%</span>
+                                </div>
+                                <div className="flex justify-between items-center bg-gray-50 px-3 py-2 rounded-lg border border-gray-100">
+                                    <span className="text-[11px] font-medium text-gray-500">Más de 10.000€</span>
+                                    <span className="text-xs font-black text-orange-600">40%</span>
+                                </div>
                             </div>
                         </div>
 
-                        <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Extra Personalización</label>
-                            <div className="relative">
-                                <input 
-                                    type="number" step="0.10"
-                                    className="w-full border border-gray-300 rounded-lg p-2 text-right pr-6 font-bold text-gray-800 outline-none"
-                                    value={financialConfig.modificationFee}
-                                    onChange={(e) => setFinancialConfig(prev => ({...prev, modificationFee: parseFloat(e.target.value)}))}
-                                    onBlur={() => updateFinancialConfig(financialConfig)}
-                                />
-                                <span className="absolute right-2 top-2 text-gray-400 font-bold text-sm">€</span>
+                        {/* TARJETA 2: EXTRA PERSONALIZACIÓN */}
+                        <div className="bg-white border border-emerald-200 rounded-2xl shadow-sm overflow-hidden flex flex-col">
+                            <div className="bg-emerald-50 px-4 py-3 border-b border-emerald-100 flex items-center gap-3">
+                                <div className="bg-emerald-100 p-2 rounded-lg text-emerald-600 shrink-0">
+                                    <Wand2 className="w-5 h-5"/>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <h4 className="font-bold text-gray-800 text-sm">Personalización</h4>
+                                    <p className="text-[10px] text-emerald-600 font-bold uppercase tracking-tight">Ajustes manuales</p>
+                                </div>
+                            </div>
+                            <div className="p-4 flex-1 flex flex-col justify-center gap-2">
+                                <label className="text-[10px] font-bold text-gray-400 uppercase block text-center">
+                                    Coste por Alteración
+                                </label>
+                                <div className="relative mx-auto w-full max-w-[140px]">
+                                    <input 
+                                        type="number" step="0.10"
+                                        className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full bg-gray-50 border-2 border-emerald-100 rounded-xl py-2 px-8 text-center font-black text-emerald-700 text-xl outline-none focus:border-emerald-400 transition-colors"
+                                        value={financialConfig.modificationFee}
+                                        onChange={(e) => setFinancialConfig(prev => ({...prev, modificationFee: parseFloat(e.target.value)}))}
+                                        onBlur={() => updateFinancialConfig(financialConfig)}
+                                    />
+                                    <span className="absolute right-3 top-1/2 -translate-y-1/2 text-emerald-400 font-black text-lg pointer-events-none">€</span>
+                                </div>
                             </div>
                         </div>
 
-                        <div>
-                            <label className="text-[10px] font-bold text-gray-500 uppercase block mb-1">Pasarela (Var/Fijo)</label>
-                            <div className="flex gap-2">
-                                <input 
-                                    type="number" step="0.1"
-                                    className="w-full border border-gray-300 rounded-lg p-2 text-right font-bold text-gray-800 text-xs"
-                                    value={(financialConfig.gatewayPercentFee * 100).toFixed(1)}
-                                    onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayPercentFee: parseFloat(e.target.value)/100}))}
-                                    onBlur={() => updateFinancialConfig(financialConfig)}
-                                />
-                                <input 
-                                    type="number" step="0.01"
-                                    className="w-full border border-gray-300 rounded-lg p-2 text-right font-bold text-gray-800 text-xs"
-                                    value={financialConfig.gatewayFixedFee}
-                                    onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayFixedFee: parseFloat(e.target.value)}))}
-                                    onBlur={() => updateFinancialConfig(financialConfig)}
-                                />
+                        {/* TARJETA 3: PASARELA DE PAGO */}
+                        <div className="bg-white border border-blue-200 rounded-2xl shadow-sm overflow-hidden flex flex-col md:col-span-2 lg:col-span-1">
+                            <div className="bg-blue-50 px-4 py-3 border-b border-blue-100 flex items-center gap-3">
+                                <div className="bg-blue-100 p-2 rounded-lg text-blue-600 shrink-0">
+                                    <CreditCard className="w-5 h-5"/>
+                                </div>
+                                <div className="min-w-0 flex-1">
+                                    <h4 className="font-bold text-gray-800 text-sm">Pasarela Stripe</h4>
+                                    <p className="text-[10px] text-blue-600 font-bold uppercase tracking-tight">Comisiones TPV</p>
+                                </div>
+                            </div>
+                            <div className="p-4 flex-1 flex flex-col justify-center gap-3">
+                                <div className="flex items-center gap-2">
+                                    <div className="flex-1">
+                                        <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Variable (%)</label>
+                                        <div className="relative">
+                                            <input 
+                                                type="number" step="0.1"
+                                                className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full bg-gray-50 border border-blue-100 rounded-lg py-1.5 pl-2 pr-6 text-sm font-bold text-blue-800 outline-none focus:border-blue-400"
+                                                value={(financialConfig.gatewayPercentFee * 100).toFixed(1)}
+                                                onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayPercentFee: parseFloat(e.target.value)/100}))}
+                                                onBlur={() => updateFinancialConfig(financialConfig)}
+                                            />
+                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-300 font-bold text-xs pointer-events-none">%</span>
+                                        </div>
+                                    </div>
+                                    <div className="flex-1">
+                                        <label className="text-[9px] font-bold text-gray-400 uppercase block mb-1">Fijo (€)</label>
+                                        <div className="relative">
+                                            <input 
+                                                type="number" step="0.01"
+                                                className="[appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none w-full bg-gray-50 border border-blue-100 rounded-lg py-1.5 pl-2 pr-6 text-sm font-bold text-blue-800 outline-none focus:border-blue-400"
+                                                value={financialConfig.gatewayFixedFee}
+                                                onChange={(e) => setFinancialConfig(prev => ({...prev, gatewayFixedFee: parseFloat(e.target.value)}))}
+                                                onBlur={() => updateFinancialConfig(financialConfig)}
+                                            />
+                                            <span className="absolute right-2 top-1/2 -translate-y-1/2 text-blue-300 font-bold text-xs pointer-events-none">€</span>
+                                        </div>
+                                    </div>
+                                </div>
                             </div>
                         </div>
+
                     </div>
                 </div>
             </div>

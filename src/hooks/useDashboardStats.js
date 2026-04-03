@@ -34,7 +34,6 @@ export function useDashboardStats({
         });
     }, [orders, financeSeasonId, seasons]);
 
-    // --- LISTA COMPLETA PARA GESTIÓN (INCLUYE ERRORES Y MANUALES) ---
     const visibleOrders = useMemo(() => {
         let list = orders;
         if (financeSeasonId !== 'all') {
@@ -53,6 +52,46 @@ export function useDashboardStats({
         }
         return list;
     }, [orders, financeSeasonId, seasons]);
+
+    // --- NUEVO: CÁLCULO DE COMISIÓN COMERCIAL POR TRAMOS ---
+    const commercialMetrics = useMemo(() => {
+        let globalBase = 0;
+        
+        // 1. Calculamos la Base Neta Global (Facturación - Coste Prov - Coste Pasarela - Comision Club)
+        financialOrders.forEach(o => {
+            const isIncident = o.type === 'replacement' || o.paymentMethod === 'incident' || String(o.globalBatch).startsWith('ERR') || o.paymentMethod === 'gift';
+            if (!isIncident) {
+                const cost = o.items ? o.items.reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0) : (o.cost || 0);
+                const gateway = (o.paymentMethod === 'card') ? (o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee : 0;
+                const clubObj = clubs.find(c => c.id === o.clubId);
+                const clubCommPct = clubObj?.commission !== undefined ? clubObj.commission : 0.12;
+                const commClub = o.total * clubCommPct;
+                
+                const base = o.total - cost - gateway - commClub;
+                if (base > 0) globalBase += base;
+            }
+        });
+
+        // 2. Aplicamos la lógica de Tramos (Modelo Escalado)
+        let commercialComm = 0;
+        let tier = 1;
+        
+        if (globalBase <= 5000) {
+            commercialComm = globalBase * 0.20;
+            tier = 1;
+        } else if (globalBase <= 10000) {
+            commercialComm = (5000 * 0.20) + ((globalBase - 5000) * 0.30);
+            tier = 2;
+        } else {
+            commercialComm = (5000 * 0.20) + (5000 * 0.30) + ((globalBase - 10000) * 0.40);
+            tier = 3;
+        }
+
+        // 3. Obtenemos el Porcentaje Medio (Blended Rate) para repartirlo por lotes exactos
+        const effectiveRate = globalBase > 0 ? (commercialComm / globalBase) : 0.20;
+
+        return { globalBase, commercialComm, tier, effectiveRate };
+    }, [financialOrders, clubs, financialConfig]);
 
     // --- ESTADÍSTICAS GLOBALES ---
     const statsData = useMemo(() => {
@@ -148,7 +187,9 @@ export function useDashboardStats({
             const currentClubCommission = clubObj && clubObj.commission !== undefined ? clubObj.commission : 0.12;
             const commClub = grossSales * currentClubCommission;
             const commercialBase = grossSales - supplierCost - commClub - gatewayCost;
-            const commCommercial = commercialBase > 0 ? (commercialBase * financialConfig.commercialCommissionPct) : 0;
+            
+            // APLICAMOS EL % EFECTIVO EN LUGAR DEL FIJO
+            const commCommercial = commercialBase > 0 ? (commercialBase * commercialMetrics.effectiveRate) : 0;
             const netIncome = grossSales - supplierCost - commClub - commCommercial - gatewayCost;
             
             return { id: rowId, name: rowName, ordersCount: validOrders.length, grossSales, supplierCost, commClub, commCommercial, gatewayCost, netIncome };
@@ -177,7 +218,7 @@ export function useDashboardStats({
         }
 
         return { sortedCategories, sortedProducts, sortedPaymentMethods, sortedMonths, financialReport: reportRows, allProductsStats };
-    }, [financialOrders, statsClubFilter, clubs, financialConfig, seasons, financeSeasonId]);
+    }, [financialOrders, statsClubFilter, clubs, financialConfig, seasons, financeSeasonId, commercialMetrics]);
 
     // --- ESTADÍSTICAS DE ERRORES ---
     const errorStats = useMemo(() => {
@@ -323,76 +364,59 @@ export function useDashboardStats({
                 const clubCommissionRate = isCommissionExempt ? 0 : (club.commission !== undefined ? club.commission : 0.12);
                 const commClub = commRevenue * clubCommissionRate;
                 const commercialBase = commRevenue - commFees - commCost - commClub;
-                const commComm = isCommissionExempt ? 0 : (commercialBase * financialConfig.commercialCommissionPct);
+                
+                // APLICAMOS EL % EFECTIVO
+                const commComm = isCommissionExempt ? 0 : (commercialBase * commercialMetrics.effectiveRate);
 
                 const batchNetProfit = totalBatchRevenue - totalCost - commClub - commComm - totalFees;
 
-                // Sumas globales de tarjetas bancarias
                 stats.cardTotal += nonCashRevenue; 
                 stats.cardFees += totalFees;
                 stats.totalNetProfit += batchNetProfit;
 
-                // --- LÓGICA DE DIVISIONES (PAGADO vs PENDIENTE) ---
-
-                // 1. EFECTIVO
                 const cashVal = cashRevenue + (log.cashUnder || 0) - (log.cashOver || 0);
-                const savedCash = log.cashCollectedAmount ?? (log.cashCollected ? cashVal : 0);
-                const pendingCash = log.cashCollected ? Math.max(0, cashVal - savedCash) : cashVal;
-
-                if (savedCash > 0.01) {
-                    stats.cash.collected += savedCash;
-                    stats.cash.listCollected.push({ club: club.name, batch: batch.id, amount: savedCash });
-                }
-                if (pendingCash > 0.01) {
-                    stats.cash.pending += pendingCash;
-                    stats.cash.listPending.push({ club: club.name, batch: batch.id, amount: pendingCash });
+                if (log.cashCollected) {
+                    stats.cash.collected += cashVal;
+                    if(cashVal > 0) stats.cash.listCollected.push({ club: club.name, batch: batch.id, amount: cashVal });
+                } else {
+                    stats.cash.pending += cashVal;
+                    if(cashVal > 0) stats.cash.listPending.push({ club: club.name, batch: batch.id, amount: cashVal });
                 }
 
-                // 2. PROVEEDORES
                 const suppVal = totalCost + (log.supplierUnder || 0) - (log.supplierOver || 0);
-                const savedSupp = log.supplierPaidAmount ?? (log.supplierPaid ? suppVal : 0);
-                const pendingSupp = log.supplierPaid ? Math.max(0, suppVal - savedSupp) : suppVal;
-
-                if (savedSupp > 0.01) {
-                    stats.supplier.paid += savedSupp;
-                    stats.supplier.listPaid.push({ club: club.name, batch: batch.id, amount: savedSupp });
-                }
-                if (pendingSupp > 0.01) {
-                    stats.supplier.pending += pendingSupp;
-                    stats.supplier.listPending.push({ club: club.name, batch: batch.id, amount: pendingSupp });
+                if (log.supplierPaid) {
+                    stats.supplier.paid += suppVal;
+                    if(suppVal > 0) stats.supplier.listPaid.push({ club: club.name, batch: batch.id, amount: suppVal });
+                } else {
+                    stats.supplier.pending += suppVal;
+                    if(suppVal > 0) stats.supplier.listPending.push({ club: club.name, batch: batch.id, amount: suppVal });
                 }
 
-                // 3. COMERCIAL
-                const commVal = commComm + (log.commercialUnder || 0) - (log.commercialOver || 0);
-                const savedComm = log.commercialPaidAmount ?? (log.commercialPaid ? commVal : 0);
-                const pendingComm = log.commercialPaid ? Math.max(0, commVal - savedComm) : commVal;
-
-                if (savedComm > 0.01) {
-                    stats.commercial.paid += savedComm;
-                    stats.commercial.listPaid.push({ club: club.name, batch: batch.id, amount: savedComm });
-                }
-                if (pendingComm > 0.01) {
-                    stats.commercial.pending += pendingComm;
-                    stats.commercial.listPending.push({ club: club.name, batch: batch.id, amount: pendingComm });
+                if (commComm > 0) {
+                    const commVal = commComm + (log.commercialUnder || 0) - (log.commercialOver || 0);
+                    if (log.commercialPaid) {
+                        stats.commercial.paid += commVal;
+                        if(commVal > 0) stats.commercial.listPaid.push({ club: club.name, batch: batch.id, amount: commVal });
+                    } else {
+                        stats.commercial.pending += commVal;
+                        if(commVal > 0) stats.commercial.listPending.push({ club: club.name, batch: batch.id, amount: commVal });
+                    }
                 }
 
-                // 4. CLUB
-                const clubVal = commClub + (log.clubUnder || 0) - (log.clubOver || 0);
-                const savedClub = log.clubPaidAmount ?? (log.clubPaid ? clubVal : 0);
-                const pendingClub = log.clubPaid ? Math.max(0, clubVal - savedClub) : clubVal;
-
-                if (savedClub > 0.01) {
-                    stats.club.paid += savedClub;
-                    stats.club.listPaid.push({ club: club.name, batch: batch.id, amount: savedClub });
-                }
-                if (pendingClub > 0.01) {
-                    stats.club.pending += pendingClub;
-                    stats.club.listPending.push({ club: club.name, batch: batch.id, amount: pendingClub });
+                if (commClub > 0) {
+                    const clubVal = commClub + (log.clubUnder || 0) - (log.clubOver || 0);
+                    if (log.clubPaid) {
+                        stats.club.paid += clubVal;
+                        if(clubVal > 0) stats.club.listPaid.push({ club: club.name, batch: batch.id, amount: clubVal });
+                    } else {
+                        stats.club.pending += clubVal;
+                        if(clubVal > 0) stats.club.listPending.push({ club: club.name, batch: batch.id, amount: clubVal });
+                    }
                 }
             });
         });
         return stats;
-    }, [accountingData, financialConfig]);
+    }, [accountingData, financialConfig, commercialMetrics]);
 
     // --- TOTALES RÁPIDOS ---
     const totalRevenue = financialOrders.reduce((sum, o) => sum + o.total, 0);
@@ -404,10 +428,14 @@ export function useDashboardStats({
         const clubCommPct = club && club.commission !== undefined ? club.commission : 0.12;
         const cost = o.items ? o.items.reduce((s, i) => s + ((i.cost || 0) * (i.quantity || 1)), 0) : (o.cost || 0);
         const incidentCost = o.incidents?.reduce((iSum, inc) => iSum + (inc.cost || 0), 0) || 0;
+        const gatewayCost = (o.paymentMethod === 'card') ? (o.total * financialConfig.gatewayPercentFee) + financialConfig.gatewayFixedFee : 0;
         const commClub = o.total * clubCommPct;
-        const commComm = o.total * financialConfig.commercialCommissionPct;
         
-        return total + (o.total - cost - incidentCost - commClub - commComm);
+        // CORRECCIÓN: El cálculo exacto usando el margen real y el % mixto
+        const base = o.total - cost - incidentCost - gatewayCost - commClub;
+        const commComm = base > 0 ? (base * commercialMetrics.effectiveRate) : 0;
+        
+        return total + (o.total - cost - incidentCost - commClub - commComm - gatewayCost);
     }, 0);
 
     return {
@@ -417,6 +445,7 @@ export function useDashboardStats({
         errorStats,
         accountingData,
         globalAccountingStats,
+        commercialMetrics, // EXPORTAMOS LA DATA COMERCIAL
         totalRevenue,
         totalIncidentCosts,
         netProfit,

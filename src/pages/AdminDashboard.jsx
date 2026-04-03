@@ -161,7 +161,8 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
   const {
     financialOrders, statsData, errorStats,
     accountingData, globalAccountingStats, totalRevenue,
-    netProfit, averageTicket
+    netProfit, averageTicket, 
+    commercialMetrics
   } = useDashboardStats({
     orders, seasons, clubs, financialConfig,
     financeSeasonId, statsClubFilter, filterClubId
@@ -393,9 +394,9 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         financialConfig={financialConfig}
         handlePaymentChange={handlePaymentChange}
         updateBatchValue={updateBatchValue}
-        // 👇 AÑADE ESTAS DOS LÍNEAS 👇
         orders={orders}
         showNotification={showNotification}
+        commercialMetrics={commercialMetrics}
     />
 )}
 
@@ -458,6 +459,7 @@ export function AdminDashboard({ products, orders, clubs, updateOrderStatus, fin
         statsData={statsData}
         errorStats={errorStats}
         products={products}
+        commercialMetrics={commercialMetrics}
     />
 )}
 

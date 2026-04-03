@@ -10,7 +10,7 @@ import { generateAgencyExcelData, downloadAgencyExcel } from '../../../utils/exc
 
 export const AccountingControlTab = ({
     clubs, seasons, filterClubId, setFilterClubId, financeSeasonId, setFinanceSeasonId,
-    globalAccountingStats, accountingData, financialConfig,
+    globalAccountingStats, accountingData, financialConfig, commercialMetrics,
     handlePaymentChange, updateBatchValue,
     orders, showNotification
 }) => {
@@ -345,7 +345,8 @@ export const AccountingControlTab = ({
                 </div>
 
                 <div className="md:col-span-1 bg-white p-4 rounded-xl border border-gray-200 shadow-sm flex flex-col justify-between">
-                    <p className="text-xs font-bold text-gray-400 uppercase">Com. Comercial</p>
+                    {/* AÑADIDO: Muestra el % dinámico medio */}
+                    <p className="text-xs font-bold text-gray-400 uppercase">Com. Comercial ({(commercialMetrics?.effectiveRate * 100).toFixed(1)}%)</p>
                     <div className="mt-2 space-y-1">
                         <div className="flex justify-between items-center text-xs cursor-pointer hover:bg-gray-50 p-1 rounded"
                              onClick={() => setAccDetailsModal({ active: true, title: 'Comercial PAGADO', items: globalAccountingStats.commercial.listPaid, type: 'success' })}>
@@ -403,7 +404,7 @@ export const AccountingControlTab = ({
                     const clubRate = isCommissionExempt ? 0 : (club.commission || 0.12);
                     const commClub = commRevenue * clubRate;
                     const commBase = commRevenue - commCost - commClub - commFees;
-                    const commComm = isCommissionExempt ? 0 : (commBase * financialConfig.commercialCommissionPct);
+                    const commComm = isCommissionExempt ? 0 : (commBase * commercialMetrics.effectiveRate);
 
                     // --- INICIO NUEVO CÓDIGO ---
                     // Calculamos lo pendiente restando lo pagado al total actual
@@ -467,7 +468,7 @@ export const AccountingControlTab = ({
                                         <th className="px-4 py-3 text-right bg-orange-50/30">Efectivo</th>
                                         <th className="px-4 py-3 text-center bg-orange-50/30 min-w-[160px]">Control Caja</th>
                                         <th className="px-4 py-3 min-w-[160px]">Pago Proveedor</th>
-                                        <th className="px-4 py-3 min-w-[160px]">Pago Comercial</th>
+                                        <th className="px-4 py-3 min-w-[160px]">Pago Comercial ({(commercialMetrics?.effectiveRate * 100).toFixed(1)}%)</th>
                                         <th className="px-4 py-3 min-w-[160px]">Pago Club</th>
                                         <th className="px-4 py-3 min-w-[120px] text-right bg-emerald-50 text-emerald-800">Beneficio Neto</th>
                                     </tr>
@@ -501,7 +502,7 @@ export const AccountingControlTab = ({
                                         const clubRate = isCommissionExempt ? 0 : (club.commission || 0.12);
                                         const commClub = commRevenue * clubRate;
                                         const commBase = commRevenue - commCost - commClub - commFees;
-                                        const commComm = isCommissionExempt ? 0 : (commBase * financialConfig.commercialCommissionPct);
+                                        const commComm = isCommissionExempt ? 0 : (commBase * commercialMetrics.effectiveRate);
 
                                         const netProfit = totalBatchRevenue - totalCost - commClub - commComm - totalFees;
                                         const status = club.accountingLog?.[batch.id] || {};

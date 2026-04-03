@@ -1,22 +1,22 @@
 import React from 'react';
-import { Calendar, Store, BarChart3, Users, Package, AlertTriangle, Table, CreditCard, Banknote, Landmark, Tag } from 'lucide-react';
-import { StatCard } from '../ui/StatCard'; // Reutilizamos el componente del Paso 1
+import { Calendar, Store, BarChart3, Users, Package, AlertTriangle, Table, CreditCard, Banknote, Landmark, Tag, TrendingUp } from 'lucide-react';
+import { StatCard } from '../ui/StatCard'; 
 
 export const FinancesTab = ({
     financeSeasonId, setFinanceSeasonId,
     statsClubFilter, setStatsClubFilter,
     seasons, clubs,
     totalRevenue, netProfit, financialOrdersCount, averageTicket,
-    statsData, errorStats, products
+    statsData, errorStats, products, commercialMetrics // NUEVA PROP: commercialMetrics
 }) => {
     
-    // Función auxiliar para calcular porcentajes de ancho en gráficas (Movida aquí)
     const getWidth = (val, max) => max > 0 ? `${(val / max) * 100}%` : '0%';
 
     return (
         <div className="space-y-8 animate-fade-in-up pb-10">
             {/* CABECERA Y FILTROS */}
             <div className="flex flex-col md:flex-row justify-between items-center bg-white p-6 rounded-xl shadow-sm border border-gray-100 gap-4">
+                {/* ... (el código de la cabecera sigue igual) ... */}
                 <div>
                     <h2 className="text-2xl font-bold flex items-center gap-2 text-gray-800">
                         <BarChart3 className="w-8 h-8 text-emerald-600"/> 
@@ -42,12 +42,67 @@ export const FinancesTab = ({
                 </div>
             </div>
 
-            {/* KPIS */}
+            {/* KPIS GLOBALES */}
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard title="Ventas Totales" value={`${totalRevenue.toFixed(2)}€`} color="#3b82f6" />
-                <StatCard title="Beneficio Neto" value={`${netProfit.toFixed(2)}€`} color="#10b981" highlight />
+                <StatCard title="Beneficio Empresa (Neto)" value={`${netProfit.toFixed(2)}€`} color="#10b981" highlight />
                 <StatCard title="Pedidos Totales" value={financialOrdersCount} color="#f59e0b" />
                 <StatCard title="Ticket Medio" value={`${averageTicket.toFixed(2)}€`} color="#6b7280" />
+            </div>
+
+            {/* 🟢 NUEVO PANEL DE COMISIÓN POR TRAMOS 🟢 */}
+            <div className="bg-white p-6 rounded-xl shadow-sm border border-orange-200 relative overflow-hidden">
+                <div className="absolute top-0 right-0 p-4 opacity-5 pointer-events-none"><TrendingUp className="w-40 h-40 text-orange-900"/></div>
+                <h3 className="font-bold text-gray-800 mb-6 flex items-center gap-2 relative z-10">
+                    <TrendingUp className="w-5 h-5 text-orange-600"/> 
+                    Modelo de Comisiones Comercial (Por Tramos)
+                </h3>
+                
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 relative z-10">
+                    <div className="bg-gray-50 p-4 rounded-lg border border-gray-200">
+                        <p className="text-[10px] text-gray-500 font-bold uppercase tracking-wide">Base Neta Global</p>
+                        <p className="text-3xl font-black text-gray-800">{commercialMetrics?.globalBase.toFixed(2)}€</p>
+                        <p className="text-xs text-gray-400 mt-1">Acumulado en temporada</p>
+                    </div>
+                    <div className="bg-orange-50 p-4 rounded-lg border border-orange-200">
+                        <p className="text-[10px] text-orange-700 font-bold uppercase tracking-wide">Comisión Generada</p>
+                        <p className="text-3xl font-black text-orange-600">{commercialMetrics?.commercialComm.toFixed(2)}€</p>
+                        <p className="text-xs text-orange-500 mt-1">Beneficio de Rubén</p>
+                    </div>
+                    <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+                        <p className="text-[10px] text-blue-700 font-bold uppercase tracking-wide">Tramo Actual</p>
+                        <p className="text-3xl font-black text-blue-600">Nivel {commercialMetrics?.tier}</p>
+                        <p className="text-xs text-blue-500 mt-1 font-medium">
+                            {commercialMetrics?.tier === 1 ? '20% (Hasta 5.000€)' : 
+                             commercialMetrics?.tier === 2 ? '30% (Hasta 10.000€)' : 
+                             '40% (Más de 10.000€)'}
+                        </p>
+                    </div>
+                    <div className="bg-purple-50 p-4 rounded-lg border border-purple-200">
+                        <p className="text-[10px] text-purple-700 font-bold uppercase tracking-wide">% Efectivo Aplicado</p>
+                        <p className="text-3xl font-black text-purple-600">{(commercialMetrics?.effectiveRate * 100).toFixed(2)}%</p>
+                        <p className="text-xs text-purple-500 mt-1">Tasa promediada retroactiva</p>
+                    </div>
+                </div>
+
+                <div className="relative pt-6 px-1 z-10">
+                    <div className="flex justify-between text-xs text-gray-400 font-bold mb-2">
+                        <span>0€</span>
+                        <span className="absolute left-[50%] -translate-x-1/2">5.000€ <span className="text-[9px] font-normal">(Tramo 30%)</span></span>
+                        <span>10.000€+ <span className="text-[9px] font-normal">(Tramo 40%)</span></span>
+                    </div>
+                    <div className="h-4 bg-gray-100 rounded-full flex overflow-hidden shadow-inner">
+                        {/* Segmento 20% */}
+                        <div className="h-full bg-orange-300" style={{ width: `${Math.min(50, (commercialMetrics?.globalBase / 10000) * 100)}%` }}></div>
+                        {/* Segmento 30% */}
+                        <div className="h-full bg-orange-400" style={{ width: `${Math.max(0, Math.min(50, ((commercialMetrics?.globalBase - 5000) / 10000) * 100))}%` }}></div>
+                        {/* Segmento 40% */}
+                        <div className="h-full bg-orange-500 relative" style={{ width: `${Math.max(0, Math.min(100, ((commercialMetrics?.globalBase - 10000) / 5000) * 100))}%` }}>
+                            <div className="absolute inset-0 bg-white/20 animate-pulse"></div>
+                        </div>
+                    </div>
+                    <div className="absolute top-10 left-[50%] w-px h-6 bg-gray-300"></div>
+                </div>
             </div>
 
             {/* FILA 1: EVOLUCIÓN Y MÉTODOS DE PAGO */}
